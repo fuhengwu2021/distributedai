@@ -11,29 +11,34 @@
 **Approximate Length:** 28 pages
 
 **Chapter Overview:**
-This chapter establishes why distributed AI has become essential for training and serving modern LLMs and foundation models. Readers explore how compute, memory, and networking bottlenecks emerge as models scale, understand the fundamental differences between training, inference, and serving workloads, and learn how distributed systems address these challenges. The chapter provides practical profiling exercises and guides readers through their first multi-GPU distributed experiment to reveal real-world performance characteristics and bottlenecks.
+This chapter establishes why distributed AI has become essential for training and serving modern LLMs and foundation models. Readers learn resource estimation techniques to calculate memory and compute requirements for models, explore decision frameworks for choosing between distributed training, fine-tuning, or inference, and understand the fundamental differences between these workload types. The chapter covers PyTorch distributed fundamentals including process groups, DDP, and DistributedSampler, and provides practical profiling exercises and quick-start examples to guide readers through their first multi-GPU distributed experiments.
 
 **Learning Goals:**
 By the end of this chapter, readers will be able to:
-- Identify compute and memory bottlenecks in LLM workloads
+- Estimate memory and compute requirements for training and inference workloads
+- Make informed decisions about when distributed systems are necessary
 - Distinguish training, inference, and serving system requirements
-- Analyze GPU topology and performance constraints
-- Profile PyTorch models for memory and speed characteristics
+- Understand PyTorch distributed fundamentals (process groups, DDP, DistributedSampler)
 - Launch and validate distributed training runs
+- Profile PyTorch models for memory and speed characteristics
 
 **Key Topics:**
 - The scale challenge: why modern AI requires distribution
+- Resource estimation: calculating memory and compute needs
+- Decision frameworks: when to use distributed training, fine-tuning, or inference
 - Understanding the differences between training, inference, and serving
-- GPU memory, compute, and networking bottlenecks
+- PyTorch distributed fundamentals: process groups, ranks, and initialization
+- DistributedDataParallel (DDP) basics and DistributedSampler
 - Profiling methodologies and baseline measurements
-- First steps with multi-GPU distributed execution
+- Quick-start examples for distributed execution
 
 **Practical Value:**
+- Resource estimation formulas and decision trees
 - Single-GPU training baseline establishment
 - Memory and latency profiling techniques
+- PyTorch distributed setup and process group initialization
 - Multi-GPU distributed run setup and validation
-- Best practices for identifying true bottlenecks
-- GPU-friendly model configuration strategies
+- Best practices for identifying true bottlenecks and making informed decisions
 
 ---
 
