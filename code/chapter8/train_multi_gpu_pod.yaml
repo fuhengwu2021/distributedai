@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: train-multi-gpu
+spec:
+  containers:
+  - name: trainer
+    image: my-registry/my-train:latest
+    resources:
+      limits:
+        nvidia.com/gpu: 4
+    command: ["/bin/bash", "-c", "torchrun --nproc_per_node=4 train.py"]
+  restartPolicy: Never

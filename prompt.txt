@@ -1,0 +1,65 @@
+Title: Modern Distributed AI Systems
+Subtitle: Training, Inference, Serving, and Benchmarking Large-Scale LLMs in Practice
+
+ABOUT THE AUTHOR 
+Henry (Fuheng) Wu is a Principal Machine Learning Tech Lead at Oracle’s Generative AI organization, specializing in distributed training, large-scale inference, and GPU systems. He has delivered core components of Oracle’s Vision and Document Understanding AI services, and co-authored a Microsoft + Oracle blog on high-performance deep learning with ONNX Runtime. Henry has contributed to open-source projects including SGLang, genai-bench, pyLLaMA, chatLLaMA, and Oracle’s HiQ observability system. With hands-on experience across PyTorch Distributed, DeepSpeed, Kubernetes GPU clusters, and production LLM serving, he focuses on building practical, scalable AI systems used in real-world enterprise workloads.
+ 
+ 
+The Book’s Goal
+A good tech book needs to be more than an arbitrary list of topics. Our most successful books are all written with a specific audience in mind: it’s more than just people who want to learn the tech, it’s people who want to solve a problem. Before you start planning out the structure of your book, let’s think about the challenges facing your readers and how this title will help them overcome them. Here are a few questions to help us understand the book’s ideal market - for each one replace the example with your own answers:
+
+What kind of individual would be interested in this book?	If you are a software engineer or ML practitioner who needs to train or serve large AI and LLM models in real-world environments, this book is for you. It is particularly valuable for ML engineers expanding into distributed systems, backend engineers integrating high-performance LLM inference, and researchers who need practical, reproducible cluster-scale workflows. Professionals involved in building AI platforms, optimizing GPU utilization, or deploying models in production will also benefit.
+ 
+
+What knowledge do they need before they start reading?	If you are a developer or ML engineer with basic familiarity in Python, PyTorch, and Linux environments, this book will meet you where you are and take you deeper into large-scale AI systems. A working understanding of containers or Docker will help, but no prior experience with distributed training, Kubernetes, or LLM inference engines is required. These concepts will be introduced from first principles and reinforced through practical, hands-on examples that you can run yourself.
+Why should they buy this book? 	Readers who already understand the basics of machine learning will gain practical, end-to-end experience building real distributed AI systems. This book teaches how to train large models using DDP, FSDP, and DeepSpeed; how to serve LLMs efficiently with vLLM and SGLang; and how to deploy these systems on Kubernetes GPU clusters. In addition, the book provides fully runnable workflows and validated code paths drawn directly from real industry environments, enabling readers to apply these techniques confidently in production settings.
+
+
+What is the product approach and USP of the book?	A fully hands-on, systems-oriented guide covering training, inference, scheduling, autoscaling, and benchmarking. Readers will build real multi-GPU/multi-node workflows using tools actually used in modern AI companies. Every chapter includes real scripts, configs, and debugging techniques that cannot be found in existing books or online tutorials.
+Product Breakdown: In 2 sentences, describe the “journey” the book takes the reader on. Look at your section headings for help 	Readers start with the fundamentals of distributed hardware and parallelism, then progressively build real multi-GPU training pipelines, distributed inference clusters, and Kubernetes-based serving stacks. By the end, readers can design, optimize, deploy, and benchmark complete large-scale AI systems in production.
+
+By the end of this book you will... 	By the end of this book, readers will be able to build scalable distributed training pipelines, deploy high-performance inference systems with vLLM and SGLang, run GPU workloads on Kubernetes, benchmark and optimize multi-node performance, and design reliable, cost-efficient production LLM platforms.
+
+COMPETITIVE BOOK TITLES 
+
+
+1 	Designing Machine Learning Systems (Chip Huyen, July 2025)
+2 	Distributed Machine Learning Patterns (Yuan Tang, January 2024)
+3 	Distributed Machine Learning with Python(Guanhua Wang, April 2022)
+ 
+Compared to these titles, this book focuses specifically on modern LLM-era distributed systems, covering vLLM, SGLang, FSDP, DeepSpeed, and Kubernetes GPU scheduling—topics not covered in any existing book.
+
+The Book Structure 
+To help you understand the ideal structure and pacing of a good book, we’ve created a short course to help you when plotting out your book. You can find it on our community site, here: Outline Course. Your contact at Packt will be able to help you get set up on our community site. The course itself is short and will aid you significantly when planning your outline.
+Parts and Chapters 
+Packt books are normally divided into 3 or 4 parts, each consisting of 3-5 chapters. These “parts” are a group of chapters that work toward the same goal. The learning outcomes you listed previously will help to inform these. For example: A book on using IoT with AWS might be split into 3 parts: Part 1: Choose, connect, and control the right IoT device; Part 2: Route, persist, and analyze IoT data; Part 3: Commission, provision, and effectively manage IoT device fleets. Each one of these parts covers a number of chapters, as you’ll see in the next section. 
+Chapter Outline
+Each chapter should have a clear focus. Each chapter title should clearly state what aspect of the overall topic the chapter deals with. Continuing the example above your section on choosing the right IoT device might be broken down into 4 chapters as follows: “Connecting and Controlling Devices for the First Time”, “How to choose the right IoT device and device software”; “Building constrained IoT devices with FreeRTOS”; “Building progressive applications with AWS IoT Greengrass”.
+
+Have a go at listing your chapters in the tables below, divided into different parts. The first table has been filled out using the example above; replace these examples with your chapters. PLEASE NOTE: Chapter titles appear on Amazon.
+
+Part 1: Distributed AI Foundations and Distributed Training
+1.	Introduction to Modern Distributed AI
+2.	GPU Hardware, Networking, and Parallelism Strategies
+3.	Distributed Training with PyTorch DDP
+4.	Scaling with Fully Sharded Data Parallel (FSDP)
+5.	DeepSpeed and ZeRO Optimization
+
+
+Part 2: Distributed Inference and Production Deployment
+6.	Distributed Inference Fundamentals and vLLM
+7.	SGLang and Advanced Inference Architectures
+8.	Kubernetes for AI Workloads
+9.	Production LLM Serving Stack
+
+
+Part 3: Benchmarking and Specialized Paradigms
+10.	Distributed Benchmarking and Performance Optimization
+11.	Federated Learning and Edge Distributed Systems
+
+
+The above is the book i want to write.
+
+行文风格类似 /home/wukong/git.repo/mocksphere.com-ai-20250929/agent_output/oreilly/distributed-machine-learning-with-python
+
+不要让人一看就是GPT AI生成的.
