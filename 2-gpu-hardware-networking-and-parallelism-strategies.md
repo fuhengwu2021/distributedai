@@ -132,9 +132,16 @@ In contrast, a standard server configuration would show:
 
 Interconnects matter for multi-GPU scaling:
 
-- PCIe: ubiquitous, lower bandwidth and higher latency than NVLink.
-- NVLink: GPU-to-GPU high-bandwidth links (peer-to-peer) within a server.
-- NVSwitch: provides non-blocking all-to-all across many GPUs in DGX-style systems.
+- **PCIe**: ubiquitous, lower bandwidth and higher latency than NVLink. Standard connection between CPU and GPU, also used for GPU-to-GPU communication when NVLink is not available.
+- **NVLink**: GPU-to-GPU high-bandwidth links (peer-to-peer) within a server. Direct connections between GPUs, typically 300-900 GB/s depending on generation.
+- **NVSwitch**: provides non-blocking all-to-all connectivity across many GPUs. Enables every GPU to communicate with every other GPU at full NVLink bandwidth simultaneously.
+
+**DGX vs HGX Systems:**
+
+- **DGX (Data Center GPU)**: Pre-integrated systems from NVIDIA with GPUs, CPUs, networking, storage, and optimized software stack. Examples: DGX H100, DGX A100. Typically feature NVSwitch for all-to-all GPU connectivity.
+- **HGX (Hyperscale GPU eXpansion)**: Modular platform providing GPU baseboards and interconnects for OEMs/system integrators to build custom servers. More flexible but requires integration work. Can also include NVSwitch depending on configuration.
+
+Both DGX and HGX systems often include NVSwitch for optimal multi-GPU communication, which is why the topology example above shows all-to-all NVLink connectivity.
 
 Bandwidth test example (quick): use NVIDIA NCCL tests or `nccl-tests`/`all_reduce_perf`. Simple Python-based bandwidth probe (uses `torch`):
 
