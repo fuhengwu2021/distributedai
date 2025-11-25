@@ -4,7 +4,7 @@ title: "GPU Hardware, Networking, and Parallelism Strategies"
 
 # Chapter 2 — GPU Hardware, Networking, and Parallelism Strategies
 
-This chapter covers GPU architecture and memory hierarchy, interconnect technologies (PCIe, NVLink, NVSwitch), distributed communication patterns, and major parallelism strategies (Data Parallelism, Tensor Parallelism, Pipeline Parallelism, Sharded Parallelism, FSDP, ZeRO). It includes hands-on examples, microbenchmarks, and decision guides.
+This chapter covers GPU architecture and memory hierarchy, interconnect technologies (PCIe, NVLink, NVSwitch), distributed communication patterns, and major parallelism strategies (Data Parallelism, Tensor Parallelism, Pipeline Parallelism, Sharded Parallelism, FSDP, ZeRO, EP). It includes illustrative code snippets, basic microbenchmark examples, and high-level decision guidance for selecting parallelism strategies.
 
 ## 1. Understanding GPU Memory and Compute Architecture
 
@@ -16,8 +16,11 @@ GPUs are designed for throughput: many ALUs, vectorized FP units, and high-bandw
 
 Practical tip: use `nvidia-smi --query-gpu=name,memory.total,pcie.link.gen.max,pcie.link.width.max --format=csv` to inspect GPU model and PCIe capabilities.
 
+**PCIe Information:**
+
+NVIDIA H200:
 ```
- 👉 $nvidia-smi --query-gpu=name,memory.total,pcie.link.gen.max,pcie.link.width.max --format=csv
+$ nvidia-smi --query-gpu=name,memory.total,pcie.link.gen.max,pcie.link.width.max --format=csv
 name, memory.total [MiB], pcie.link.gen.max, pcie.link.width.max
 NVIDIA H200, 143771 MiB, 5, 16
 NVIDIA H200, 143771 MiB, 5, 16
@@ -28,6 +31,44 @@ NVIDIA H200, 143771 MiB, 5, 16
 NVIDIA H200, 143771 MiB, 5, 16
 NVIDIA H200, 143771 MiB, 5, 16
 ```
+*Interpretation: H200 supports PCIe Gen 5 with 16 lanes (up to ~64 GB/s per direction).*
+
+RTX 4090:
+```
+$ nvidia-smi --query-gpu=name,memory.total,pcie.link.gen.max,pcie.link.width.max --format=csv
+name, memory.total [MiB], pcie.link.gen.max, pcie.link.width.max
+NVIDIA GeForce RTX 4090, 24564 MiB, 4, 16
+```
+*Interpretation: RTX 4090 supports PCIe Gen 4 with 16 lanes (up to ~32 GB/s per direction).*
+
+**NVLink Information:**
+
+To check NVLink connectivity (GPU-to-GPU direct links), use:
+```bash
+$ nvidia-smi topo -m
+```
+
+Example output for a system with NVLink:
+```
+        GPU0    GPU1    GPU2    GPU3    GPU4    GPU5    GPU6    GPU7    CPU Affinity
+GPU0     X      NV12    NV12    NV12    NV12    NV12    NV12    NV12    0-63
+GPU1    NV12     X      NV12    NV12    NV12    NV12    NV12    NV12    0-63
+...
+```
+
+*Legend:*
+- `NV12` = NVLink 1.2 (or NVLink 2/3/4 depending on GPU generation)
+- `PIX` = PCIe connection (through CPU/PCIe switch)
+- `NODE` = Different NUMA node
+- `SYS` = System memory connection
+
+**Understanding Your Interconnect:**
+
+- **PCIe only**: If `nvidia-smi topo -m` shows `PIX` between GPUs, they communicate via PCIe through the CPU/PCIe switch (higher latency, lower bandwidth).
+- **NVLink present**: If you see `NV12`, `NV2`, `NV3`, or `NV4`, GPUs have direct high-bandwidth links (lower latency, much higher bandwidth, typically 300-900 GB/s depending on NVLink generation).
+- **Mixed**: Some systems have NVLink between some GPU pairs and PCIe for others (common in multi-socket servers).
+
+For H200 (datacenter GPU), check if it's in a DGX/HGX system with NVSwitch (all-to-all NVLink) or a standard server (may only have PCIe).
 
 ## 2. High-Speed Interconnects: PCIe, NVLink, NVSwitch
 
