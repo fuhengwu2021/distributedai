@@ -1,5 +1,11 @@
 """
 First multi-GPU distributed training using PyTorch DDP.
+
+Usage:
+    OMP_NUM_THREADS=4 torchrun --nproc_per_node=2 code/chapter1/ch01_multi_gpu_ddp.py
+
+Or use the launch script:
+    bash distributedai/code/chapter1/ch01_launch_torchrun.sh
 """
 import torch
 import torch.distributed as dist
@@ -9,30 +15,32 @@ from torch.utils.data import DataLoader, DistributedSampler
 from torch.utils.data import TensorDataset
 import os
 
-def setup(rank, world_size):
-    """Initialize the process group"""
-    os.environ['MASTER_ADDR'] = 'localhost'
-    os.environ['MASTER_PORT'] = '12355'
-    dist.init_process_group("nccl", rank=rank, world_size=world_size)
-    torch.cuda.set_device(rank)
+def setup():
+    """Initialize the process group using torchrun environment variables"""
+    # torchrun sets these environment variables automatically
+    dist.init_process_group("nccl")
+    rank = dist.get_rank()
+    local_rank = int(os.environ.get('LOCAL_RANK', 0))
+    torch.cuda.set_device(local_rank)
+    return rank, dist.get_world_size(), local_rank
 
 def cleanup():
     """Clean up the process group"""
     dist.destroy_process_group()
 
-def train_ddp(rank, world_size):
-    """Training function for DDP"""
-    setup(rank, world_size)
+def train_ddp():
+    """Run distributed training using PyTorch DDP"""
+    rank, world_size, local_rank = setup()
     
     # Create model
     model = nn.Sequential(
         nn.Linear(1000, 512),
         nn.ReLU(),
         nn.Linear(512, 10)
-    ).cuda(rank)
+    ).cuda()
     
     # Wrap with DDP
-    model = DDP(model, device_ids=[rank])
+    model = DDP(model, device_ids=[local_rank])
     
     # Create dataset with distributed sampler
     dataset = TensorDataset(
@@ -52,7 +60,7 @@ def train_ddp(rank, world_size):
         epoch_loss = 0.0
         
         for batch_idx, (data, target) in enumerate(dataloader):
-            data, target = data.cuda(rank), target.cuda(rank)
+            data, target = data.cuda(), target.cuda()
             
             optimizer.zero_grad()
             output = model(data)
@@ -63,20 +71,9 @@ def train_ddp(rank, world_size):
             epoch_loss += loss.item()
         
         if rank == 0:
-            print(f"Epoch {epoch+1}/10, Loss: {epoch_loss/len(dataloader):.4f}")
+            print(f"Epoch {epoch+1}/10, Loss: {epoch_loss/len(dataloader):.4f}", flush=True)
     
     cleanup()
 
 if __name__ == "__main__":
-    world_size = torch.cuda.device_count()
-    if world_size < 2:
-        print("Warning: This script requires at least 2 GPUs")
-        print("Running on single GPU for demonstration...")
-        world_size = 1
-    
-    torch.multiprocessing.spawn(
-        train_ddp,
-        args=(world_size,),
-        nprocs=world_size,
-        join=True
-    )
+    train_ddp()

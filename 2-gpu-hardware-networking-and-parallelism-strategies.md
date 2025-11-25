@@ -14,7 +14,20 @@ GPUs are designed for throughput: many ALUs, vectorized FP units, and high-bandw
 - Memory bandwidth vs compute throughput: how to spot memory-bound kernels.
 - Streaming multiprocessors (SMs), CUDA cores, tensor cores.
 
-Practical tip: use `nvidia-smi --query-gpu=name,memory.total,pcie.link.max.link.gen,pcie.link.width --format=csv` to inspect GPU model and PCIe capabilities.
+Practical tip: use `nvidia-smi --query-gpu=name,memory.total,pcie.link.gen.max,pcie.link.width.max --format=csv` to inspect GPU model and PCIe capabilities.
+
+```
+ 👉 $nvidia-smi --query-gpu=name,memory.total,pcie.link.gen.max,pcie.link.width.max --format=csv
+name, memory.total [MiB], pcie.link.gen.max, pcie.link.width.max
+NVIDIA H200, 143771 MiB, 5, 16
+NVIDIA H200, 143771 MiB, 5, 16
+NVIDIA H200, 143771 MiB, 5, 16
+NVIDIA H200, 143771 MiB, 5, 16
+NVIDIA H200, 143771 MiB, 5, 16
+NVIDIA H200, 143771 MiB, 5, 16
+NVIDIA H200, 143771 MiB, 5, 16
+NVIDIA H200, 143771 MiB, 5, 16
+```
 
 ## 2. High-Speed Interconnects: PCIe, NVLink, NVSwitch
 
@@ -71,7 +84,7 @@ def allreduce_microbench(tensor_size=1024*1024, iters=100):
 # Requires initialized process group (NCCL backend)
 ```
 
-## 4. Parallelism Strategies (DP, TP, PP, SP, FSDP, ZeRO)
+## 4. Parallelism Strategies (DP, TP, PP, SP, FSDP, ZeRO, EP)
 
 High-level summary and when to pick each:
 
@@ -80,6 +93,7 @@ High-level summary and when to pick each:
 - Pipeline Parallelism (PP): split model layers into stages, pipeline microbatches. Useful for very deep models. Watch out for bubble/latency and pipeline scheduling.
 - Sharded Parallelism (SP) / FSDP: shard optimizer and parameter states across ranks to reduce memory footprint.
 - ZeRO (DeepSpeed): staged sharding for optimizer states, gradients, and parameters — scales to very large models with lower memory overhead.
+- Expert Parallelism (EP): distribute different experts in Mixture-of-Experts (MoE) models across devices. Each device holds a subset of experts, and tokens are routed to the appropriate expert. Used for very large MoE models (e.g., models with 64+ experts). Requires efficient routing and load balancing across experts.
 
 Decision guide:
 
@@ -87,6 +101,7 @@ Decision guide:
 - If a single layer is too big to fit: TP + (possibly) ZeRO/FSDP.
 - If model depth is huge and pipeline parallelism can help: PP with microbatches.
 - For minimal memory footprint and largest possible model: ZeRO Stage 3 or FSDP full-shard.
+- For MoE models with many experts: EP combined with DP (data parallelism across expert groups) or EP + PP for very large MoE models.
 
 ### Small example: manual DP vs TP sketch
 

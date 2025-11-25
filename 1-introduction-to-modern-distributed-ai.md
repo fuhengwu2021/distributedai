@@ -315,6 +315,8 @@ Third, call `sampler.set_epoch(epoch)` in your training loop. This ensures data 
 
 Now that you understand the basics, let's run some actual distributed training code. All examples in this section correspond to files in `code/chapter1/`.
 
+**Note:** All commands in this section should be run from the book root directory (where the `code/` folder is located).
+
 ### Prerequisites Check
 
 First, verify your environment using `code/chapter1/ch01_check_cuda.py`:
@@ -372,6 +374,7 @@ Compare the training time with your single-GPU baseline. You should see a speedu
 When you need to understand where time and memory are spent, use profiling. The `ch01_profiling.py` script demonstrates how to use PyTorch's profiler to measure CUDA operations and memory usage. Run it to see detailed timing and memory breakdowns:
 
 ```bash
+# Run from the book root directory
 python code/chapter1/ch01_profiling.py
 ```
 
