@@ -4,255 +4,157 @@ title: "GPU Hardware, Networking, and Parallelism Strategies"
 
 # Chapter 2 — GPU Hardware, Networking, and Parallelism Strategies
 
-This chapter covers GPU architecture and memory hierarchy, interconnect technologies (PCIe, NVLink, NVSwitch), distributed communication patterns, and major parallelism strategies (Data Parallelism, Tensor Parallelism, Pipeline Parallelism, Sharded Parallelism, FSDP, ZeRO, EP). It includes illustrative code snippets, basic microbenchmark examples, and high-level decision guidance for selecting parallelism strategies.
+Before you can effectively distribute training or inference across multiple GPUs, you need to understand what you're working with. The hardware topology of your system—how GPUs connect to each other and to the CPU—directly impacts which parallelism strategies will work best and what performance you can expect.
 
-## 1. Understanding GPU Memory and Compute Architecture
+This chapter walks through GPU architecture basics, interconnect technologies, and the major parallelism strategies you'll encounter. We'll also cover how to inspect your system and make informed decisions about which approach fits your workload.
 
-GPUs are designed for throughput: many ALUs, vectorized FP units, and high-bandwidth on-package memory. Key concepts:
+## Understanding GPU Memory and Compute Architecture
 
-- Memory hierarchy: registers, shared memory / L1, L2, device/global DRAM.
-- Memory bandwidth vs compute throughput: how to spot memory-bound kernels.
-- Streaming multiprocessors (SMs), CUDA cores, tensor cores.
+GPUs are built for throughput, not latency. Unlike CPUs that optimize for fast single-threaded execution, GPUs pack thousands of simple cores and prioritize high-bandwidth memory access. When you're training large models, this design pays off—but it also means you need to think differently about memory and compute.
 
-Practical tip: use `nvidia-smi --query-gpu=name,memory.total,pcie.link.gen.max,pcie.link.width.max --format=csv` to inspect GPU model and PCIe capabilities.
+The memory hierarchy matters. Registers are fastest but tiny. Shared memory (L1 cache) is fast but limited. L2 cache sits between shared memory and device DRAM, which is your main GPU memory. When you see "out of memory" errors, it's usually the device DRAM that's full, not the caches.
 
-**PCIe Information:**
+One thing that trips people up: memory bandwidth often becomes the bottleneck before compute does. If your kernels are memory-bound, adding more compute won't help. You can spot this by profiling—if your GPU utilization is low but memory bandwidth is maxed out, you're memory-bound.
 
-NVIDIA H200:
+To see what you're working with, check your GPU specs:
+
+```bash
+nvidia-smi --query-gpu=name,memory.total,pcie.link.gen.max,pcie.link.width.max --format=csv
+```
+
+Here's what you might see on different systems. An H200 system with 8 GPUs:
+
 ```
 $ nvidia-smi --query-gpu=name,memory.total,pcie.link.gen.max,pcie.link.width.max --format=csv
 name, memory.total [MiB], pcie.link.gen.max, pcie.link.width.max
 NVIDIA H200, 143771 MiB, 5, 16
 NVIDIA H200, 143771 MiB, 5, 16
-NVIDIA H200, 143771 MiB, 5, 16
-NVIDIA H200, 143771 MiB, 5, 16
-NVIDIA H200, 143771 MiB, 5, 16
-NVIDIA H200, 143771 MiB, 5, 16
-NVIDIA H200, 143771 MiB, 5, 16
-NVIDIA H200, 143771 MiB, 5, 16
+...
 ```
-*Interpretation: H200 supports PCIe Gen 5 with 16 lanes (up to ~64 GB/s per direction).*
 
-RTX 4090:
+That's PCIe Gen 5 with 16 lanes—roughly 64 GB/s per direction. Compare that to a consumer RTX 4090:
+
 ```
-$ nvidia-smi --query-gpu=name,memory.total,pcie.link.gen.max,pcie.link.width.max --format=csv
-name, memory.total [MiB], pcie.link.gen.max, pcie.link.width.max
 NVIDIA GeForce RTX 4090, 24564 MiB, 4, 16
 ```
-*Interpretation: RTX 4090 supports PCIe Gen 4 with 16 lanes (up to ~32 GB/s per direction).*
 
-**NVLink Information:**
+PCIe Gen 4, same 16 lanes, but only about 32 GB/s. The PCIe connection is what your GPU uses to talk to the CPU, but for multi-GPU communication, you want something faster.
 
-To check NVLink connectivity (GPU-to-GPU direct links), use:
+But PCIe is just one part of the story. For multi-GPU communication, you want NVLink—direct GPU-to-GPU links that bypass the CPU entirely. To see what your system actually has, run:
+
 ```bash
-$ nvidia-smi topo -m
+nvidia-smi topo -m
 ```
 
-Example output for a system with NVLink (visual representation shown below):
+This shows the topology matrix. The output can be dense, but here's what to look for:
 
-![NVLink Topology Matrix](code/chapter2/nvidia-smi-topo-example.png)
+If you see `NV18`, `NV12`, or `NV4` between GPUs, you have NVLink. That's good—those links give you 300-900 GB/s depending on the generation, way faster than PCIe. In a well-configured system like a DGX or HGX box, you'll see all GPUs connected via NVLink through an NVSwitch, meaning every GPU can talk to every other GPU at full speed.
 
-Text output:
+If you see `PIX` or `PXB` between GPUs, they're only connected via PCIe. That works, but you'll hit bandwidth limits faster. You might also see `NODE` or `SYS`, which means the connection crosses NUMA boundaries—another thing that can slow things down.
+
+Here's a real example from an H200 system with NVSwitch. All 8 GPUs show `NV18` connections to each other:
+
 ```
- 🎉 $nvidia-smi topo -m
-	GPU0	GPU1	GPU2	GPU3	GPU4	GPU5	GPU6	GPU7	NIC0	NIC1	NIC2	NIC3	NIC4	NIC5	NIC6	NIC7	NIC8	NIC9	NIC10	NIC11	CPU Affinity	NUMA Affinity	GPU NUMA ID
-GPU0	 X 	NV18	NV18	NV18	NV18	NV18	NV18	NV18	PXB	NODE	NODE	NODE	NODE	NODE	SYS	SYS	SYS	SYS	SYS	SYS	0-55,112-167	0		N/A
-GPU1	NV18	 X 	NV18	NV18	NV18	NV18	NV18	NV18	NODE	NODE	NODE	PXB	NODE	NODE	SYS	SYS	SYS	SYS	SYS	SYS	0-55,112-167	0		N/A
-GPU2	NV18	NV18	 X 	NV18	NV18	NV18	NV18	NV18	NODE	NODE	NODE	NODE	PXB	NODE	SYS	SYS	SYS	SYS	SYS	SYS	0-55,112-167	0		N/A
-GPU3	NV18	NV18	NV18	 X 	NV18	NV18	NV18	NV18	NODE	NODE	NODE	NODE	NODE	PXB	SYS	SYS	SYS	SYS	SYS	SYS	0-55,112-167	0		N/A
-GPU4	NV18	NV18	NV18	NV18	 X 	NV18	NV18	NV18	SYS	SYS	SYS	SYS	SYS	SYS	PXB	NODE	NODE	NODE	NODE	NODE	56-111,168-223	1		N/A
-GPU5	NV18	NV18	NV18	NV18	NV18	 X 	NV18	NV18	SYS	SYS	SYS	SYS	SYS	SYS	NODE	NODE	NODE	PXB	NODE	NODE	56-111,168-223	1		N/A
-GPU6	NV18	NV18	NV18	NV18	NV18	NV18	 X 	NV18	SYS	SYS	SYS	SYS	SYS	SYS	NODE	NODE	NODE	NODE	PXB	NODE	56-111,168-223	1		N/A
-GPU7	NV18	NV18	NV18	NV18	NV18	NV18	NV18	 X 	SYS	SYS	SYS	SYS	SYS	SYS	NODE	NODE	NODE	NODE	NODE	PXB	56-111,168-223	1		N/A
-NIC0	PXB	NODE	NODE	NODE	SYS	SYS	SYS	SYS	 X 	NODE	NODE	NODE	NODE	NODE	SYS	SYS	SYS	SYS	SYS	SYS
-NIC1	NODE	NODE	NODE	NODE	SYS	SYS	SYS	SYS	NODE	 X 	PIX	NODE	NODE	NODE	SYS	SYS	SYS	SYS	SYS	SYS
-NIC2	NODE	NODE	NODE	NODE	SYS	SYS	SYS	SYS	NODE	PIX	 X 	NODE	NODE	NODE	SYS	SYS	SYS	SYS	SYS	SYS
-NIC3	NODE	PXB	NODE	NODE	SYS	SYS	SYS	SYS	NODE	NODE	NODE	 X 	NODE	NODE	SYS	SYS	SYS	SYS	SYS	SYS
-NIC4	NODE	NODE	PXB	NODE	SYS	SYS	SYS	SYS	NODE	NODE	NODE	NODE	 X 	NODE	SYS	SYS	SYS	SYS	SYS	SYS
-NIC5	NODE	NODE	NODE	PXB	SYS	SYS	SYS	SYS	NODE	NODE	NODE	NODE	NODE	 X 	SYS	SYS	SYS	SYS	SYS	SYS
-NIC6	SYS	SYS	SYS	SYS	PXB	NODE	NODE	NODE	SYS	SYS	SYS	SYS	SYS	SYS	 X 	NODE	NODE	NODE	NODE	NODE
-NIC7	SYS	SYS	SYS	SYS	NODE	NODE	NODE	NODE	SYS	SYS	SYS	SYS	SYS	SYS	NODE	 X 	PIX	NODE	NODE	NODE
-NIC8	SYS	SYS	SYS	SYS	NODE	NODE	NODE	NODE	SYS	SYS	SYS	SYS	SYS	SYS	NODE	PIX	 X 	NODE	NODE	NODE
-NIC9	SYS	SYS	SYS	SYS	NODE	PXB	NODE	NODE	SYS	SYS	SYS	SYS	SYS	SYS	NODE	NODE	NODE	 X 	NODE	NODE
-NIC10	SYS	SYS	SYS	SYS	NODE	NODE	PXB	NODE	SYS	SYS	SYS	SYS	SYS	SYS	NODE	NODE	NODE	NODE	 X 	NODE
-NIC11	SYS	SYS	SYS	SYS	NODE	NODE	NODE	PXB	SYS	SYS	SYS	SYS	SYS	SYS	NODE	NODE	NODE	NODE	NODE	 X
-
-Legend:
-
-  X    = Self
-  SYS  = Connection traversing PCIe as well as the SMP interconnect between NUMA nodes (e.g., QPI/UPI)
-  NODE = Connection traversing PCIe as well as the interconnect between PCIe Host Bridges within a NUMA node
-  PHB  = Connection traversing PCIe as well as a PCIe Host Bridge (typically the CPU)
-  PXB  = Connection traversing multiple PCIe bridges (without traversing the PCIe Host Bridge)
-  PIX  = Connection traversing at most a single PCIe bridge
-  NV#  = Connection traversing a bonded set of # NVLinks
-
-NIC Legend:
-
-  NIC0: mlx5_0
-  NIC1: mlx5_1
-  NIC2: mlx5_2
-  NIC3: mlx5_3
-  NIC4: mlx5_4
-  NIC5: mlx5_5
-  NIC6: mlx5_6
-  NIC7: mlx5_7
-  NIC8: mlx5_8
-  NIC9: mlx5_9
-  NIC10: mlx5_10
-  NIC11: mlx5_11
+GPU0    GPU1    GPU2    GPU3    GPU4    GPU5    GPU6    GPU7
+GPU0     X      NV18    NV18    NV18    NV18    NV18    NV18    NV18
+GPU1    NV18     X      NV18    NV18    NV18    NV18    NV18    NV18
+...
 ```
 
-*Legend (from nvidia-smi output):*
-- `NV#` = NVLink connection (e.g., `NV18` = NVLink 1.8, `NV12` = NVLink 1.2). The number indicates the NVLink generation/bonding.
-- `PIX` = Connection traversing at most a single PCIe bridge
-- `PXB` = Connection traversing multiple PCIe bridges
-- `NODE` = Connection traversing PCIe and interconnect between PCIe Host Bridges within a NUMA node
-- `SYS` = Connection traversing PCIe and SMP interconnect between NUMA nodes
-- `X` = Self (same device)
+That's the ideal setup. Every GPU can communicate with every other GPU at NVLink speeds. In a standard server, you might see some GPUs only connected via `PIX` or `PXB`, which means they're going through PCIe. That still works, but you'll want to be more careful about which GPUs you pair together for communication-heavy operations.
 
-**Understanding Your Interconnect:**
+One more thing: notice the CPU affinity column. GPUs 0-3 might be on NUMA node 0, while GPUs 4-7 are on NUMA node 1. If you're doing multi-node training, try to keep processes on the same NUMA node when possible—cross-NUMA communication adds latency.
 
-- **PCIe only**: If `nvidia-smi topo -m` shows `PIX` or `PXB` between GPUs, they communicate via PCIe through the CPU/PCIe switch (higher latency, lower bandwidth, typically 16-64 GB/s depending on PCIe generation).
-- **NVLink present**: If you see `NV#` (e.g., `NV18` = NVLink 1.8, `NV12` = NVLink 1.2, `NV4` = NVLink 4.0), GPUs have direct high-bandwidth links (lower latency, much higher bandwidth, typically 300-900 GB/s depending on NVLink generation and bonding). In the example above, all 8 GPUs are connected via `NV18`, indicating NVLink 1.8 with full all-to-all connectivity.
-- **Mixed topology**: Some systems have NVLink between some GPU pairs and PCIe for others (common in multi-socket servers). You may also see `NODE` or `SYS` connections indicating cross-NUMA-node communication.
-- **NUMA awareness**: Notice in the example that GPUs 0-3 are on NUMA node 0 (CPU affinity 0-55,112-167) while GPUs 4-7 are on NUMA node 1 (CPU affinity 56-111,168-223). This affects performance—prefer keeping communication within the same NUMA node when possible.
+## High-Speed Interconnects: PCIe, NVLink, NVSwitch, InfiniBand, and Ethernet
 
-**Interpreting the example output above:**
+There are several ways GPUs connect, and which one matters depends on whether you're talking about communication within a single server or across multiple servers.
 
-The example shows an H200 system in a DGX/HGX configuration with NVSwitch:
-- All 8 GPUs (GPU0-GPU7) have `NV18` connections to all other GPUs, indicating full all-to-all NVLink connectivity via NVSwitch.
-- This is optimal for distributed training as all GPU pairs can communicate at high bandwidth (NVLink 1.8 speeds).
+**Within a single server:**
 
-In contrast, a standard server configuration would show:
-- `PIX`, `PXB`, `NODE`, or `SYS` connections between some GPU pairs, indicating PCIe-only or partial NVLink connectivity.
-- Some GPUs may only connect via PCIe, creating communication bottlenecks.
+**PCIe** is what you get by default. Every GPU connects to the CPU via PCIe, and if there's no NVLink, GPUs talk to each other through the CPU too. It works, but it's the slowest option—typically 16-64 GB/s depending on PCIe generation. The latency is also higher since everything goes through the CPU.
 
-## 2. High-Speed Interconnects: PCIe, NVLink, NVSwitch
+**NVLink** is NVIDIA's direct GPU-to-GPU interconnect. When two GPUs have NVLink between them, they can talk directly without involving the CPU. Bandwidth is much higher—300-900 GB/s depending on the generation. The catch is that not all systems have it, and even when they do, not all GPU pairs might be connected.
 
-Interconnects matter for multi-GPU scaling:
+**NVSwitch** is what you see in high-end systems like DGX or HGX boxes. It's essentially a switch that connects all GPUs via NVLink, giving you all-to-all connectivity. Every GPU can talk to every other GPU at full NVLink speed simultaneously. This is what you want for large-scale distributed training within a single node.
 
-- **PCIe**: ubiquitous, lower bandwidth and higher latency than NVLink. Standard connection between CPU and GPU, also used for GPU-to-GPU communication when NVLink is not available.
-- **NVLink**: GPU-to-GPU high-bandwidth links (peer-to-peer) within a server. Direct connections between GPUs, typically 300-900 GB/s depending on generation.
-- **NVSwitch**: provides non-blocking all-to-all connectivity across many GPUs. Enables every GPU to communicate with every other GPU at full NVLink bandwidth simultaneously.
+**Across multiple servers:**
 
-**DGX vs HGX Systems:**
+**InfiniBand** is the standard for multi-node GPU clusters. When you're running distributed training across multiple servers, GPUs on different nodes need to communicate, and that's where InfiniBand comes in. It provides high-bandwidth, low-latency networking—typically 200-400 Gb/s (25-50 GB/s) per port, with sub-microsecond latency. Modern systems use InfiniBand HDR (200 Gb/s) or NDR (400 Gb/s).
 
-- **DGX (Data Center GPU)**: Pre-integrated systems from NVIDIA with GPUs, CPUs, networking, storage, and optimized software stack. Examples: DGX H100, DGX A100. Typically feature NVSwitch for all-to-all GPU connectivity.
-- **HGX (Hyperscale GPU eXpansion)**: Modular platform providing GPU baseboards and interconnects for OEMs/system integrators to build custom servers. More flexible but requires integration work. Can also include NVSwitch depending on configuration.
+The key feature that makes InfiniBand fast is **RDMA (Remote Direct Memory Access)**. RDMA allows network adapters to read and write memory directly without involving the CPU or kernel. InfiniBand was designed from the ground up to support RDMA natively—it's built into the protocol. When you use InfiniBand, you get RDMA by default.
 
-Both DGX and HGX systems often include NVSwitch for optimal multi-GPU communication, which is why the topology example above shows all-to-all NVLink connectivity.
+You'll see InfiniBand NICs in the `nvidia-smi topo -m` output—those are the network interface cards that connect your server to the cluster network. When NCCL does multi-node communication, it uses **GPUDirect RDMA**, which is NVIDIA's implementation that extends RDMA to GPU memory. This allows data to transfer directly from GPU memory on one node to GPU memory on another node, completely bypassing the CPU and system RAM. That's why it's so fast.
 
-Bandwidth test example (quick): use NVIDIA NCCL tests or `nccl-tests`/`all_reduce_perf`. Simple Python-based bandwidth probe (uses `torch`):
+**Ethernet** is the other option for multi-node networking. There are two flavors:
 
-```python
-import torch
-import time
+Standard Ethernet (TCP/IP) works, but it's slower. You're looking at 10-100 Gb/s per port, and latency is higher because everything goes through the kernel network stack. For small clusters or when cost is a concern, it can work, but you'll see performance degradation as you scale up.
 
-def bandwidth_test(size_mb=64, iterations=100):
-    nbytes = size_mb * 1024 * 1024
-    a = torch.randn(nbytes // 4, device='cuda')
-    b = torch.empty_like(a)
-    torch.cuda.synchronize()
-    t0 = time.time()
-    for _ in range(iterations):
-        b.copy_(a)
-    torch.cuda.synchronize()
-    t1 = time.time()
-    gb_transferred = (nbytes * iterations) / (1024**3)
-    print(f"Bandwidth: {gb_transferred / (t1 - t0):.2f} GB/s")
+**RoCE (RDMA over Converged Ethernet)** is the interesting one. As the name suggests, it's RDMA over Ethernet instead of InfiniBand. So RDMA isn't exclusive to InfiniBand—it's a capability that can be implemented over different network technologies. RoCE v2 gives you the same RDMA benefits (GPU-to-GPU direct memory access, bypassing the CPU) but over standard Ethernet infrastructure. Bandwidth is comparable—100-400 Gb/s depending on the NIC—but latency is typically higher than InfiniBand, and you need proper switch configuration (DCB/PFC) to avoid packet loss under load.
 
-if __name__ == '__main__':
-    bandwidth_test(64, 200)
-```
+The practical difference: InfiniBand is purpose-built for HPC workloads and tends to be more reliable at scale. RoCE works well in cloud environments where you're already using Ethernet infrastructure, but you need to tune it carefully. Many cloud providers offer both options—AWS has EFA (Elastic Fabric Adapter) which supports both InfiniBand and RoCE, and Google Cloud has similar offerings.
 
-This test measures device-to-device memcpy bandwidth on a single GPU. For multi-GPU interconnects, run NCCL tests (see `nccl-tests` repo) or `torch.distributed` collective bandwidth microbenchmarks.
+For most on-premise clusters, InfiniBand is still the default choice. But if you're in a cloud environment or have existing Ethernet infrastructure, RoCE is a viable alternative. The bandwidth and latency characteristics matter a lot when you're synchronizing gradients across hundreds of GPUs, so test both if you have the option.
 
-## 3. Distributed Communication Patterns (AllReduce, Broadcast)
+If you're buying hardware, DGX systems are pre-integrated—NVIDIA ships you a complete system with GPUs, CPUs, networking (including InfiniBand), and software stack. HGX is more modular—it's a baseboard design that OEMs use to build custom servers. Both can include NVSwitch for intra-node communication and InfiniBand for inter-node.
 
-- Broadcast: send parameters from rank 0 to all workers (model init).
-- AllReduce: aggregate gradients across workers (synchronous SGD).
-- ReduceScatter / AllGather: used in sharded/ tensor parallel flows.
+To actually measure your interconnect bandwidth, you can use NCCL tests or write a simple benchmark. The `code/chapter2/bandwidth_test.py` script gives you a basic single-GPU test. For multi-GPU within a node, you'll want to use `nccl-tests`. For multi-node, NCCL tests will show you the InfiniBand bandwidth between nodes.
 
-When measuring communication, always consider: startup latency, bandwidth, and effective overlap with computation.
+## Distributed Communication Patterns
 
-Example: measuring AllReduce with torch.distributed (pseudo):
+When you're running distributed training, GPUs need to communicate. The main patterns you'll see are:
 
-```python
-import torch
-import torch.distributed as dist
+**Broadcast** sends data from one GPU (usually rank 0) to all others. You use this during initialization to get the same model weights on every GPU.
 
-def allreduce_microbench(tensor_size=1024*1024, iters=100):
-    t = torch.randn(tensor_size, device='cuda')
-    for _ in range(iters):
-        dist.all_reduce(t)
+**AllReduce** aggregates data from all GPUs and distributes the result back. This is what DDP uses for gradient synchronization—each GPU computes gradients on its local data, then AllReduce averages them across all GPUs.
 
-# Requires initialized process group (NCCL backend)
-```
+**ReduceScatter** and **AllGather** show up in sharded parallelism. ReduceScatter splits the result across GPUs, while AllGather collects data from all GPUs into each GPU.
 
-## 4. Parallelism Strategies (DP, TP, PP, SP, FSDP, ZeRO, EP)
+The thing to watch with communication is not just raw bandwidth, but also startup latency and whether you can overlap it with computation. A fast interconnect helps, but if your communication pattern has high latency, you'll still wait. DDP tries to overlap communication with computation by bucketing gradients, which we'll cover in the next chapter.
 
-High-level summary and when to pick each:
+You can benchmark these operations yourself. The `code/chapter2/allreduce_microbench.py` script shows a basic example, though you'll need to initialize the process group first (we'll cover that in Chapter 3).
 
-- Data Parallelism (DP): replicate model, split batch across GPUs. Simple to implement; memory duplicates model per device. Best when model fits single GPU and batch parallelism suffices.
-- Tensor Parallelism (TP): split tensors (layers) across devices (e.g., split weight matrices along hidden dimension). Good for very wide layers when single-GPU memory insufficient.
-- Pipeline Parallelism (PP): split model layers into stages, pipeline microbatches. Useful for very deep models. Watch out for bubble/latency and pipeline scheduling.
-- Sharded Parallelism (SP) / FSDP: shard optimizer and parameter states across ranks to reduce memory footprint.
-- ZeRO (DeepSpeed): staged sharding for optimizer states, gradients, and parameters — scales to very large models with lower memory overhead.
-- Expert Parallelism (EP): distribute different experts in Mixture-of-Experts (MoE) models across devices. Each device holds a subset of experts, and tokens are routed to the appropriate expert. Used for very large MoE models (e.g., models with 64+ experts). Requires efficient routing and load balancing across experts.
+## Parallelism Strategies
 
-Decision guide:
+There are several ways to split work across GPUs. Each has tradeoffs, and you'll often combine them. Here's the quick rundown:
 
-- If model fits a single GPU and batch size is limiting throughput: DP.
-- If a single layer is too big to fit: TP + (possibly) ZeRO/FSDP.
-- If model depth is huge and pipeline parallelism can help: PP with microbatches.
-- For minimal memory footprint and largest possible model: ZeRO Stage 3 or FSDP full-shard.
-- For MoE models with many experts: EP combined with DP (data parallelism across expert groups) or EP + PP for very large MoE models.
+**Data Parallelism (DP)** is the simplest. You replicate the entire model on each GPU and split the batch across GPUs. Each GPU processes different data, then you synchronize gradients. It's easy to implement and works great when your model fits on a single GPU. The downside is that you're storing the full model on every GPU, so memory usage scales with the number of GPUs.
 
-### Small example: manual DP vs TP sketch
+**Tensor Parallelism (TP)** splits individual layers across GPUs. Instead of replicating a layer, you split the weight matrix. For example, if you have a linear layer with a 4096x4096 weight matrix, you might split it into two 4096x2048 matrices on two GPUs. During forward pass, each GPU computes part of the output, then you AllGather to combine results. This lets you fit larger layers, but communication happens every layer, which can be expensive.
 
-Manual DP (concept): replicate model on each device, use DDP to sync gradients.
+**Pipeline Parallelism (PP)** splits the model depth-wise. GPU 0 handles layers 0-10, GPU 1 handles layers 11-20, and so on. You pipeline microbatches through the stages to keep all GPUs busy. The challenge is pipeline bubbles—when one stage finishes before the next is ready, GPUs sit idle. Getting the scheduling right matters.
 
-Manual TP (concept): split large Linear weight W into W1,W2 across two devices and coordinate matmul parts and AllGather.
+**FSDP (Fully Sharded Data Parallel)** and **ZeRO** are memory optimization strategies. Instead of replicating optimizer states and gradients on every GPU, you shard them. FSDP shards parameters, gradients, and optimizer states. ZeRO does similar things but with different stages—Stage 1 shards optimizer states, Stage 2 adds gradients, Stage 3 adds parameters. Both let you train much larger models with the same number of GPUs.
 
-Implementing TP correctly usually relies on libraries (Megatron-LM style or transformer parallel helpers) or careful tensor slicing + communication.
+**Expert Parallelism (EP)** is for MoE models. You distribute different experts across GPUs, and tokens get routed to the right expert. If you have 64 experts and 8 GPUs, each GPU might hold 8 experts. The tricky part is load balancing—some experts get more traffic than others, so you need good routing.
 
-## 5. Choosing the Right Strategy for Real Workloads
+In practice, you'll combine these. A common setup for a 70B model might be: FSDP for memory efficiency, plus some tensor parallelism for the largest layers, plus pipeline parallelism if you have enough GPUs. For MoE models, you might do expert parallelism plus data parallelism across expert groups.
 
-Checklist for picking parallelism:
+The decision tree is roughly: Does your model fit on one GPU? If yes, start with DP. If not, does a single layer not fit? Use TP. Is the model just too deep? Consider PP. Need maximum memory efficiency? FSDP or ZeRO Stage 3. MoE model? EP.
 
-1. Does the model fit on a single GPU? If yes, start with DP.
-2. Which layers are the largest memory consumers? If a small subset dominates, consider TP for those layers.
-3. Is throughput (samples/sec) or memory footprint the hard limit? Optimize accordingly.
-4. What is the networking topology? Avoid cross-socket communication where possible; prefer NVLink-connected peers.
+Most people don't implement these from scratch—you'll use PyTorch's DDP/FSDP, DeepSpeed's ZeRO, or libraries like Megatron-LM that handle the tensor parallelism details. But understanding what's happening under the hood helps when things go wrong.
 
-### Best practices
+## Choosing the Right Strategy
 
-- Profile early: identify memory hotspots and communication hot paths.
-- Prefer NCCL-backed collectives for GPUs (low-latency, optimized).
-- Avoid frequent cross-socket transfers in single-node multi-GPU servers.
-- Use mixed precision to reduce memory and bandwidth (AMP / FP16 / BF16).
+There's no one-size-fits-all answer. Here's how I think about it:
 
-## Hands-on Examples & Exercises
+First, does your model fit on a single GPU? If yes, data parallelism is usually the right starting point. It's simple, and you'll get good speedup as long as communication doesn't dominate.
 
-1. GPU topology detection script (Python): checks peer-to-peer accessibility and NVLink presence.
-2. Run `nccl-tests` (all_reduce_perf) across GPUs and record bandwidth vs message size.
-3. Implement a tiny tensor-parallel layer by splitting a Linear layer weight and measuring forward/backward time vs single-GPU baseline.
+If the model doesn't fit, figure out why. Is it one or two layers that are huge? Tensor parallelism might help. Is it the depth? Pipeline parallelism. Is it everything—weights, gradients, optimizer states? That's where FSDP or ZeRO shine.
 
-## Skills learned
+Also consider your constraints. If you're memory-limited (model doesn't fit), prioritize FSDP or ZeRO. If your goal is to maximize throughput (samples per second) and you have fast interconnects (good NVLink), tensor parallelism can work well—it splits layers across GPUs to process them faster, but requires communication every layer, so fast interconnects are essential. If you have slow interconnects (PCIe only), avoid strategies that require frequent communication like tensor parallelism.
 
-1. Benchmark GPU interconnect and memory behavior.
-2. Analyze and avoid communication bottlenecks.
-3. Implement simple distributed communication patterns.
-4. Compare parallelism strategies for different workloads.
-5. Select the correct scaling approach for a given model.
+One thing that trips people up: the networking topology matters. If you're on a system where some GPU pairs are connected via NVLink and others via PCIe, try to keep communication-heavy operations on the NVLink-connected pairs. PyTorch and most frameworks don't do this automatically, so you might need to set process groups or device placement manually.
 
-## References and Tools
+A few practical tips:
 
-- `nccl-tests` for collective benchmarks
-- NVIDIA `nvidia-smi`, `nvprof`, and Nsight tools
-- Megatron-LM, DeepSpeed, FairScale, and PyTorch FSDP docs
+- Profile before you optimize. Use `nvidia-smi` to watch memory usage, and use PyTorch's profiler to see where time is spent. You might think communication is the bottleneck, but it could be data loading or something else.
 
----
+- Use NCCL for GPU collectives. It's optimized and handles NVLink automatically. The alternative backends (GLOO, MPI) are slower.
 
-Feedback requested: This is the full draft for review. Tell me which sections to expand or any additional examples you'd like.
+- Mixed precision helps. FP16 or BF16 cuts memory and bandwidth in half. Most models train fine with it, and the speedup is significant.
+
+- Watch out for NUMA. If you're on a multi-socket system, try to keep processes on the same NUMA node. Cross-NUMA communication adds latency.
+
+The code examples in `code/chapter2/` show basic topology detection and bandwidth testing. For real workloads, you'll use the higher-level APIs in PyTorch or DeepSpeed, but understanding what's happening underneath helps when things don't work as expected.
+
+In the next chapter, we'll dive into PyTorch DDP, which is the most common way to do data parallelism. We'll cover the setup, common pitfalls, and how to optimize it.
