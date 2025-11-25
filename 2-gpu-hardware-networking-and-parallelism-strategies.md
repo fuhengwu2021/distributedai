@@ -48,27 +48,85 @@ To check NVLink connectivity (GPU-to-GPU direct links), use:
 $ nvidia-smi topo -m
 ```
 
-Example output for a system with NVLink:
+Example output for a system with NVLink (visual representation shown below):
+
+![NVLink Topology Matrix](code/chapter2/nvidia-smi-topo-example.png)
+
+Text output:
 ```
-        GPU0    GPU1    GPU2    GPU3    GPU4    GPU5    GPU6    GPU7    CPU Affinity
-GPU0     X      NV12    NV12    NV12    NV12    NV12    NV12    NV12    0-63
-GPU1    NV12     X      NV12    NV12    NV12    NV12    NV12    NV12    0-63
-...
+ 🎉 $nvidia-smi topo -m
+	GPU0	GPU1	GPU2	GPU3	GPU4	GPU5	GPU6	GPU7	NIC0	NIC1	NIC2	NIC3	NIC4	NIC5	NIC6	NIC7	NIC8	NIC9	NIC10	NIC11	CPU Affinity	NUMA Affinity	GPU NUMA ID
+GPU0	 X 	NV18	NV18	NV18	NV18	NV18	NV18	NV18	PXB	NODE	NODE	NODE	NODE	NODE	SYS	SYS	SYS	SYS	SYS	SYS	0-55,112-167	0		N/A
+GPU1	NV18	 X 	NV18	NV18	NV18	NV18	NV18	NV18	NODE	NODE	NODE	PXB	NODE	NODE	SYS	SYS	SYS	SYS	SYS	SYS	0-55,112-167	0		N/A
+GPU2	NV18	NV18	 X 	NV18	NV18	NV18	NV18	NV18	NODE	NODE	NODE	NODE	PXB	NODE	SYS	SYS	SYS	SYS	SYS	SYS	0-55,112-167	0		N/A
+GPU3	NV18	NV18	NV18	 X 	NV18	NV18	NV18	NV18	NODE	NODE	NODE	NODE	NODE	PXB	SYS	SYS	SYS	SYS	SYS	SYS	0-55,112-167	0		N/A
+GPU4	NV18	NV18	NV18	NV18	 X 	NV18	NV18	NV18	SYS	SYS	SYS	SYS	SYS	SYS	PXB	NODE	NODE	NODE	NODE	NODE	56-111,168-223	1		N/A
+GPU5	NV18	NV18	NV18	NV18	NV18	 X 	NV18	NV18	SYS	SYS	SYS	SYS	SYS	SYS	NODE	NODE	NODE	PXB	NODE	NODE	56-111,168-223	1		N/A
+GPU6	NV18	NV18	NV18	NV18	NV18	NV18	 X 	NV18	SYS	SYS	SYS	SYS	SYS	SYS	NODE	NODE	NODE	NODE	PXB	NODE	56-111,168-223	1		N/A
+GPU7	NV18	NV18	NV18	NV18	NV18	NV18	NV18	 X 	SYS	SYS	SYS	SYS	SYS	SYS	NODE	NODE	NODE	NODE	NODE	PXB	56-111,168-223	1		N/A
+NIC0	PXB	NODE	NODE	NODE	SYS	SYS	SYS	SYS	 X 	NODE	NODE	NODE	NODE	NODE	SYS	SYS	SYS	SYS	SYS	SYS
+NIC1	NODE	NODE	NODE	NODE	SYS	SYS	SYS	SYS	NODE	 X 	PIX	NODE	NODE	NODE	SYS	SYS	SYS	SYS	SYS	SYS
+NIC2	NODE	NODE	NODE	NODE	SYS	SYS	SYS	SYS	NODE	PIX	 X 	NODE	NODE	NODE	SYS	SYS	SYS	SYS	SYS	SYS
+NIC3	NODE	PXB	NODE	NODE	SYS	SYS	SYS	SYS	NODE	NODE	NODE	 X 	NODE	NODE	SYS	SYS	SYS	SYS	SYS	SYS
+NIC4	NODE	NODE	PXB	NODE	SYS	SYS	SYS	SYS	NODE	NODE	NODE	NODE	 X 	NODE	SYS	SYS	SYS	SYS	SYS	SYS
+NIC5	NODE	NODE	NODE	PXB	SYS	SYS	SYS	SYS	NODE	NODE	NODE	NODE	NODE	 X 	SYS	SYS	SYS	SYS	SYS	SYS
+NIC6	SYS	SYS	SYS	SYS	PXB	NODE	NODE	NODE	SYS	SYS	SYS	SYS	SYS	SYS	 X 	NODE	NODE	NODE	NODE	NODE
+NIC7	SYS	SYS	SYS	SYS	NODE	NODE	NODE	NODE	SYS	SYS	SYS	SYS	SYS	SYS	NODE	 X 	PIX	NODE	NODE	NODE
+NIC8	SYS	SYS	SYS	SYS	NODE	NODE	NODE	NODE	SYS	SYS	SYS	SYS	SYS	SYS	NODE	PIX	 X 	NODE	NODE	NODE
+NIC9	SYS	SYS	SYS	SYS	NODE	PXB	NODE	NODE	SYS	SYS	SYS	SYS	SYS	SYS	NODE	NODE	NODE	 X 	NODE	NODE
+NIC10	SYS	SYS	SYS	SYS	NODE	NODE	PXB	NODE	SYS	SYS	SYS	SYS	SYS	SYS	NODE	NODE	NODE	NODE	 X 	NODE
+NIC11	SYS	SYS	SYS	SYS	NODE	NODE	NODE	PXB	SYS	SYS	SYS	SYS	SYS	SYS	NODE	NODE	NODE	NODE	NODE	 X
+
+Legend:
+
+  X    = Self
+  SYS  = Connection traversing PCIe as well as the SMP interconnect between NUMA nodes (e.g., QPI/UPI)
+  NODE = Connection traversing PCIe as well as the interconnect between PCIe Host Bridges within a NUMA node
+  PHB  = Connection traversing PCIe as well as a PCIe Host Bridge (typically the CPU)
+  PXB  = Connection traversing multiple PCIe bridges (without traversing the PCIe Host Bridge)
+  PIX  = Connection traversing at most a single PCIe bridge
+  NV#  = Connection traversing a bonded set of # NVLinks
+
+NIC Legend:
+
+  NIC0: mlx5_0
+  NIC1: mlx5_1
+  NIC2: mlx5_2
+  NIC3: mlx5_3
+  NIC4: mlx5_4
+  NIC5: mlx5_5
+  NIC6: mlx5_6
+  NIC7: mlx5_7
+  NIC8: mlx5_8
+  NIC9: mlx5_9
+  NIC10: mlx5_10
+  NIC11: mlx5_11
 ```
 
-*Legend:*
-- `NV12` = NVLink 1.2 (or NVLink 2/3/4 depending on GPU generation)
-- `PIX` = PCIe connection (through CPU/PCIe switch)
-- `NODE` = Different NUMA node
-- `SYS` = System memory connection
+*Legend (from nvidia-smi output):*
+- `NV#` = NVLink connection (e.g., `NV18` = NVLink 1.8, `NV12` = NVLink 1.2). The number indicates the NVLink generation/bonding.
+- `PIX` = Connection traversing at most a single PCIe bridge
+- `PXB` = Connection traversing multiple PCIe bridges
+- `NODE` = Connection traversing PCIe and interconnect between PCIe Host Bridges within a NUMA node
+- `SYS` = Connection traversing PCIe and SMP interconnect between NUMA nodes
+- `X` = Self (same device)
 
 **Understanding Your Interconnect:**
 
-- **PCIe only**: If `nvidia-smi topo -m` shows `PIX` between GPUs, they communicate via PCIe through the CPU/PCIe switch (higher latency, lower bandwidth).
-- **NVLink present**: If you see `NV12`, `NV2`, `NV3`, or `NV4`, GPUs have direct high-bandwidth links (lower latency, much higher bandwidth, typically 300-900 GB/s depending on NVLink generation).
-- **Mixed**: Some systems have NVLink between some GPU pairs and PCIe for others (common in multi-socket servers).
+- **PCIe only**: If `nvidia-smi topo -m` shows `PIX` or `PXB` between GPUs, they communicate via PCIe through the CPU/PCIe switch (higher latency, lower bandwidth, typically 16-64 GB/s depending on PCIe generation).
+- **NVLink present**: If you see `NV#` (e.g., `NV18` = NVLink 1.8, `NV12` = NVLink 1.2, `NV4` = NVLink 4.0), GPUs have direct high-bandwidth links (lower latency, much higher bandwidth, typically 300-900 GB/s depending on NVLink generation and bonding). In the example above, all 8 GPUs are connected via `NV18`, indicating NVLink 1.8 with full all-to-all connectivity.
+- **Mixed topology**: Some systems have NVLink between some GPU pairs and PCIe for others (common in multi-socket servers). You may also see `NODE` or `SYS` connections indicating cross-NUMA-node communication.
+- **NUMA awareness**: Notice in the example that GPUs 0-3 are on NUMA node 0 (CPU affinity 0-55,112-167) while GPUs 4-7 are on NUMA node 1 (CPU affinity 56-111,168-223). This affects performance—prefer keeping communication within the same NUMA node when possible.
 
-For H200 (datacenter GPU), check if it's in a DGX/HGX system with NVSwitch (all-to-all NVLink) or a standard server (may only have PCIe).
+**Interpreting the example output above:**
+
+The example shows an H200 system in a DGX/HGX configuration with NVSwitch:
+- All 8 GPUs (GPU0-GPU7) have `NV18` connections to all other GPUs, indicating full all-to-all NVLink connectivity via NVSwitch.
+- This is optimal for distributed training as all GPU pairs can communicate at high bandwidth (NVLink 1.8 speeds).
+
+In contrast, a standard server configuration would show:
+- `PIX`, `PXB`, `NODE`, or `SYS` connections between some GPU pairs, indicating PCIe-only or partial NVLink connectivity.
+- Some GPUs may only connect via PCIe, creating communication bottlenecks.
 
 ## 2. High-Speed Interconnects: PCIe, NVLink, NVSwitch
 
