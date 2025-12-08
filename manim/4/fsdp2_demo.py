@@ -38,14 +38,17 @@ class FSDP2Flow(Scene):
             gpus.add(gpu)
         return gpus.arrange(RIGHT, buff=self.BUFF_BETWEEN_GPUS)
     
-    def update_gpu_labels(self, gpus: VGroup, labels: list, color: str = None) -> None:
+    def update_gpu_labels(self, gpus: VGroup, labels: list, color=None) -> None:
         """Update GPU labels with new text."""
+        animations = []
         for gpu, label in zip(gpus, labels):
             # gpu[0] is the box, gpu[1] is the text
             new_text = Text(label, font_size=self.LABEL_FONT_SIZE)
+            new_text.move_to(gpu[1].get_center())
             if color:
                 gpu[0].set_color(color)
-            self.play(Transform(gpu[1], new_text), run_time=0.5)
+            animations.append(Transform(gpu[1], new_text))
+        self.play(*animations, run_time=0.5)
     
     def highlight_gpus(self, gpus: VGroup, color: str = YELLOW) -> SurroundingRectangle:
         """Create and show highlight around GPU grid."""
@@ -65,22 +68,30 @@ class FSDP2Flow(Scene):
         positions = [gpu.get_center() for gpu in gpus]
         
         if mode == "allgather":
-            # Bidirectional ring: each GPU sends to right & receives from left
-            for i in range(self.NUM_GPUS):
-                next_i = (i + 1) % self.NUM_GPUS
-                # Arrow going right (send)
-                arrow_right = Arrow(positions[i], positions[next_i], 
-                                  color=BLUE_B, stroke_width=2, buff=0.3)
-                # Arrow coming from left (receive)
-                arrow_left = Arrow(positions[(i - 1) % self.NUM_GPUS], positions[i],
-                                 color=BLUE_B, stroke_width=2, buff=0.3)
-                arrows.add(arrow_right, arrow_left)
+            # All-to-all communication: simplified with curved arrows
+            for i in range(self.NUM_GPUS - 1):
+                # Arrow from left to right
+                arrow = CurvedArrow(
+                    positions[i] + UP * 0.2, 
+                    positions[i + 1] + UP * 0.2,
+                    color=BLUE_B, stroke_width=3, angle=TAU/8
+                )
+                arrows.add(arrow)
+                # Arrow from right to left
+                arrow_back = CurvedArrow(
+                    positions[i + 1] + DOWN * 0.2,
+                    positions[i] + DOWN * 0.2,
+                    color=BLUE_B, stroke_width=3, angle=TAU/8
+                )
+                arrows.add(arrow_back)
         elif mode == "reducescatter":
-            # Reduction ring: reduce & scatter in reverse direction
-            for i in range(self.NUM_GPUS):
-                prev_i = (i - 1) % self.NUM_GPUS
-                arrow = Arrow(positions[i], positions[prev_i], 
-                            color=RED_B, stroke_width=2, buff=0.3)
+            # ReduceScatter: arrows converging to center then scattering
+            for i in range(self.NUM_GPUS - 1):
+                arrow = Arrow(
+                    positions[i] + RIGHT * 0.3,
+                    positions[i + 1] + LEFT * 0.3,
+                    color=RED_B, stroke_width=3, buff=0.1
+                )
                 arrows.add(arrow)
         
         return arrows
@@ -89,6 +100,7 @@ class FSDP2Flow(Scene):
         """Display or update step text."""
         new_text = Text(f"Step {step_number}: {step_text}", 
                        font_size=self.STEP_FONT_SIZE, color=WHITE)
+        new_text.to_edge(DOWN, buff=0.5)  # Position at bottom to avoid overlap
         
         if old_text is None:
             self.play(Write(new_text), run_time=0.6)
@@ -107,8 +119,9 @@ class FSDP2Flow(Scene):
         self.play(title.animate.to_edge(UP, buff=0.4))
         self.wait(0.5)
 
-        # Create GPU grid
+        # Create GPU grid - position it in the center/slightly above center
         gpus = self.create_gpu_grid()
+        gpus.shift(UP * 0.3)  # Shift up slightly to make room for step text at bottom
         self.play(FadeIn(gpus), run_time=0.8)
         self.wait(0.5)
 
@@ -142,7 +155,7 @@ class FSDP2Flow(Scene):
         self.wait(0.3)
         
         shard_labels = [f"GPU{i}: shard{i}" for i in range(self.NUM_GPUS)]
-        self.update_gpu_labels(gpus, shard_labels, color="BLUE")
+        self.update_gpu_labels(gpus, shard_labels, color=BLUE)
         self.wait(0.5)
 
         # === STEP 4: Pre-backward AllGather ===
@@ -176,7 +189,7 @@ class FSDP2Flow(Scene):
         self.wait(0.5)
         
         grad_labels = [f"GPU{i}: grad{i}" for i in range(self.NUM_GPUS)]
-        self.update_gpu_labels(gpus, grad_labels, color="RED")
+        self.update_gpu_labels(gpus, grad_labels, color=RED)
         self.wait(0.5)
         
         self.play(FadeOut(comm_arrows), run_time=0.4)
@@ -186,8 +199,9 @@ class FSDP2Flow(Scene):
         self.play(FadeOut(step_text), run_time=0.4)
         final = Text(
             "FSDP2 Complete:\nEach GPU holds only its shard of params & gradients",
-            font_size=30, color=GREEN, t2c={"FSDP2": GREEN}
-        ).next_to(gpus, DOWN, buff=1.5)
+            font_size=28, color=GREEN, t2c={"FSDP2": BLUE}
+        )
+        final.to_edge(DOWN, buff=0.5)
         self.play(Write(final), run_time=1.0)
         self.wait(2)
 
