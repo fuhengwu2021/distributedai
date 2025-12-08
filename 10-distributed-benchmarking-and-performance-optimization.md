@@ -669,6 +669,72 @@ def benchmark_cold_start(model, prompts):
     }
 ```
 
+### Measuring Reasoning & Multi-step Models
+
+Reasoning models (chain-of-thought, multi-step decision-making, or tool-augmented LLMs) behave differently from single-pass generation models. For these models you should measure both per-step latency and end-to-end session latency, and separate local generation time from external-call time (retrievals, tool calls, networked services).
+
+Key measurement points:
+- **Per-step latency:** Measure TTFT/TPT for each reasoning step separately to see whether some steps are significantly slower.
+- **End-to-end session latency:** Total time to complete the whole reasoning session (sum of steps + external calls).
+- **External-call breakdown:** Measure time spent waiting for retrievals, database queries, or tool responses vs local model generation.
+- **Cache / KV effects:** Compare cold vs warm runs when KV cache or retrieval caches are warmed — important for long-context reasoning.
+- **Distributed step overhead:** If steps require cross-device synchronization (e.g., large-model sharding, cross-node retrieval), measure inter-step communication cost.
+- **Quality vs latency trade-off:** Track how adding more reasoning steps (or more complex tool calls) affects both latency and task quality (accuracy/F1/etc.).
+
+Minimal example: measure per-step and total session times (replace `model.generate` and tool calls with real calls):
+
+```python
+import time
+import numpy as np
+
+def run_reasoning_step(model, step_input, max_new_tokens=64, do_tool_call=None):
+    # Measure local generation
+    gen_start = time.time()
+    out = model.generate(step_input, max_new_tokens=max_new_tokens)
+    # If using CUDA, synchronize here
+    try:
+        import torch
+        torch.cuda.synchronize()
+    except Exception:
+        pass
+    gen_time = time.time() - gen_start
+
+    tool_time = 0.0
+    if do_tool_call:
+        # Example: external retrieval or tool call
+        t0 = time.time()
+        tool_result = do_tool_call()
+        tool_time = time.time() - t0
+
+    return gen_time, tool_time, out
+
+def measure_reasoning_session(model, session_steps, do_tool_call_fn=None):
+    per_step = []
+    total = 0.0
+    for step_input in session_steps:
+        gen_t, tool_t, out = run_reasoning_step(model, step_input, do_tool_call=(do_tool_call_fn if do_tool_call_fn else None))
+        per_step.append({'gen_time': gen_t, 'tool_time': tool_t, 'step_total': gen_t + tool_t})
+        total += gen_t + tool_t
+
+    times = [s['step_total'] for s in per_step]
+    return {
+        'per_step': per_step,
+        'total': total,
+        'p50': np.percentile(times, 50),
+        'p95': np.percentile(times, 95),
+        'p99': np.percentile(times, 99)
+    }
+
+# Example usage:
+# stats = measure_reasoning_session(model, ['step1 prompt', 'step2 prompt', 'step3 prompt'], do_tool_call_fn=call_retriever)
+# Print per-step and total latencies and store alongside quality metrics for analysis.
+```
+
+Guidance:
+- Instrument and log timestamps for each reasoning step and every external dependency.
+- Correlate latency traces with quality/accuracy to choose the optimal number of reasoning steps.
+- When benchmarking across systems, include both per-step breakdowns and session-level aggregates in reports (P50/P95/P99 and mean/std).
+
 ---
 
 ## 4. Network Bottleneck Diagnosis

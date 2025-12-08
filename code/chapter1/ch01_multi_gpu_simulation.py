@@ -35,12 +35,35 @@ Note: MPS (Multi-Process Service) is optional but recommended. It allows multipl
 """
 import torch
 import torch.distributed as dist
+import os
 
 def simulate_multi_gpu():
     """Simulate multi-GPU distributed training on a single GPU"""
-    dist.init_process_group("nccl")
+    # torchrun 会自动初始化进程组，但为了兼容性我们也可以手动初始化
+    if not dist.is_initialized():
+        dist.init_process_group("nccl")
+    
+    # 获取 rank 和 local_rank
     rank = dist.get_rank()
-    print(f"Rank {rank} says hello.")
+    local_rank = int(os.environ.get('LOCAL_RANK', rank))
+    world_size = dist.get_world_size()
+    
+    # 设置设备（在单GPU模拟时，所有进程都使用GPU 0）
+    available_gpus = torch.cuda.device_count()
+    if available_gpus == 1:
+        device_id = 0
+        mode = "单GPU模拟模式"
+    else:
+        device_id = local_rank
+        mode = "多GPU模式"
+    
+    torch.cuda.set_device(device_id)
+    device = torch.device(f'cuda:{device_id}')
+    
+    # 打印信息
+    print(f"Rank {rank} (local_rank={local_rank}, world_size={world_size}) says hello. "
+          f"使用设备: {device} [{mode}]")
+    
     dist.destroy_process_group()
 
 if __name__ == "__main__":
