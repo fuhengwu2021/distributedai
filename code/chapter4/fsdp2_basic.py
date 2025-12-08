@@ -7,9 +7,6 @@ internal PyTorch testing modules.
 
 Usage:
     torchrun --standalone --nproc_per_node=2 code/chapter4/fsdp2_basic.py
-
-Reference:
-    https://x.com/marksaroufim/status/1810695541963251924?lang=en
 """
 import os
 import torch

@@ -3,6 +3,28 @@ FSDP2 training example - can run on 2 GPUs to demonstrate sharding
 
 Usage:
     torchrun --nproc_per_node=2 code/chapter4/train_fsdp2.py
+Output:
+$time CUDA_VISIBLE_DEVICES=0,1 OMP_NUM_THREADS=4 torchrun --nproc_per_node=2 code/chapter4/train_fsdp2.py
+Training with 2 GPUs using FSDP2
+Model will be sharded across 2 ranks
+Model parameters: 268,505,089 (268.51M)
+Epoch 0, Batch 0, Loss: 0.6924
+Epoch 0, Batch 50, Loss: 3300352.0000
+Epoch 0, Batch 100, Loss: 1486.0000
+Epoch 0, Batch 150, Loss: 0.7056
+Epoch 1, Batch 0, Loss: 0.6821
+Epoch 1, Batch 50, Loss: 0.6819
+Epoch 1, Batch 100, Loss: 0.6999
+Epoch 1, Batch 150, Loss: 0.6901
+Epoch 2, Batch 0, Loss: 0.6826
+Epoch 2, Batch 50, Loss: 0.6830
+Epoch 2, Batch 100, Loss: 0.6959
+Epoch 2, Batch 150, Loss: 0.7186
+Training completed!
+
+real	0m11.602s
+user	0m29.209s
+sys	0m4.337s
 """
 import torch
 import torch.nn as nn
