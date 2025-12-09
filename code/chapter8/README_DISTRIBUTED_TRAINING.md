@@ -28,6 +28,9 @@ The example demonstrates:
    ```bash
    python -c "import torch; print(torch.__version__); print(torch.cuda.is_available())"
    ```
+   
+   **Note**: If PyTorch is not in your default environment, use `train_distributed_example_with_env.sh` 
+   and modify it to activate your conda environment with PyTorch.
 
 3. **NCCL**: For multi-GPU communication (usually comes with PyTorch)
 
@@ -35,9 +38,18 @@ The example demonstrates:
 
 ### 1. Submit the Job
 
+**Option A: If PyTorch is in your default environment:**
 ```bash
 cd /home/fuhwu/workspace/distributedai/code/chapter8
 sbatch train_distributed_example.sh
+```
+
+**Option B: If PyTorch is in a conda environment:**
+```bash
+cd /home/fuhwu/workspace/distributedai/code/chapter8
+# Edit train_distributed_example_with_env.sh and change the conda environment name
+# Then submit:
+sbatch train_distributed_example_with_env.sh
 ```
 
 ### 2. Monitor the Job
