@@ -26,7 +26,7 @@ docker run -itd \
   --ulimit nofile=65535:65535 \
   --network host \
   --name sglang-dev \
-  lmsysorg/sglang:dev
+ 	lmsysorg/sglang:dev 
 ```
 
 ### Attaching VS Code to the Container
@@ -65,7 +65,7 @@ pip install -e "python"
 ## Code Formatting
 
 After debugging or development, use SGLang's official pre-commit hooks to ensure all files comply with formatting standards:
-
+ 
 ```bash
 pre-commit run --all-files
 ```
@@ -78,37 +78,37 @@ Create a `launch.json` file under `.vscode/launch.json` to enable VS Code Python
 
 ```json
 {
-  "version": "0.2.0",
-  "configurations": [
-    {
-      "name": "Launch SGLang Server - Llama-3.1-8B-Instruct",
-      "type": "debugpy",
-      "request": "launch",
-      "module": "sglang.launch_server",
-      "justMyCode": false,
-      "env": {
-        "PYTHONPATH": "${workspaceFolder}",
-        "CUDA_VISIBLE_DEVICES": "5,6",
+	"version": "0.2.0",
+	"configurations": [
+    	{
+        	"name": "Launch SGLang Server - Llama-3.1-8B-Instruct",
+        	"type": "debugpy",
+        	"request": "launch",
+        	"module": "sglang.launch_server",
+        	"justMyCode": false,
+        	"env": {
+            	"PYTHONPATH": "${workspaceFolder}",
+                          	"CUDA_VISIBLE_DEVICES": "5,6",
         "HF_TOKEN": "your_huggingface_token_here"
-      },
-      "args": [
-        "--model-path",
-        "/models/Llama-3.1-8B-Instruct",
-        "--port",
-        "8081",
-        "--host",
-        "0.0.0.0",
-        "--log-level",
-        "info",
-        "--tp",
-        "1",
+            },
+        	"args": [
+            	"--model-path",
+            	"/models/Llama-3.1-8B-Instruct",
+            	"--port",
+            	"8081",
+            	"--host",
+            	"0.0.0.0",
+            	"--log-level",
+            	"info",
+            	"--tp",
+            	"1",
         "--enable-metrics"
         // Uncomment as needed:
-        // "--log-requests",
+            	// "--log-requests",
         // "--is-embedding"
-      ]
-    }
-  ]
+        	]
+    	}
+    	]
 }
 ```
 
