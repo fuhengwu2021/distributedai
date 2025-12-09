@@ -1,0 +1,45 @@
+==========================================
+Distributed Training Example
+==========================================
+Job ID: 14
+Job Name: distributed-training-example
+Number of nodes: 2
+Tasks per node: 1
+Total tasks: 2
+Node list: node[6-7]
+
+Master address: node6
+Master port: 29500
+World size: 2
+Rank: 0
+Local rank: 0
+
+Node information:
+moirai-h200
+moirai-h200
+
+GPU information:
+0, NVIDIA H200, 143771 MiB
+1, NVIDIA H200, 143771 MiB
+2, NVIDIA H200, 143771 MiB
+3, NVIDIA H200, 143771 MiB
+4, NVIDIA H200, 143771 MiB
+5, NVIDIA H200, 143771 MiB
+6, NVIDIA H200, 143771 MiB
+7, NVIDIA H200, 143771 MiB
+0, NVIDIA H200, 143771 MiB
+1, NVIDIA H200, 143771 MiB
+2, NVIDIA H200, 143771 MiB
+3, NVIDIA H200, 143771 MiB
+4, NVIDIA H200, 143771 MiB
+5, NVIDIA H200, 143771 MiB
+6, NVIDIA H200, 143771 MiB
+7, NVIDIA H200, 143771 MiB
+
+==========================================
+Starting training...
+==========================================
+
+==========================================
+Training completed!
+==========================================
