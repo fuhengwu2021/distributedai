@@ -2,6 +2,8 @@ title: "Distributed Inference Fundamentals and vLLM"
 
 # Chapter 6 — Distributed Inference Fundamentals and vLLM
 This chapter introduces distributed inference concepts and vLLM internals: KV cache management, paged attention, continuous batching, and multi-node inference architectures. It focuses on low-latency, high-throughput design patterns for production inference.
+
+
 Status: TODO — draft placeholder
 ## 1. Foundations of Distributed Inference
 
@@ -66,3 +68,13 @@ Chapter headings:
 5. Benchmarking and Optimizing vLLM
 
 TODO: Add step-by-step vLLM examples and cluster configs.
+
+
+Reference:
+
+- https://docs.nvidia.com/dynamo/archive/0.2.0/architecture/kv_cache_manager.html
+- https://docs.vllm.ai/en/stable/serving/parallelism_scaling/
+- https://developers.redhat.com/articles/2025/02/06/distributed-inference-with-vllm#gpu_parallelism_techniques_in_vllm
+- https://docs.vllm.ai/en/v0.8.1/serving/distributed_serving.html
+- https://arxiv.org/pdf/2501.08192
+
