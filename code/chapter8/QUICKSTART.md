@@ -246,3 +246,5 @@ bash /home/fuhwu/workspace/distributedai/code/chapter8/slurm_setup.sh
 
 Then fix PATH and test! 🚀
 
+
+

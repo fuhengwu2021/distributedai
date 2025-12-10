@@ -651,6 +651,13 @@ All configuration files are available in `code/chapter8/config/`:
 - [PyTorch Distributed Training](https://pytorch.org/tutorials/beginner/dist_overview.html)
 - [PyTorch FSDP](https://pytorch.org/tutorials/intermediate/FSDP_tutorial.html)
 - Configuration files: `code/chapter8/config/`
+- https://medium.com/@viktorciroski/optimizing-language-model-training-a-practical-guide-to-slurm-a6621d3c1bf2
+- https://arxiv.org/pdf/2405.00030
+- https://codelabs.developers.google.com/codelabs/hpc-slurm-on-gcp#0
+- https://github.com/SchedMD/slurm
+- https://stackoverflow.com/questions/40695348/running-multiple-worker-daemons-slurm?utm_source=chatgpt.com
+
+
 
 ---
 

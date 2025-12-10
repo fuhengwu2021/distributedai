@@ -1314,7 +1314,554 @@ class CostOptimizedRouter:
 
 ---
 
-## 6. Kubernetes Deployment with llm-d
+## 6. Local Kubernetes Setup with k3d for GPU Model Serving
+
+While production deployments often use managed Kubernetes services, setting up a local Kubernetes cluster is invaluable for development, testing, and learning. This section covers setting up a GPU-enabled Kubernetes cluster using k3d (k3s in Docker), which provides a lightweight, production-like environment that runs entirely in Docker containers.
+
+### Why k3d for Local Development?
+
+**Advantages:**
+- **Lightweight:** Runs in Docker, no need for VMs or complex setup
+- **Fast setup:** Create a cluster in minutes
+- **Real Kubernetes API:** Fully compatible with standard Kubernetes manifests
+- **GPU support:** Can expose host GPUs to containers
+- **Multi-node:** Easy to create multi-node clusters for testing
+- **No root required:** Runs in user space (with proper Docker permissions)
+
+**Use cases:**
+- Local development and testing of GPU workloads
+- Learning Kubernetes concepts
+- Prototyping production deployments
+- CI/CD pipeline testing
+
+### Prerequisites
+
+Before setting up k3d, ensure your system has the following:
+
+**1. NVIDIA Drivers**
+
+Verify NVIDIA drivers are installed:
+
+```bash
+nvidia-smi
+```
+
+If not installed, install drivers for your system:
+
+```bash
+# Ubuntu/Debian
+sudo apt-get update
+sudo apt-get install -y nvidia-driver-535  # or newer version
+sudo reboot
+```
+
+**2. NVIDIA Container Toolkit**
+
+The NVIDIA Container Toolkit enables containers to access GPUs:
+
+```bash
+# Add NVIDIA repository
+distribution=$(. /etc/os-release;echo $ID$VERSION_ID)
+curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | \
+  sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+
+curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
+  sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
+  sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+
+# Install
+sudo apt-get update
+sudo apt-get install -y nvidia-container-toolkit
+
+# Configure Docker runtime
+sudo nvidia-ctk runtime configure --runtime=docker
+sudo systemctl restart docker
+```
+
+**3. Docker and k3d**
+
+Install Docker (if not already installed) and k3d:
+
+```bash
+# Install k3d
+curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash
+
+# Verify installation
+k3d --version
+```
+
+### Building a Custom GPU-Enabled k3s Image
+
+The default k3s image doesn't include NVIDIA Container Toolkit support. We need to build a custom image that includes both k3s and NVIDIA runtime support.
+
+**Step 1: Create Dockerfile**
+
+Create a Dockerfile that combines k3s with CUDA and NVIDIA Container Toolkit:
+
+```dockerfile
+ARG K3S_TAG="v1.33.6-k3s1"
+ARG CUDA_TAG="12.4.1-base-ubuntu22.04"
+
+FROM rancher/k3s:$K3S_TAG as k3s
+FROM nvcr.io/nvidia/cuda:$CUDA_TAG
+
+# Install the NVIDIA container toolkit
+RUN apt-get update && apt-get install -y curl \
+    && curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg \
+    && curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
+      sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
+      tee /etc/apt/sources.list.d/nvidia-container-toolkit.list \
+    && apt-get update && apt-get install -y nvidia-container-toolkit \
+    && nvidia-ctk runtime configure --runtime=containerd
+
+# Copy k3s binaries
+COPY --from=k3s / / --exclude=/bin
+COPY --from=k3s /bin /bin
+
+# Deploy the nvidia device plugin on startup
+COPY device-plugin-daemonset.yaml /var/lib/rancher/k3s/server/manifests/nvidia-device-plugin-daemonset.yaml
+
+VOLUME /var/lib/kubelet
+VOLUME /var/lib/rancher/k3s
+VOLUME /var/lib/cni
+VOLUME /var/log
+
+ENV PATH="$PATH:/bin/aux"
+
+ENTRYPOINT ["/bin/k3s"]
+CMD ["agent"]
+```
+
+**Step 2: Create NVIDIA Device Plugin Manifest**
+
+Create `device-plugin-daemonset.yaml`:
+
+```yaml
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: nvidia-device-plugin-daemonset
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      name: nvidia-device-plugin-ds
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        name: nvidia-device-plugin-ds
+    spec:
+      tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
+      priorityClassName: "system-node-critical"
+      containers:
+      - image: nvcr.io/nvidia/k8s-device-plugin:v0.17.3
+        name: nvidia-device-plugin-ctr
+        env:
+        - name: FAIL_ON_INIT_ERROR
+          value: "false"
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
+        volumeMounts:
+        - name: device-plugin
+          mountPath: /var/lib/kubelet/device-plugins
+      volumes:
+      - name: device-plugin
+        hostPath:
+          path: /var/lib/kubelet/device-plugins
+      nodeSelector:
+        accelerator: nvidia-tesla-k80
+```
+
+**Step 3: Build the Custom Image**
+
+Build the image using Docker BuildKit (required for the `--exclude` flag):
+
+```bash
+# Enable BuildKit
+export DOCKER_BUILDKIT=1
+
+# Build the image
+docker build \
+  --build-arg K3S_TAG=v1.33.6-k3s1 \
+  --build-arg CUDA_TAG=12.4.1-base-ubuntu22.04 \
+  -t k3s-cuda:v1.33.6-cuda-12.4.1 \
+  .
+
+# Verify the image
+docker images | grep k3s-cuda
+```
+
+**Note:** If you encounter issues with the `--exclude` flag, ensure Docker BuildKit is enabled. You may need to install `docker buildx`:
+
+```bash
+# Install buildx
+docker buildx version || docker plugin install --grant-all-permissions moby/buildx
+
+# Use buildx for building
+docker buildx build \
+  --build-arg K3S_TAG=v1.33.6-k3s1 \
+  --build-arg CUDA_TAG=12.4.1-base-ubuntu22.04 \
+  -t k3s-cuda:v1.33.6-cuda-12.4.1 \
+  --load .
+```
+
+### Creating a 2-Node GPU Cluster
+
+**Step 1: Create the Cluster**
+
+Create a 2-node cluster (1 control-plane + 1 worker) with GPU support:
+
+```bash
+# Option 1: Use all available GPUs
+k3d cluster create mycluster-gpu \
+  --image k3s-cuda:v1.33.6-cuda-12.4.1 \
+  --gpus=all \
+  --servers 1 \
+  --agents 1
+
+# Option 2: Use specific GPUs (e.g., GPU 4 and 5)
+k3d cluster create mycluster-gpu \
+  --image k3s-cuda:v1.33.6-cuda-12.4.1 \
+  --gpus "device=4,5" \
+  --servers 1 \
+  --agents 1
+
+# Option 3: Allocate different GPUs to different nodes
+# First create cluster without GPUs
+k3d cluster create mycluster-gpu \
+  --image k3s-cuda:v1.33.6-cuda-12.4.1 \
+  --servers 1 \
+  --agents 1
+
+# Then add GPUs when creating nodes (note: GPU assignment must be at cluster creation)
+```
+
+**Step 2: Configure kubectl**
+
+Set up kubeconfig to access the cluster:
+
+```bash
+# Merge k3d kubeconfig
+k3d kubeconfig merge mycluster-gpu --kubeconfig-merge-default
+
+# Verify access
+kubectl get nodes
+```
+
+You should see both nodes:
+
+```
+NAME                         STATUS   ROLES           AGE   VERSION
+k3d-mycluster-gpu-server-0   Ready    control-plane   30s   v1.33.6+k3s1
+k3d-mycluster-gpu-agent-0    Ready    <none>          25s   v1.33.6+k3s1
+```
+
+**Step 3: Verify GPU Visibility**
+
+Check if GPUs are visible to Kubernetes:
+
+```bash
+# Wait for device plugin to be ready
+kubectl wait --for=condition=ready pod -l name=nvidia-device-plugin-ds -n kube-system --timeout=120s
+
+# Check GPU resources on nodes
+kubectl describe node k3d-mycluster-gpu-server-0 | grep nvidia.com/gpu
+kubectl describe node k3d-mycluster-gpu-agent-0 | grep nvidia.com/gpu
+```
+
+You should see output like:
+
+```
+Capacity:
+  nvidia.com/gpu:  8
+Allocatable:
+  nvidia.com/gpu:  8
+```
+
+**Step 4: Test GPU Access**
+
+Create a simple test pod to verify GPU access:
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: gpu-test
+spec:
+  restartPolicy: OnFailure
+  runtimeClassName: nvidia
+  containers:
+  - name: cuda
+    image: nvidia/cuda:12.2.0-base-ubuntu22.04
+    command: ["nvidia-smi"]
+    resources:
+      limits:
+        nvidia.com/gpu: 1
+```
+
+Apply and verify:
+
+```bash
+kubectl apply -f gpu-test.yaml
+kubectl wait --for=condition=Ready pod/gpu-test --timeout=60s
+kubectl logs gpu-test
+```
+
+You should see `nvidia-smi` output showing GPU information.
+
+### Deploying a GPU Model Serving Example
+
+Now let's deploy a simple GPU-enabled inference server that can serve as a foundation for LLM model serving.
+
+**Step 1: Create Deployment Manifest**
+
+Create `gpu-inference-server.yaml`:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gpu-inference-server
+  labels:
+    app: inference-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: inference-server
+  template:
+    metadata:
+      labels:
+        app: inference-server
+    spec:
+      runtimeClassName: nvidia
+      containers:
+      - name: inference
+        image: nvidia/cuda:12.2.0-base-ubuntu22.04
+        command:
+        - /bin/bash
+        - -c
+        - |
+          apt-get update && apt-get install -y python3 python3-pip curl || true
+          python3 << 'PYTHON_EOF'
+          from http.server import HTTPServer, BaseHTTPRequestHandler
+          import json
+          import subprocess
+          
+          class GPUHandler(BaseHTTPRequestHandler):
+              def do_GET(self):
+                  if self.path == '/health':
+                      self.send_response(200)
+                      self.send_header('Content-type', 'application/json')
+                      self.end_headers()
+                      self.wfile.write(json.dumps({"status": "healthy"}).encode())
+                  elif self.path == '/gpu':
+                      try:
+                          result = subprocess.run(['nvidia-smi', '--query-gpu=name,memory.total,memory.used,utilization.gpu', '--format=csv,noheader'], 
+                                                capture_output=True, text=True, timeout=5)
+                          gpu_info = result.stdout.strip().split(', ')
+                          response = {
+                              "gpu_name": gpu_info[0],
+                              "memory_total_mb": gpu_info[1],
+                              "memory_used_mb": gpu_info[2],
+                              "utilization_percent": gpu_info[3]
+                          }
+                      except:
+                          response = {"error": "Could not query GPU"}
+                      
+                      self.send_response(200)
+                      self.send_header('Content-type', 'application/json')
+                      self.end_headers()
+                      self.wfile.write(json.dumps(response).encode())
+                  else:
+                      self.send_response(404)
+                      self.end_headers()
+              
+              def log_message(self, format, *args):
+                  pass
+          
+          server = HTTPServer(('0.0.0.0', 8000), GPUHandler)
+          print("GPU Inference Server running on port 8000")
+          server.serve_forever()
+          PYTHON_EOF
+        resources:
+          limits:
+            nvidia.com/gpu: 1
+          requests:
+            nvidia.com/gpu: 1
+        ports:
+        - containerPort: 8000
+          name: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: inference-server-service
+spec:
+  selector:
+    app: inference-server
+  ports:
+  - port: 8000
+    targetPort: 8000
+    name: http
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: inference-server-nodeport
+spec:
+  type: NodePort
+  selector:
+    app: inference-server
+  ports:
+  - port: 8000
+    targetPort: 8000
+    nodePort: 30080
+    name: http
+```
+
+**Step 2: Deploy the Service**
+
+```bash
+# Deploy
+kubectl apply -f gpu-inference-server.yaml
+
+# Wait for pod to be ready
+kubectl wait --for=condition=Ready pod -l app=inference-server --timeout=120s
+
+# Check pod status
+kubectl get pods -l app=inference-server
+```
+
+**Step 3: Access the Service**
+
+Set up port-forward to access the service:
+
+```bash
+# Port-forward in background
+kubectl port-forward svc/inference-server-service 8000:8000 &
+
+# Test health endpoint
+curl --max-time 5 http://localhost:8000/health
+
+# Test GPU endpoint
+curl --max-time 5 http://localhost:8000/gpu
+```
+
+Expected responses:
+
+```json
+# /health
+{"status": "healthy"}
+
+# /gpu
+{
+    "gpu_name": "NVIDIA H200",
+    "memory_total_mb": "143771 MiB",
+    "memory_used_mb": "1 MiB",
+    "utilization_percent": "0 %"
+}
+```
+
+**Alternative: Access via NodePort**
+
+You can also access the service via NodePort:
+
+```bash
+# Get node IP
+NODE_IP=$(kubectl get node k3d-mycluster-gpu-server-0 -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}')
+
+# Access via NodePort
+curl http://$NODE_IP:30080/health
+curl http://$NODE_IP:30080/gpu
+```
+
+### GPU Allocation Options
+
+k3d supports flexible GPU allocation:
+
+```bash
+# Use all GPUs
+--gpus=all
+
+# Use specific GPU (single)
+--gpus "device=4"
+
+# Use multiple specific GPUs
+--gpus "device=4,5"
+
+# Use GPU range (if supported)
+--gpus "device=4-7"  # GPUs 4, 5, 6, 7
+```
+
+To see available GPUs:
+
+```bash
+nvidia-smi --query-gpu=index,gpu_name --format=csv
+```
+
+### Troubleshooting
+
+**Issue: Device plugin reports "No devices found"**
+
+- Ensure the custom k3s image was built correctly
+- Verify NVIDIA Container Toolkit is installed on the host
+- Check that `--gpus` flag was used when creating the cluster
+- Review device plugin logs: `kubectl logs -n kube-system -l name=nvidia-device-plugin-ds`
+
+**Issue: Pod cannot access GPU**
+
+- Verify `runtimeClassName: nvidia` is set in pod spec
+- Check GPU resource requests/limits are specified
+- Ensure device plugin DaemonSet is running: `kubectl get ds -n kube-system nvidia-device-plugin-daemonset`
+
+**Issue: Port-forward not working**
+
+- Ensure the pod is fully started (check logs: `kubectl logs -l app=inference-server`)
+- Restart port-forward: `pkill -f "port-forward"` then recreate
+- Use NodePort as alternative access method
+
+**Issue: Build fails with "unknown flag: --exclude"**
+
+- Enable Docker BuildKit: `export DOCKER_BUILDKIT=1`
+- Install buildx: `docker buildx version` or install the plugin
+- Use `docker buildx build` instead of `docker build`
+
+### Cleaning Up
+
+To remove the cluster:
+
+```bash
+# Delete cluster
+k3d cluster delete mycluster-gpu
+
+# Remove custom image (optional)
+docker rmi k3s-cuda:v1.33.6-cuda-12.4.1
+```
+
+### Next Steps
+
+With a working GPU-enabled Kubernetes cluster, you can:
+
+1. **Deploy vLLM:** Use the patterns from earlier sections to deploy vLLM for LLM inference
+2. **Scale workloads:** Test horizontal pod autoscaling with GPU workloads
+3. **Multi-model serving:** Deploy multiple model instances with different GPU allocations
+4. **Production patterns:** Practice canary deployments, A/B testing, and observability
+5. **Upgrade to llm-d:** Use the cluster to deploy llm-d (covered in the next section)
+
+This local setup provides a safe environment to experiment with production patterns before deploying to cloud Kubernetes services.
+
+---
+
+## 7. Kubernetes Deployment with llm-d
 
 While building custom serving stacks provides flexibility, production deployments often benefit from standardized solutions that handle the operational complexity of distributed inference. [llm-d](https://github.com/llm-d/llm-d) is an open-source project that provides production-ready Helm charts and deployment patterns for running LLM inference on Kubernetes with modern accelerators.
 
