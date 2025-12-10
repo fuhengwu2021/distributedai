@@ -9,7 +9,7 @@ spec:
   resources:
     requests:
       storage: 50Gi
-  storageClassName: default
+  # Remove storageClassName to use default, or use local-path for k3d
   volumeMode: Filesystem
 ---
 apiVersion: v1
@@ -58,6 +58,8 @@ spec:
             --trust-remote-code \
             --enable-chunked-prefill \
             --max-num-batched-tokens 1024 \
+            --gpu-memory-utilization 0.4 \
+            --kv-cache-memory-bytes 20G \
             --port 9876
         env:
         - name: HF_TOKEN

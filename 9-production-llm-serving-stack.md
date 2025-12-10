@@ -1633,6 +1633,309 @@ kubectl logs gpu-test
 
 You should see `nvidia-smi` output showing GPU information.
 
+### Deploying vLLM with Official Image and Hugging Face Models
+
+This section demonstrates deploying vLLM using the official `vllm/vllm-openai:latest` Docker image with models downloaded from Hugging Face. This is the recommended approach for production deployments as it uses the official, tested vLLM image.
+
+**Prerequisites:**
+- GPU-enabled Kubernetes cluster (as set up in previous sections)
+- Access to Hugging Face (for model downloads)
+- Optional: Hugging Face token for gated models
+
+**Step 1: Create Persistent Volume Claim (Optional)**
+
+A PVC is used to cache downloaded models, reducing startup time on subsequent deployments:
+
+```yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mistral-7b
+  namespace: default
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 50Gi
+  volumeMode: Filesystem
+```
+
+**Step 2: Create Hugging Face Token Secret (Optional)**
+
+Only required if you're using gated models that require authentication:
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: hf-token-secret
+  namespace: default
+type: Opaque
+stringData:
+  token: ""  # Add your Hugging Face token here
+```
+
+**Step 3: Create vLLM Deployment**
+
+Deploy vLLM using the official image with a model from Hugging Face:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mistral-7b
+  namespace: default
+  labels:
+    app: mistral-7b
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mistral-7b
+  template:
+    metadata:
+      labels:
+        app: mistral-7b
+    spec:
+      runtimeClassName: nvidia
+      volumes:
+      - name: cache-volume
+        persistentVolumeClaim:
+          claimName: mistral-7b
+      # vLLM needs shared memory for tensor parallel inference
+      - name: shm
+        emptyDir:
+          medium: Memory
+          sizeLimit: "2Gi"
+      containers:
+      - name: mistral-7b
+        image: vllm/vllm-openai:latest
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          vllm serve mistralai/Mistral-7B-Instruct-v0.3 \
+            --trust-remote-code \
+            --enable-chunked-prefill \
+            --max-num-batched-tokens 1024 \
+            --port 9876
+        env:
+        - name: HF_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: hf-token-secret
+              key: token
+        ports:
+        - containerPort: 9876
+          name: http
+        resources:
+          limits:
+            cpu: "10"
+            memory: 20Gi
+            nvidia.com/gpu: "1"
+          requests:
+            cpu: "2"
+            memory: 6Gi
+            nvidia.com/gpu: "1"
+        volumeMounts:
+        - mountPath: /root/.cache/huggingface
+          name: cache-volume
+        - name: shm
+          mountPath: /dev/shm
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 9876
+          initialDelaySeconds: 60
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 9876
+          initialDelaySeconds: 60
+          periodSeconds: 5
+```
+
+**Key Configuration Points:**
+- **Image:** `vllm/vllm-openai:latest` - Official vLLM OpenAI-compatible API server
+- **Model:** `mistralai/Mistral-7B-Instruct-v0.3` - Downloaded from Hugging Face on first startup
+- **Shared Memory:** Required for tensor parallel inference (`/dev/shm` with 2Gi limit)
+- **Model Cache:** PVC stores downloaded models in `/root/.cache/huggingface`
+- **Health Probes:** Configured with 60s initial delay to allow model loading
+
+**Step 4: Create Kubernetes Service**
+
+Expose the vLLM deployment:
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: mistral-7b
+  namespace: default
+spec:
+  ports:
+  - name: http-mistral-7b
+    port: 9876
+    protocol: TCP
+    targetPort: 9876
+  selector:
+    app: mistral-7b
+  sessionAffinity: None
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mistral-7b-nodeport
+  namespace: default
+spec:
+  type: NodePort
+  selector:
+    app: mistral-7b
+  ports:
+  - port: 9876
+    targetPort: 9876
+    nodePort: 30082
+    name: http
+```
+
+**Step 5: Deploy and Monitor**
+
+Apply the configuration:
+
+```bash
+# Apply all resources
+kubectl apply -f vllm-mistral-7b.yaml
+
+# Monitor pod status (model download may take several minutes)
+kubectl get pods -l app=mistral-7b -w
+
+# Watch logs to see model download and server startup
+kubectl logs -l app=mistral-7b --follow
+```
+
+**Step 6: Test the Deployment**
+
+Once the pod is ready and the model has loaded:
+
+```bash
+# Port-forward to access the service
+kubectl port-forward svc/mistral-7b 9876:9876
+
+# Test health endpoint
+curl http://localhost:9876/health
+
+# Test completions endpoint
+curl http://localhost:9876/v1/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "mistralai/Mistral-7B-Instruct-v0.3",
+    "prompt": "San Francisco is a",
+    "max_tokens": 7,
+    "temperature": 0
+  }'
+
+# Test chat completions
+curl http://localhost:9876/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "mistralai/Mistral-7B-Instruct-v0.3",
+    "messages": [
+      {"role": "user", "content": "Hello, how are you?"}
+    ],
+    "max_tokens": 100,
+    "temperature": 0.7
+  }'
+
+# List available models
+curl http://localhost:9876/v1/models
+```
+
+**Alternative: Access via NodePort**
+
+```bash
+# Get node IP
+NODE_IP=$(kubectl get node k3d-mycluster-gpu-server-0 -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}')
+
+# Test via NodePort
+curl http://$NODE_IP:30082/health
+curl http://$NODE_IP:30082/v1/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model": "mistralai/Mistral-7B-Instruct-v0.3", "prompt": "What is AI?", "max_tokens": 50}'
+```
+
+**Using Different Models**
+
+To use a different model, simply change the model name in the deployment args:
+
+```yaml
+args:
+- |
+  vllm serve meta-llama/Llama-3.2-1B-Instruct \
+    --trust-remote-code \
+    --port 9876
+```
+
+**Troubleshooting:**
+
+**Issue: Pod stuck in ContainerCreating**
+- Check if PVC is bound: `kubectl get pvc`
+- Verify storage class exists: `kubectl get storageclass`
+- For k3d, the `local-path` storage class should be available
+
+**Issue: Model download fails**
+- Check network connectivity from pod: `kubectl exec <pod-name> -- curl -I https://huggingface.co`
+- Verify Hugging Face token if using gated models: `kubectl get secret hf-token-secret -o jsonpath='{.data.token}' | base64 -d`
+- Check logs for specific error: `kubectl logs -l app=mistral-7b`
+
+**Issue: Out of memory errors**
+- Reduce model size or increase pod memory limits
+- Adjust `--gpu-memory-utilization` parameter (default 0.9)
+- Consider using a smaller model variant
+
+**Issue: Health probe failures**
+- Increase `initialDelaySeconds` if model loading takes longer
+- Check if server is actually running: `kubectl exec <pod-name> -- curl http://localhost:9876/health`
+
+**Performance Tuning:**
+
+For better performance, you can adjust vLLM parameters:
+
+```yaml
+args:
+- |
+  vllm serve mistralai/Mistral-7B-Instruct-v0.3 \
+    --trust-remote-code \
+    --enable-chunked-prefill \
+    --max-num-batched-tokens 2048 \
+    --gpu-memory-utilization 0.95 \
+    --max-model-len 4096 \
+    --tensor-parallel-size 1 \
+    --port 9876
+```
+
+**Multi-GPU Configuration:**
+
+For larger models requiring multiple GPUs:
+
+```yaml
+args:
+- |
+  vllm serve mistralai/Mistral-7B-Instruct-v0.3 \
+    --tensor-parallel-size 2 \
+    --port 9876
+resources:
+  limits:
+    nvidia.com/gpu: "2"
+  requests:
+    nvidia.com/gpu: "2"
+```
+
+**Reference:**
+- Official vLLM Kubernetes documentation: https://docs.vllm.ai/en/stable/deployment/k8s/#deployment-with-gpus
+- vLLM configuration options: https://docs.vllm.ai/en/stable/serving/server_args.html
+
 ### Deploying a GPU Model Serving Example
 
 Now let's deploy a simple GPU-enabled inference server that can serve as a foundation for LLM model serving.
