@@ -394,48 +394,46 @@ Comprehensive guide to benchmarking distributed training and inference systems, 
 
 ---
 
-### Chapter 11 — Federated Learning and Edge Distributed Systems
+### Chapter 11 — Trends and Future of Distributed AI
 
 **Summary:**
-Practical guide to federated learning and edge computing paradigms for distributed AI systems. Covers federated training architectures, privacy-preserving aggregation, edge inference, and hybrid edge-cloud deployments.
+Explores emerging trends and future directions in distributed AI systems. Covers Mixture of Experts (MoE) scaling, hybrid edge-cloud architectures, advanced parallelism strategies, and cost optimization techniques. Provides practical code examples for MoE implementation, expert parallelism, edge-cloud coordination, and emerging technologies.
 
 **Hands-on Exercises:**
-• Implement federated learning with PySyft or Flower framework
-• Build federated averaging (FedAvg) algorithm from scratch
-• Set up multi-client federated training with differential privacy
-• Implement secure aggregation protocols
-• Deploy edge inference models on edge devices (Raspberry Pi, Jetson)
-• Build edge-cloud hybrid inference systems
-• Optimize models for edge deployment (quantization, pruning)
-• Handle non-IID data distributions in federated settings
-• Implement federated evaluation and monitoring
+• Implement basic MoE layer with expert routing
+• Build expert parallelism for distributed MoE training
+• Create edge-cloud speculative decoding system
+• Implement sequence parallelism for long contexts
+• Build dynamic GPU allocation system
+• Implement gradient compression for communication efficiency
+• Analyze emerging trends and research directions
 
 **Learning Objectives:**
-• Understand federated learning architectures and protocols
-• Implement federated training algorithms
-• Deploy models on edge devices
-• Handle privacy and security in federated settings
-• Build edge-cloud hybrid systems
-• Optimize for edge constraints (compute, memory, power)
+• Understand MoE architectures and expert routing
+• Implement advanced parallelism strategies (hierarchical, sequence, expert)
+• Build hybrid edge-cloud coordination systems
+• Optimize costs with multi-tenant GPU sharing
+• Evaluate emerging technologies and research directions
+• Prepare for future trends in distributed AI
 
 **Key Topics:**
-• Federated learning fundamentals (FedAvg, FedProx, FedNova)
-• Privacy-preserving techniques (differential privacy, secure aggregation)
-• Non-IID data handling strategies
-• Edge computing architectures
-• Model optimization for edge (quantization, pruning, distillation)
-• Edge inference deployment
-• Edge-cloud coordination and offloading
-• Communication-efficient federated learning
-• Federated evaluation and monitoring
+• Mixture of Experts (MoE) architectures and scaling
+• Expert parallelism and load balancing
+• Hybrid edge-cloud coordination patterns
+• Speculative decoding with edge-cloud collaboration
+• Hierarchical parallelism (combining DP, TP, PP)
+• Sequence parallelism for long contexts
+• Dynamic resource allocation and multi-tenancy
+• Gradient compression and communication efficiency
+• Emerging research directions and future trends
 
 **Code Examples:**
-• Complete federated learning implementation with Flower
-• FedAvg algorithm from scratch
-• Differential privacy integration
-• Edge model deployment scripts (ONNX, TensorRT)
-• Edge inference server implementation
-• Edge-cloud communication protocols
-• Model quantization and pruning tools
-• Federated monitoring and evaluation scripts
+• MoE layer implementation with expert routing
+• Expert parallelism for distributed MoE
+• Edge-cloud speculative decoding
+• Sequence parallel attention
+• Hierarchical parallelism setup
+• Dynamic GPU allocator
+• Multi-tenant GPU scheduler
+• Gradient compression utilities
 
