@@ -1511,6 +1511,8 @@ docker buildx build \
 
 **Step 1: Create the Cluster**
 
+**Important:** You must use the custom `k3s-cuda` image built in the previous section. This image provides GPU support for the Kubernetes cluster nodes.
+
 Create a 2-node cluster (1 control-plane + 1 worker) with GPU support:
 
 ```bash
@@ -1537,6 +1539,7 @@ k3d cluster create mycluster-gpu \
   --agents 1
 
 # Note: CUDA version can be 12.2.0 or 12.4.1 (both tested and working)
+# The --image flag uses the k3s-cuda image you built in Step 3 above
 ```
 
 **Step 2: Configure kubectl**
@@ -1940,6 +1943,23 @@ kubectl run test-mount --image=busybox --rm -i --restart=Never -- \
 
 Create `vllm-phi-tiny-moe.yaml`:
 
+**Important Image Distinction:**
+
+There are **two different images** used in this setup:
+
+1. **Cluster Node Image** (`k3s-cuda:v1.33.6-cuda-12.2.0`): 
+   - Used when creating the k3d cluster with `--image k3s-cuda:...`
+   - Provides GPU support for Kubernetes nodes
+   - Built in "Step 3: Build the Custom Image" above
+   - This is the Kubernetes distribution image
+
+2. **Application Pod Image** (`vllm-dev:latest` or `vllm/vllm-openai:latest`):
+   - Used for the vLLM application container running inside pods
+   - Contains the vLLM Python application and dependencies
+   - This is your application runtime image
+
+**Use your custom built vLLM image** (`vllm-dev:latest`) which already has vLLM installed:
+
 ```yaml
 apiVersion: apps/v1
 kind: Deployment
@@ -1963,7 +1983,8 @@ spec:
       runtimeClassName: nvidia
       containers:
       - name: vllm-server
-        image: vllm/vllm-openai:latest
+        image: vllm-dev:latest  # ✅ Use your custom built image (recommended)
+        # Alternative: image: vllm/vllm-openai:latest  # Official vLLM image
         command:
         - python3
         - -m
@@ -1974,7 +1995,7 @@ spec:
         - --host
         - "0.0.0.0"
         - --port
-        - "8000"
+        - "9876"
         - --tensor-parallel-size
         - "1"
         - --gpu-memory-utilization
@@ -1990,7 +2011,7 @@ spec:
             nvidia.com/gpu: 1
             memory: 16Gi
         ports:
-        - containerPort: 8000
+        - containerPort: 9876
           name: http
         volumeMounts:
         - name: models
@@ -2015,8 +2036,8 @@ spec:
     app: vllm
     model: phi-tiny-moe
   ports:
-  - port: 8000
-    targetPort: 8000
+  - port: 9876
+    targetPort: 9876
     name: http
 ---
 apiVersion: v1
@@ -2032,8 +2053,8 @@ spec:
     app: vllm
     model: phi-tiny-moe
   ports:
-  - port: 8000
-    targetPort: 8000
+  - port: 9876
+    targetPort: 9876
     nodePort: 30081
     name: http
 ```
@@ -2062,13 +2083,13 @@ Once the pod is ready, test the OpenAI-compatible API. vLLM provides an OpenAI-c
 
 ```bash
 # Start port-forward in background
-kubectl port-forward svc/vllm-phi-tiny-moe-service 8000:8000 > /tmp/vllm-port-forward.log 2>&1 &
+kubectl port-forward svc/vllm-phi-tiny-moe-service 9876:9876 > /tmp/vllm-port-forward.log 2>&1 &
 
 # Wait a moment for port-forward to establish
 sleep 2
 
 # Test health endpoint
-curl --max-time 5 http://localhost:8000/health
+curl --max-time 5 http://localhost:9876/health
 
 # Expected response:
 # {"status":"ok"}
@@ -2078,7 +2099,7 @@ curl --max-time 5 http://localhost:8000/health
 
 ```bash
 # Simple completion request
-curl --max-time 30 http://localhost:8000/v1/completions \
+curl --max-time 30 http://localhost:9876/v1/completions \
   -H "Content-Type: application/json" \
   -d '{
     "model": "/models/Phi-tiny-MoE-instruct",
@@ -2088,7 +2109,7 @@ curl --max-time 30 http://localhost:8000/v1/completions \
   }'
 
 # Pretty-print JSON response
-curl --max-time 30 -s http://localhost:8000/v1/completions \
+curl --max-time 30 -s http://localhost:9876/v1/completions \
   -H "Content-Type: application/json" \
   -d '{
     "model": "/models/Phi-tiny-MoE-instruct",
@@ -2102,7 +2123,7 @@ curl --max-time 30 -s http://localhost:8000/v1/completions \
 
 ```bash
 # Chat completion (if model supports chat format)
-curl --max-time 30 http://localhost:8000/v1/chat/completions \
+curl --max-time 30 http://localhost:9876/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
     "model": "/models/Phi-tiny-MoE-instruct",
@@ -2114,7 +2135,7 @@ curl --max-time 30 http://localhost:8000/v1/chat/completions \
   }'
 
 # Multi-turn conversation
-curl --max-time 30 -s http://localhost:8000/v1/chat/completions \
+curl --max-time 30 -s http://localhost:9876/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
     "model": "/models/Phi-tiny-MoE-instruct",
@@ -2130,10 +2151,10 @@ curl --max-time 30 -s http://localhost:8000/v1/chat/completions \
 
 ```bash
 # List models endpoint
-curl --max-time 5 http://localhost:8000/v1/models
+curl --max-time 5 http://localhost:9876/v1/models
 
 # Expected response shows available models
-curl --max-time 5 -s http://localhost:8000/v1/models | python3 -m json.tool
+curl --max-time 5 -s http://localhost:9876/v1/models | python3 -m json.tool
 ```
 
 **Method 2: Access via NodePort**
@@ -2250,11 +2271,11 @@ For convenience, use the provided test script:
 
 ```bash
 # Make sure port-forward is running
-kubectl port-forward svc/vllm-phi-tiny-moe-service 8000:8000 > /tmp/vllm-port-forward.log 2>&1 &
+kubectl port-forward svc/vllm-phi-tiny-moe-service 9876:9876 > /tmp/vllm-port-forward.log 2>&1 &
 
 # Run the test script
 cd /home/fuhwu/workspace/distributedai/code/chapter9
-./test-vllm-api.sh http://localhost:8000
+./test-vllm-api.sh http://localhost:9876
 ```
 
 The script will test:
