@@ -1718,6 +1718,8 @@ spec:
             --trust-remote-code \
             --enable-chunked-prefill \
             --max-num-batched-tokens 1024 \
+            --gpu-memory-utilization 0.4 \
+            --kv-cache-memory-bytes 20G \
             --port 9876
         env:
         - name: HF_TOKEN
@@ -1759,6 +1761,8 @@ spec:
 **Key Configuration Points:**
 - **Image:** `vllm/vllm-openai:latest` - Official vLLM OpenAI-compatible API server
 - **Model:** `mistralai/Mistral-7B-Instruct-v0.3` - Downloaded from Hugging Face on first startup
+- **GPU Memory Utilization:** `0.4` (40% of GPU memory) - Adjust based on available GPU memory and other workloads
+- **KV Cache:** `20G` - Fixed KV cache size in absolute units (overrides percentage-based allocation)
 - **Shared Memory:** Required for tensor parallel inference (`/dev/shm` with 2Gi limit)
 - **Model Cache:** PVC stores downloaded models in `/root/.cache/huggingface`
 - **Health Probes:** Configured with 60s initial delay to allow model loading
@@ -1891,7 +1895,9 @@ args:
 
 **Issue: Out of memory errors**
 - Reduce model size or increase pod memory limits
-- Adjust `--gpu-memory-utilization` parameter (default 0.9)
+- Adjust `--gpu-memory-utilization` parameter (e.g., reduce from 0.4 to 0.2-0.3 if GPU is shared with other processes)
+- Reduce `--kv-cache-memory-bytes` (e.g., from `20G` to `10G` or `15G`)
+- Check available GPU memory: `nvidia-smi` on the host
 - Consider using a smaller model variant
 
 **Issue: Health probe failures**
@@ -1909,11 +1915,22 @@ args:
     --trust-remote-code \
     --enable-chunked-prefill \
     --max-num-batched-tokens 2048 \
-    --gpu-memory-utilization 0.95 \
+    --gpu-memory-utilization 0.4 \
+    --kv-cache-memory-bytes 20G \
     --max-model-len 4096 \
     --tensor-parallel-size 1 \
     --port 9876
 ```
+
+**Memory Configuration Notes:**
+- `--gpu-memory-utilization`: Fraction (0.0-1.0) of total GPU memory to use. Lower values (e.g., 0.4 = 40%) allow sharing GPU with other processes. For a 140GB GPU, 0.4 means ~56GB total allocation.
+- `--kv-cache-memory-bytes`: Absolute KV cache size in human-readable format (`20G`, `30G`, etc.). When specified, overrides percentage-based KV cache allocation from `gpu-memory-utilization`. Useful for precise memory control in multi-tenant environments.
+- **Memory breakdown example** (140GB GPU, 0.4 utilization, 20G KV cache):
+  - Total available: 56GB (0.4 × 140GB)
+  - Model weights: ~14GB (Mistral-7B)
+  - KV cache: 20GB (fixed)
+  - Remaining: ~22GB (for activations, batching, etc.)
+- **When to adjust**: Reduce `gpu-memory-utilization` to 0.2-0.3 if GPU is heavily shared. Reduce `kv-cache-memory-bytes` if you need more memory for other operations or have limited GPU memory.
 
 **Multi-GPU Configuration:**
 
@@ -2646,7 +2663,9 @@ args:
 - --tensor-parallel-size
 - "1"                    # Increase for multi-GPU
 - --gpu-memory-utilization
-- "0.9"                  # Fraction of GPU memory to use
+- "0.4"                  # Fraction (0.0-1.0) of GPU memory to use
+- --kv-cache-memory-bytes
+- "20G"                  # KV cache size in absolute units (20G, 30G, etc.)
 - --max-model-len
 - "4096"                 # Maximum sequence length
 - --dtype
@@ -2682,7 +2701,9 @@ resources:
 **Issue: Pod fails to start / OOM errors**
 
 - Increase memory limits: `memory: 64Gi` or higher
-- Reduce `--gpu-memory-utilization` (e.g., `0.8`)
+- Reduce `--gpu-memory-utilization` (e.g., from `0.4` to `0.2-0.3` for shared GPU environments)
+- Reduce `--kv-cache-memory-bytes` (e.g., from `20G` to `10G-15G`)
+- Check available GPU memory on host: `nvidia-smi` (ensure sufficient free memory)
 - Check model size vs. available GPU memory
 
 **Issue: Model not found**
