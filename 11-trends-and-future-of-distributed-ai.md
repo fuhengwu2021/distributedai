@@ -105,8 +105,7 @@ class MoELayer(nn.Module):
             # Find tokens assigned to this expert
             mask = (top_k_indices_flat == expert_id).any(dim=1)
             if mask.sum() == 0:
-                expert_outputs.append(None)
-                continue
+                continue  # Skip experts with no assigned tokens
             
             # Get tokens for this expert
             expert_tokens = x_flat[mask]
@@ -126,8 +125,7 @@ class MoELayer(nn.Module):
         # Combine expert outputs
         output = torch.zeros_like(x_flat)
         for expert_out, mask in expert_outputs:
-            if expert_out is not None:
-                output[mask] += expert_out
+            output[mask] += expert_out
         
         return output.view(batch_size, seq_len, d_model)
 ```
@@ -303,10 +301,20 @@ class EdgeCloudSpeculativeDecoding:
     Use small edge model to generate draft tokens,
     large cloud model to verify and accept/reject.
     """
-    def __init__(self, edge_model, cloud_model, max_draft_tokens=5):
+    def __init__(self, edge_model, cloud_model, tokenizer, max_draft_tokens=5):
         self.edge_model = edge_model  # Small, fast model
         self.cloud_model = cloud_model  # Large, accurate model
+        self.tokenizer = tokenizer  # Tokenizer for text processing
         self.max_draft_tokens = max_draft_tokens
+        self.eos_token = tokenizer.eos_token_id if hasattr(tokenizer, 'eos_token_id') else tokenizer.pad_token_id
+    
+    def tokenize(self, text):
+        """Tokenize text into token IDs"""
+        if hasattr(self.tokenizer, 'encode'):
+            return self.tokenizer.encode(text, return_tensors='pt')[0].tolist()
+        else:
+            # Fallback for simple tokenizers
+            return self.tokenizer(text)
     
     def generate(self, prompt, max_tokens=100):
         tokens = self.tokenize(prompt)
@@ -327,7 +335,7 @@ class EdgeCloudSpeculativeDecoding:
             
             generated.extend(verified_tokens)
             
-            if verified_tokens[-1] == self.eos_token:
+            if verified_tokens and verified_tokens[-1] == self.eos_token:
                 break
         
         return generated
@@ -594,7 +602,7 @@ class MultiTenantGPUScheduler:
         """Register a tenant"""
         self.tenant_queues[tenant_id] = []
         self.tenant_times[tenant_id] = 0
-        self.tenant_priorities = {tenant_id: priority}
+        self.tenant_priorities[tenant_id] = priority
     
     def schedule(self, current_time_ms):
         """
@@ -674,6 +682,30 @@ class GradientCompression:
         else:
             return gradients
     
+    def quantize_compress(self, gradients):
+        """Quantization-based compression"""
+        compressed = {}
+        for name, grad in gradients.items():
+            if grad is None:
+                continue
+            
+            # Quantize to 8-bit
+            grad_min = grad.min()
+            grad_max = grad.max()
+            scale = (grad_max - grad_min) / 255.0
+            
+            # Quantize
+            quantized = ((grad - grad_min) / scale).round().byte()
+            
+            compressed[name] = {
+                'quantized': quantized,
+                'min': grad_min,
+                'max': grad_max,
+                'shape': grad.shape
+            }
+        
+        return compressed
+    
     def topk_compress(self, gradients):
         """Top-k sparsification"""
         compressed = {}
@@ -700,10 +732,17 @@ class GradientCompression:
         """Decompress gradients"""
         gradients = {}
         for name, comp_data in compressed.items():
-            grad = torch.zeros(comp_data['shape'])
-            flat_grad = grad.flatten()
-            flat_grad[comp_data['indices']] = comp_data['values']
-            gradients[name] = grad
+            if self.method == 'quantization':
+                # Dequantize
+                scale = (comp_data['max'] - comp_data['min']) / 255.0
+                grad = comp_data['quantized'].float() * scale + comp_data['min']
+                gradients[name] = grad.reshape(comp_data['shape'])
+            else:
+                # Top-k decompression
+                grad = torch.zeros(comp_data['shape'])
+                flat_grad = grad.flatten()
+                flat_grad[comp_data['indices']] = comp_data['values']
+                gradients[name] = grad
         
         return gradients
 ```

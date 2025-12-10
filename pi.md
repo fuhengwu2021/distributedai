@@ -6,13 +6,13 @@
 
 (100 characters)
 
-Build scalable training, inference and serving systems for large AI models using production-ready distributed infrastructure
+Build scalable training, inference and serving systems for large AI models with production-ready distributed infrastructure
 
 ## Packtpub Metadescription
 
 (230 characters)
 
-Master distributed AI through hands-on experience with training frameworks, inference engines, and orchestration tools to build production-ready training and serving systems for modern large-scale AI.
+Master distributed AI through hands-on experience with training frameworks, inference engines, and orchestration tools to build production-ready training, inference and serving systems for modern large-scale AI.
 
 ## Key features
 
@@ -67,7 +67,7 @@ By the end of the book, you'll be equipped to build production distributed AI sy
 
 - Benchmark distributed systems using industry-standard methodologies
 
-- Explore emerging trends including MoE architectures and future directions
+- Explore emerging trends including new model architectures, distribution strategies and future directions
 
 ## Audience
 
