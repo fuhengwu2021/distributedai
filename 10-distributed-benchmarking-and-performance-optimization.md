@@ -2,7 +2,7 @@
 
 ## Overview
 
-This chapter teaches readers how to benchmark distributed training and inference systems rigorously using tools like genai-bench, MLPerf, and custom profiling scripts. It covers warmup methodology, scaling efficiency, network bottleneck identification, and performance analysis. By the end of this chapter, readers will be able to design reproducible benchmark experiments, identify performance bottlenecks, and optimize distributed systems effectively.
+This chapter teaches readers how to benchmark distributed training and inference systems rigorously using tools like genai-bench, MLPerf, and custom profiling scripts. It covers both **performance benchmarking** (throughput, latency, scaling efficiency) and **accuracy benchmarking** (model quality, output correctness). Topics include warmup methodology, scaling efficiency, network bottleneck identification, accuracy evaluation, and performance analysis. By the end of this chapter, readers will be able to design reproducible benchmark experiments, identify performance bottlenecks, evaluate model accuracy, and optimize distributed systems effectively.
 
 **Chapter Length:** 28 pages
 
@@ -358,6 +358,8 @@ print(f"Scaling efficiency: {efficiency:.1f}%")  # 81.25%
 ## 3. Inference Benchmarking with genai-bench
 
 Inference benchmarking has unique challenges: variable request patterns, caching effects, and tail latency requirements. genai-bench provides a comprehensive framework for benchmarking inference systems with realistic workloads.
+
+**Note:** This section covers the **performance benchmarking** tool from [sgl-project/genai-bench](https://github.com/sgl-project/genai-bench), which measures engineering metrics (throughput, latency, scaling). This is distinct from accuracy/quality benchmarking tools (e.g., [GenAI-Bench for text-to-visual evaluation](https://linzhiqiu.github.io/papers/genai_bench/)) that measure model output quality and alignment with prompts. This chapter focuses on performance optimization, not model accuracy evaluation.
 
 ### genai-bench Overview
 
@@ -737,7 +739,380 @@ Guidance:
 
 ---
 
-## 4. Network Bottleneck Diagnosis
+## 4. Accuracy and Quality Benchmarking
+
+While performance benchmarking measures speed, throughput, and efficiency, **accuracy benchmarking** evaluates the quality and correctness of model outputs. For distributed AI systems, accuracy benchmarking ensures that optimizations and scaling don't degrade model quality, and helps compare different models, configurations, and serving strategies.
+
+### Why Accuracy Benchmarking Matters
+
+**Key Reasons:**
+- **Quality Assurance:** Ensure distributed optimizations don't degrade model accuracy
+- **Model Comparison:** Fairly compare different models, quantization levels, or serving engines
+- **Regression Detection:** Catch accuracy regressions in CI/CD pipelines
+- **Optimization Trade-offs:** Understand accuracy vs performance trade-offs
+- **Production Validation:** Verify models meet quality requirements before deployment
+
+### Accuracy Metrics for LLMs
+
+**Text Generation Quality Metrics:**
+- **BLEU Score:** Measures n-gram overlap with reference text (common for translation)
+- **ROUGE Score:** Measures overlap of n-grams, longest common subsequence (common for summarization)
+- **METEOR:** Considers synonyms and word order
+- **BERTScore:** Semantic similarity using BERT embeddings
+- **Human Evaluation:** Gold standard but expensive (Likert scales, pairwise comparisons)
+
+**Task-Specific Metrics:**
+- **Classification Accuracy:** For classification tasks
+- **F1 Score:** For tasks with precision/recall trade-offs
+- **Exact Match (EM):** For question answering
+- **Code Execution Accuracy:** For code generation (run code and check output)
+
+**Compositional Reasoning Metrics:**
+- **VQAScore:** Uses VQA models to evaluate image-text alignment
+- **CLIPScore:** Measures image-text similarity using CLIP
+- **PickScore:** Human preference prediction for image generation
+- **HPSv2:** Human preference score for image quality
+
+### GenAI-Bench for Text-to-Visual Evaluation
+
+**GenAI-Bench** ([linzhiqiu.github.io/papers/genai_bench/](https://linzhiqiu.github.io/papers/genai_bench/)) is a comprehensive benchmark for evaluating compositional text-to-visual generation. Unlike performance benchmarks, it focuses on **model output quality** and alignment with complex prompts.
+
+**Key Features:**
+- **1,600 professionally-designed prompts** covering compositional reasoning
+- **Human ratings** (38,400+ ratings) for benchmarking automated metrics
+- **Compositional skills evaluation:** Objects, attributes, relationships, counting, logic, comparison
+- **Multiple model evaluation:** DALL-E 3, Stable Diffusion, Midjourney, Pika, Gen2, etc.
+- **VQAScore integration:** Automated evaluation metric that correlates well with human judgments
+
+**Compositional Skills Evaluated:**
+- **Basic Compositions:** Objects, scenes, attributes, spatial/action/part relationships
+- **Advanced Reasoning:** Counting, comparison, differentiation, logic (negation/universality)
+
+**Using VQAScore for Evaluation:**
+
+VQAScore uses a VQA (Visual Question Answering) model to evaluate image-text alignment:
+
+```python
+from transformers import AutoProcessor, AutoModelForVision2Seq
+import torch
+
+def compute_vqascore(image, prompt):
+    """
+    Compute VQAScore for image-prompt alignment.
+    
+    VQAScore = P("Yes" | image, question="Does the image match: {prompt}?")
+    """
+    # Load VQA model
+    processor = AutoProcessor.from_pretrained("model_name")
+    model = AutoModelForVision2Seq.from_pretrained("model_name")
+    
+    # Create question
+    question = f"Does the image match: {prompt}?"
+    
+    # Process inputs
+    inputs = processor(images=image, text=question, return_tensors="pt")
+    
+    # Get probability of "Yes"
+    with torch.no_grad():
+        outputs = model(**inputs)
+        # Extract probability of "Yes" answer
+        vqa_score = extract_yes_probability(outputs)
+    
+    return vqa_score
+
+# Example usage
+image = load_image("generated_image.png")
+prompt = "A red apple on a wooden table"
+score = compute_vqascore(image, prompt)
+print(f"VQAScore: {score:.3f}")  # Higher is better
+```
+
+**Improving Generation with VQAScore:**
+
+VQAScore can improve generation quality by selecting the best candidate from multiple generations:
+
+```python
+def generate_with_vqascore_selection(model, prompt, num_candidates=5):
+    """Generate multiple candidates and select best using VQAScore"""
+    candidates = []
+    scores = []
+    
+    # Generate multiple candidates
+    for _ in range(num_candidates):
+        image = model.generate(prompt)
+        score = compute_vqascore(image, prompt)
+        candidates.append(image)
+        scores.append(score)
+    
+    # Select highest scoring candidate
+    best_idx = np.argmax(scores)
+    return candidates[best_idx], scores[best_idx]
+
+# Usage
+best_image, best_score = generate_with_vqascore_selection(
+    model, 
+    "A red apple on a wooden table",
+    num_candidates=9
+)
+```
+
+### LLM Accuracy Benchmarking
+
+**Standard Benchmarks:**
+
+**1. GLUE (General Language Understanding Evaluation):**
+```python
+# Using Hugging Face Evaluate
+from evaluate import load
+
+glue = load("glue", "sst2")  # Sentiment classification
+results = glue.compute(predictions=predictions, references=references)
+print(f"Accuracy: {results['accuracy']:.3f}")
+```
+
+**2. SuperGLUE:**
+- More challenging tasks than GLUE
+- Includes reading comprehension, natural language inference, etc.
+
+**3. MMLU (Massive Multitask Language Understanding):**
+```python
+# MMLU evaluates knowledge across 57 tasks
+# Categories: STEM, humanities, social sciences, etc.
+def evaluate_mmlu(model, dataset):
+    """Evaluate model on MMLU benchmark"""
+    correct = 0
+    total = 0
+    
+    for example in dataset:
+        prompt = example['question']
+        choices = example['choices']
+        answer = model.generate(prompt, choices)
+        
+        if answer == example['answer']:
+            correct += 1
+        total += 1
+    
+    accuracy = correct / total
+    return accuracy
+```
+
+**4. HumanEval (Code Generation):**
+```python
+def evaluate_humaneval(model, problems):
+    """Evaluate code generation on HumanEval"""
+    results = []
+    
+    for problem in problems:
+        prompt = problem['prompt']
+        solution = model.generate_code(prompt)
+        
+        # Execute and test
+        passed = test_solution(solution, problem['test'])
+        results.append(passed)
+    
+    pass_rate = sum(results) / len(results)
+    return pass_rate
+```
+
+**5. HELM (Holistic Evaluation of Language Models):**
+- Comprehensive evaluation across multiple scenarios
+- Includes accuracy, robustness, fairness, efficiency
+
+### Custom Accuracy Benchmarking
+
+**Creating Custom Evaluation Scripts:**
+
+```python
+import json
+import numpy as np
+from typing import List, Dict
+from transformers import AutoTokenizer, AutoModelForCausalLM
+import torch
+
+class AccuracyBenchmark:
+    def __init__(self, model, tokenizer, dataset):
+        self.model = model
+        self.tokenizer = tokenizer
+        self.dataset = dataset
+        self.results = []
+    
+    def evaluate_classification(self, examples: List[Dict]):
+        """Evaluate classification accuracy"""
+        correct = 0
+        total = 0
+        
+        for example in examples:
+            prompt = example['input']
+            expected_label = example['label']
+            
+            # Generate prediction
+            inputs = self.tokenizer(prompt, return_tensors="pt")
+            with torch.no_grad():
+                outputs = self.model(**inputs)
+                predicted_label = self._extract_label(outputs)
+            
+            if predicted_label == expected_label:
+                correct += 1
+            total += 1
+        
+        accuracy = correct / total
+        return {
+            'accuracy': accuracy,
+            'correct': correct,
+            'total': total
+        }
+    
+    def evaluate_generation(self, examples: List[Dict], metric='bleu'):
+        """Evaluate text generation quality"""
+        scores = []
+        
+        for example in examples:
+            prompt = example['input']
+            reference = example['reference']
+            
+            # Generate
+            inputs = self.tokenizer(prompt, return_tensors="pt")
+            with torch.no_grad():
+                outputs = self.model.generate(**inputs, max_length=512)
+            generated = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
+            
+            # Compute metric
+            if metric == 'bleu':
+                score = compute_bleu(generated, reference)
+            elif metric == 'rouge':
+                score = compute_rouge(generated, reference)
+            elif metric == 'bertscore':
+                score = compute_bertscore(generated, reference)
+            
+            scores.append(score)
+        
+        return {
+            'mean_score': np.mean(scores),
+            'std_score': np.std(scores),
+            'scores': scores
+        }
+    
+    def evaluate_distributed_accuracy(self, num_gpus_list=[1, 2, 4, 8]):
+        """Compare accuracy across different distributed configurations"""
+        results = {}
+        
+        for num_gpus in num_gpus_list:
+            # Setup distributed model
+            model = setup_distributed_model(self.model, num_gpus)
+            
+            # Evaluate
+            accuracy = self.evaluate_classification(self.dataset)
+            results[num_gpus] = accuracy
+        
+        return results
+    
+    def _extract_label(self, outputs):
+        """Extract predicted label from model outputs"""
+        # Implementation depends on model architecture
+        logits = outputs.logits
+        predicted_id = torch.argmax(logits, dim=-1)
+        return predicted_id.item()
+
+# Usage
+benchmark = AccuracyBenchmark(model, tokenizer, dataset)
+results = benchmark.evaluate_classification(test_examples)
+print(f"Accuracy: {results['accuracy']:.3f}")
+```
+
+### Evaluating Distributed Training Accuracy
+
+**Ensuring Distributed Training Maintains Accuracy:**
+
+```python
+def compare_centralized_vs_distributed_accuracy(
+    model_centralized,
+    model_distributed,
+    test_dataset
+):
+    """Compare accuracy between centralized and distributed training"""
+    # Evaluate centralized model
+    acc_centralized = evaluate_model(model_centralized, test_dataset)
+    
+    # Evaluate distributed model
+    acc_distributed = evaluate_model(model_distributed, test_dataset)
+    
+    # Calculate accuracy drop
+    accuracy_drop = acc_centralized - acc_distributed
+    
+    print(f"Centralized accuracy: {acc_centralized:.4f}")
+    print(f"Distributed accuracy: {acc_distributed:.4f}")
+    print(f"Accuracy drop: {accuracy_drop:.4f}")
+    
+    if accuracy_drop > 0.01:  # More than 1% drop
+        print("⚠️ Warning: Significant accuracy drop detected!")
+    
+    return {
+        'centralized': acc_centralized,
+        'distributed': acc_distributed,
+        'drop': accuracy_drop
+    }
+```
+
+**Evaluating Quantization Impact:**
+
+```python
+def evaluate_quantization_impact(model_fp32, model_int8, test_dataset):
+    """Compare accuracy between FP32 and INT8 quantized models"""
+    acc_fp32 = evaluate_model(model_fp32, test_dataset)
+    acc_int8 = evaluate_model(model_int8, test_dataset)
+    
+    accuracy_drop = acc_fp32 - acc_int8
+    
+    return {
+        'fp32_accuracy': acc_fp32,
+        'int8_accuracy': acc_int8,
+        'drop': accuracy_drop,
+        'relative_drop': accuracy_drop / acc_fp32 * 100
+    }
+```
+
+### Best Practices for Accuracy Benchmarking
+
+**1. Use Representative Datasets:**
+- Test on production-like data distributions
+- Include edge cases and failure modes
+- Ensure sufficient sample size for statistical significance
+
+**2. Multiple Metrics:**
+- Don't rely on a single metric
+- Use task-appropriate metrics
+- Include human evaluation when possible
+
+**3. Baseline Comparison:**
+- Always compare against a baseline (previous model, centralized training, etc.)
+- Track accuracy over time to detect regressions
+
+**4. Statistical Significance:**
+```python
+from scipy import stats
+
+def compare_models_statistically(model1_scores, model2_scores):
+    """Test if accuracy difference is statistically significant"""
+    # Paired t-test
+    t_stat, p_value = stats.ttest_rel(model1_scores, model2_scores)
+    
+    if p_value < 0.05:
+        print(f"Statistically significant difference (p={p_value:.4f})")
+    else:
+        print(f"No significant difference (p={p_value:.4f})")
+    
+    return t_stat, p_value
+```
+
+**5. Document Everything:**
+- Dataset versions and splits
+- Evaluation methodology
+- Model versions and configurations
+- Random seeds used
+
+---
+
+## 5. Network Bottleneck Diagnosis
 
 Network bottlenecks are often the limiting factor in distributed training and inference. Identifying and diagnosing network issues requires understanding communication patterns, measuring bandwidth, and analyzing topology.
 
@@ -885,7 +1260,7 @@ def detect_topology():
 
 ---
 
-## 5. Scaling Efficiency and Optimization
+## 6. Scaling Efficiency and Optimization
 
 Scaling efficiency measures how well a system utilizes additional resources. Understanding scaling efficiency helps identify bottlenecks and guide optimization efforts.
 
@@ -1397,12 +1772,18 @@ By the end of this chapter, readers will be able to:
    - Generate Excel reports and plots for analysis
    - Measure latency metrics (TTFT - Time to First Token, E2E - End-to-End, TPOT - Time Per Output Token) with percentiles from experiment results
 
-4. **Identify communication bottlenecks**
+4. **Benchmark model accuracy and quality**
+   - Use standard benchmarks (GLUE, MMLU, HumanEval) for LLM evaluation
+   - Evaluate text-to-visual models with GenAI-Bench and VQAScore
+   - Compare accuracy across different distributed configurations
+   - Measure accuracy impact of quantization and optimizations
+
+5. **Identify communication bottlenecks**
    - Use network monitoring tools (iftop, nload)
    - Test NCCL communication patterns
    - Analyze topology impact on performance
 
-5. **Optimize distributed performance**
+6. **Optimize distributed performance**
    - Calculate and interpret scaling efficiency
    - Apply Amdahl's Law to understand limits
    - Implement optimization strategies based on bottleneck analysis
@@ -1411,15 +1792,17 @@ By the end of this chapter, readers will be able to:
 
 ## Summary
 
-This chapter has covered comprehensive benchmarking methodologies for distributed AI systems. Key takeaways:
+This chapter has covered comprehensive benchmarking methodologies for distributed AI systems, covering both performance and accuracy evaluation. Key takeaways:
 
 1. **Rigorous methodology:** Proper warmup, multiple runs, variance analysis
-2. **Right tools:** PyTorch profiler, Nsight, genai-bench CLI for different scenarios
-3. **Network matters:** Communication bottlenecks are common in distributed systems
-4. **Scaling efficiency:** Measure and optimize to maximize resource utilization
-5. **Reproducibility:** Document everything for fair comparisons
+2. **Right tools:** PyTorch profiler, Nsight, genai-bench CLI for performance; GLUE, MMLU, GenAI-Bench for accuracy
+3. **Dual benchmarking:** Both performance (speed, throughput) and accuracy (quality, correctness) are essential
+4. **Network matters:** Communication bottlenecks are common in distributed systems
+5. **Scaling efficiency:** Measure and optimize to maximize resource utilization
+6. **Accuracy preservation:** Ensure distributed optimizations don't degrade model quality
+7. **Reproducibility:** Document everything for fair comparisons
 
-Effective benchmarking is the foundation of performance optimization. Without accurate measurements, optimization efforts are blind. The tools and techniques covered in this chapter provide a solid foundation for understanding and improving distributed AI system performance.
+Effective benchmarking is the foundation of performance optimization and quality assurance. Without accurate measurements, optimization efforts are blind. The tools and techniques covered in this chapter provide a solid foundation for understanding and improving distributed AI system performance while maintaining model accuracy.
 
 ---
 
@@ -1429,16 +1812,27 @@ Effective benchmarking is the foundation of performance optimization. Without ac
 
 2. **Benchmark inference latency:** Use genai-bench CLI to benchmark an inference server with different traffic scenarios and concurrency levels. Generate Excel reports and plots to analyze TTFT, E2E latency, and TPOT metrics with percentiles (P50, P95, P99).
 
-3. **Analyze communication overhead:** Profile a distributed training job and identify what percentage of time is spent on communication vs computation.
+3. **Benchmark model accuracy:** Evaluate a model on a standard benchmark (e.g., MMLU or GLUE). Compare accuracy between centralized training, distributed training, and quantized versions. Use statistical tests to determine if accuracy differences are significant.
 
-4. **Optimize a bottleneck:** Identify a bottleneck in a distributed system and implement an optimization. Measure the improvement.
+4. **Analyze communication overhead:** Profile a distributed training job and identify what percentage of time is spent on communication vs computation.
+
+5. **Optimize a bottleneck:** Identify a bottleneck in a distributed system and implement an optimization. Measure both performance improvement and accuracy impact.
 
 ---
 
 ## Further Reading
 
-- genai-bench Documentation: https://github.com/genai-bench/genai-bench
+**Performance Benchmarking:**
+- genai-bench Documentation: https://github.com/sgl-project/genai-bench
 - PyTorch Profiler: https://pytorch.org/tutorials/recipes/recipes/profiler_recipe.html
 - Nsight Systems: https://developer.nvidia.com/nsight-systems
 - MLPerf: https://mlcommons.org/en/inference-edge-21/
 - Amdahl's Law: https://en.wikipedia.org/wiki/Amdahl%27s_law
+
+**Accuracy Benchmarking:**
+- GenAI-Bench (Text-to-Visual Evaluation): https://linzhiqiu.github.io/papers/genai_bench/
+- GLUE Benchmark: https://gluebenchmark.com/
+- MMLU Benchmark: https://github.com/hendrycks/test
+- HumanEval (Code Generation): https://github.com/openai/human-eval
+- HELM (Holistic Evaluation): https://crfm.stanford.edu/helm/
+- Hugging Face Evaluate: https://huggingface.co/docs/evaluate/
