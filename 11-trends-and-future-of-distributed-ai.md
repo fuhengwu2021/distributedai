@@ -243,6 +243,8 @@ class LoadBalancedMoE(nn.Module):
         return load_balance_loss
     
     def forward(self, x):
+        batch_size, seq_len, d_model = x.shape
+        
         router_logits = self.router(x)
         router_probs = torch.softmax(router_logits, dim=-1)
         
@@ -250,8 +252,37 @@ class LoadBalancedMoE(nn.Module):
         top_k_logits, top_k_indices = torch.topk(router_logits, k=self.top_k, dim=-1)
         top_k_probs = torch.softmax(top_k_logits, dim=-1)
         
-        # Process through experts (simplified)
-        # ... expert processing ...
+        # Flatten for processing
+        x_flat = x.view(-1, d_model)  # [batch*seq, d_model]
+        top_k_indices_flat = top_k_indices.view(-1, self.top_k)
+        top_k_probs_flat = top_k_probs.view(-1, self.top_k, 1)
+        
+        # Route to experts and process
+        output = torch.zeros_like(x_flat)
+        for expert_id in range(self.num_experts):
+            # Find tokens assigned to this expert
+            mask = (top_k_indices_flat == expert_id).any(dim=1)
+            if mask.sum() == 0:
+                continue
+            
+            # Get tokens for this expert
+            expert_tokens = x_flat[mask]
+            
+            # Get routing weights
+            expert_weights = top_k_probs_flat[mask]
+            expert_weights = expert_weights.squeeze(-1)
+            
+            # Process through expert
+            expert_out = self.experts[expert_id](expert_tokens)
+            
+            # Weight by routing probability
+            expert_out = expert_out * expert_weights.sum(dim=1, keepdim=True)
+            
+            # Accumulate output
+            output[mask] += expert_out
+        
+        # Reshape back to original shape
+        output = output.view(batch_size, seq_len, d_model)
         
         # Compute load balance loss
         load_balance_loss = self.compute_load_balance_loss(router_probs)
