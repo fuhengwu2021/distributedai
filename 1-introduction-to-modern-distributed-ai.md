@@ -91,7 +91,97 @@ The shift to distributed AI has enabled breakthrough capabilities—models that 
 
 ---
 
-## 2. Training vs Inference vs Serving
+## 2. Distributed Data Processing: Preparing Data at Scale
+
+Before you can train or serve models, you need to prepare your data. Modern AI models are trained on massive datasets—trillions of tokens for language models, billions of images for vision models, and petabytes of multimodal data. Processing and curating this data efficiently requires distributed systems, often before you even start thinking about model training.
+
+### The Data Preparation Challenge
+
+Training a large language model requires processing terabytes to petabytes of raw text data. The pipeline typically includes:
+
+- **Data ingestion**: Loading data from multiple sources (web crawls, databases, APIs)
+- **Cleaning and filtering**: Removing low-quality content, deduplication, language detection
+- **Quality assessment**: Scoring content for training value
+- **Formatting**: Converting to training-ready formats (tokenization, chunking)
+- **Storage**: Efficient storage and retrieval for distributed training
+
+A single-node approach would take weeks or months. For example, processing 8TB of text data for deduplication on a single machine might take days. With distributed processing across multiple nodes, this can be reduced to hours.
+
+### Distributed Data Processing Technologies
+
+Modern data curation tools leverage distributed computing frameworks to scale data processing:
+
+**Distributed Computing Frameworks:**
+- **Ray**: Distributed task execution framework that enables parallel processing across clusters
+- **Apache Spark**: Large-scale data processing with distributed dataframes
+- **Dask**: Parallel computing with task scheduling across multiple workers
+
+**GPU-Accelerated Processing:**
+- **RAPIDS (cuDF, cuML)**: GPU-accelerated dataframes and machine learning primitives
+- **GPU-accelerated deduplication**: Using GPU memory and compute for similarity calculations
+- **Parallel I/O**: Distributed file systems and object storage for high-throughput data access
+
+**Example: NVIDIA NeMo Curator**
+
+Tools like [NVIDIA NeMo Curator](https://github.com/NVIDIA-NeMo/Curator) demonstrate production-grade distributed data processing. Curator is a scalable data preprocessing and curation toolkit designed for large-scale AI model training. It showcases key distributed data processing patterns:
+
+- **Multi-node scaling**: Processes data across clusters, scaling from single machines to hundreds of nodes
+- **GPU acceleration**: Uses RAPIDS libraries (cuDF, cuML) for GPU-accelerated operations like deduplication and quality filtering
+- **Modular pipelines**: Composable data processing stages that can run in parallel
+- **Efficient I/O**: Optimized for distributed storage systems (S3, distributed file systems)
+
+**Real-world Performance:**
+- **16× faster** fuzzy deduplication on 8TB datasets compared to CPU-based alternatives
+- **Near-linear scaling** from 1 to 4 H100 nodes (2.05 hours → 0.50 hours)
+- **40% lower** total cost of ownership through GPU acceleration
+
+### Key Distributed Data Processing Patterns
+
+**1. Data Parallelism in Processing**
+- Split datasets across multiple workers
+- Each worker processes a shard independently
+- Aggregate results (e.g., deduplication requires cross-worker communication)
+
+**2. Pipeline Parallelism**
+- Stage-based processing: ingestion → cleaning → filtering → formatting
+- Different stages can run in parallel on different workers
+- Streaming data through the pipeline for memory efficiency
+
+**3. Distributed Storage and I/O**
+- Distributed file systems (HDFS, Lustre) or object storage (S3, GCS)
+- Parallel I/O to maximize bandwidth
+- Caching strategies to reduce redundant reads
+
+**4. Fault Tolerance**
+- Checkpointing intermediate results
+- Resumable processing pipelines
+- Handling worker failures gracefully
+
+### When Do You Need Distributed Data Processing?
+
+You need distributed data processing when:
+
+- **Dataset size exceeds single-node capacity**: Multi-terabyte datasets that don't fit in memory or take too long to process
+- **Processing time is a bottleneck**: Single-node processing would take days or weeks
+- **Cost optimization**: GPU-accelerated distributed processing can be more cost-effective than CPU-based single-node processing
+- **Real-time data pipelines**: Continuous data ingestion and processing for ongoing model training
+
+For smaller datasets (under 100GB) that fit comfortably in memory, single-node processing is often sufficient. But as datasets grow to terabytes and beyond, distributed processing becomes essential.
+
+### Integration with Training Pipelines
+
+Distributed data processing feeds into distributed training. The output of data curation—cleaned, deduplicated, and formatted datasets—becomes the input for distributed training systems. Understanding distributed data processing helps you:
+
+- **Design end-to-end pipelines**: From raw data to trained models
+- **Optimize data loading**: Efficient data sharding and loading for distributed training
+- **Handle large-scale datasets**: Process datasets that are too large for single nodes
+- **Reduce training time**: Faster data preparation means faster iteration cycles
+
+The distributed systems principles you learn in data processing—parallelism, fault tolerance, efficient I/O—apply directly to distributed training and inference.
+
+---
+
+## 3. Training vs Inference vs Serving
 
 Understanding the fundamental differences between training, inference, and serving is crucial for designing effective distributed systems. Each has distinct requirements, bottlenecks, and optimization strategies.
 
@@ -128,7 +218,7 @@ The key challenges are system reliability and uptime, multi-model routing and lo
 
 ---
 
-## 3. Decision Framework: When Do You Need Distributed Systems?
+## 4. Decision Framework: When Do You Need Distributed Systems?
 
 The question isn't whether distributed systems are cool—it's whether you actually need them. Distributed training adds complexity, communication overhead, and cost. Use it when you have to, not when you want to.
 
@@ -199,7 +289,7 @@ A research lab training a 1B model has a simpler setup. The model is only 2GB in
 
 ---
 
-## 4. PyTorch Distributed Fundamentals
+## 5. PyTorch Distributed Fundamentals
 
 Before diving into distributed training code, you need to understand the basic concepts and APIs that PyTorch provides. This section covers the essential building blocks that all distributed code relies on.
 
@@ -311,7 +401,7 @@ Third, call `sampler.set_epoch(epoch)` in your training loop. This ensures data 
 
 ---
 
-## 5. Quick Start: Your First Distributed Workloads
+## 6. Quick Start: Your First Distributed Workloads
 
 Now that you understand the basics, let's run some actual distributed training code. All examples in this section correspond to files in `code/chapter1/`.
 
