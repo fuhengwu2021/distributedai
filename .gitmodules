@@ -1,0 +1,21 @@
+[submodule "resources/intro_2_slurm"]
+	path = resources/intro_2_slurm
+	url = https://github.com/viktor1223/intro_2_slurm.git
+[submodule "resources/sgl-learning-materials"]
+	path = resources/sgl-learning-materials
+	url = https://github.com/sgl-project/sgl-learning-materials.git
+[submodule "resources/vllm"]
+	path = resources/vllm
+	url = https://github.com/vllm-project/vllm.git
+[submodule "resources/sglang2025"]
+	path = resources/sglang2025
+	url = https://github.com/sgl-project/sglang.git
+[submodule "resources/ome"]
+	path = resources/ome
+	url = https://github.com/sgl-project/ome.git
+[submodule "resources/k3d"]
+	path = resources/k3d
+	url = https://github.com/k3d-io/k3d.git
+[submodule "resources/slurm"]
+	path = resources/slurm
+	url = https://github.com/SchedMD/slurm.git
