@@ -1,0 +1,95 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-phi-tiny-moe
+  labels:
+    app: vllm
+    model: phi-tiny-moe
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vllm
+      model: phi-tiny-moe
+  template:
+    metadata:
+      labels:
+        app: vllm
+        model: phi-tiny-moe
+    spec:
+      runtimeClassName: nvidia
+      containers:
+      - name: vllm-server
+        image: vllm-dev:latest
+        command:
+        - python3
+        - -m
+        - vllm.entrypoints.openai.api_server
+        args:
+        - --model
+        - /models/Phi-tiny-MoE-instruct
+        - --host
+        - "0.0.0.0"
+        - --port
+        - "8000"
+        - --tensor-parallel-size
+        - "1"
+        - --gpu-memory-utilization
+        - "0.9"
+        env:
+        - name: CUDA_VISIBLE_DEVICES
+          value: "0"
+        resources:
+          limits:
+            nvidia.com/gpu: 1
+            memory: 32Gi
+          requests:
+            nvidia.com/gpu: 1
+            memory: 16Gi
+        ports:
+        - containerPort: 8000
+          name: http
+        volumeMounts:
+        - name: models
+          mountPath: /models
+          readOnly: true
+      volumes:
+      - name: models
+        hostPath:
+          path: /models
+          type: Directory
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-phi-tiny-moe-service
+  labels:
+    app: vllm
+    model: phi-tiny-moe
+spec:
+  type: ClusterIP
+  selector:
+    app: vllm
+    model: phi-tiny-moe
+  ports:
+  - port: 8000
+    targetPort: 8000
+    name: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-phi-tiny-moe-nodeport
+  labels:
+    app: vllm
+    model: phi-tiny-moe
+spec:
+  type: NodePort
+  selector:
+    app: vllm
+    model: phi-tiny-moe
+  ports:
+  - port: 8000
+    targetPort: 8000
+    nodePort: 30081
+    name: http

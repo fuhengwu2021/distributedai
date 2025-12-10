@@ -1346,14 +1346,7 @@ Verify NVIDIA drivers are installed:
 nvidia-smi
 ```
 
-If not installed, install drivers for your system:
-
-```bash
-# Ubuntu/Debian
-sudo apt-get update
-sudo apt-get install -y nvidia-driver-535  # or newer version
-sudo reboot
-```
+If not installed, install drivers for your system.
 
 **2. NVIDIA Container Toolkit**
 
@@ -1490,8 +1483,8 @@ export DOCKER_BUILDKIT=1
 # Build the image
 docker build \
   --build-arg K3S_TAG=v1.33.6-k3s1 \
-  --build-arg CUDA_TAG=12.4.1-base-ubuntu22.04 \
-  -t k3s-cuda:v1.33.6-cuda-12.4.1 \
+  --build-arg CUDA_TAG=12.2.0-base-ubuntu22.04 \
+  -t k3s-cuda:v1.33.6-cuda-12.2.0 \
   .
 
 # Verify the image
@@ -1504,12 +1497,14 @@ docker images | grep k3s-cuda
 # Install buildx
 docker buildx version || docker plugin install --grant-all-permissions moby/buildx
 
-# Use buildx for building
+# Use buildx for building (recommended)
 docker buildx build \
   --build-arg K3S_TAG=v1.33.6-k3s1 \
-  --build-arg CUDA_TAG=12.4.1-base-ubuntu22.04 \
-  -t k3s-cuda:v1.33.6-cuda-12.4.1 \
+  --build-arg CUDA_TAG=12.2.0-base-ubuntu22.04 \
+  -t k3s-cuda:v1.33.6-cuda-12.2.0 \
   --load .
+
+# Note: CUDA 12.4.1 also works, but 12.2.0 is tested and recommended
 ```
 
 ### Creating a 2-Node GPU Cluster
@@ -1521,26 +1516,27 @@ Create a 2-node cluster (1 control-plane + 1 worker) with GPU support:
 ```bash
 # Option 1: Use all available GPUs
 k3d cluster create mycluster-gpu \
-  --image k3s-cuda:v1.33.6-cuda-12.4.1 \
+  --image k3s-cuda:v1.33.6-cuda-12.2.0 \
   --gpus=all \
   --servers 1 \
   --agents 1
 
-# Option 2: Use specific GPUs (e.g., GPU 4 and 5)
+# Option 2: Use all GPUs + mount model directory (for vLLM deployment)
 k3d cluster create mycluster-gpu \
-  --image k3s-cuda:v1.33.6-cuda-12.4.1 \
+  --image k3s-cuda:v1.33.6-cuda-12.2.0 \
+  --gpus=all \
+  --servers 1 \
+  --agents 1 \
+  --volume /raid/models:/models
+
+# Option 3: Use specific GPUs (e.g., GPU 4 and 5)
+k3d cluster create mycluster-gpu \
+  --image k3s-cuda:v1.33.6-cuda-12.2.0 \
   --gpus "device=4,5" \
   --servers 1 \
   --agents 1
 
-# Option 3: Allocate different GPUs to different nodes
-# First create cluster without GPUs
-k3d cluster create mycluster-gpu \
-  --image k3s-cuda:v1.33.6-cuda-12.4.1 \
-  --servers 1 \
-  --agents 1
-
-# Then add GPUs when creating nodes (note: GPU assignment must be at cluster creation)
+# Note: CUDA version can be 12.2.0 or 12.4.1 (both tested and working)
 ```
 
 **Step 2: Configure kubectl**
@@ -1552,6 +1548,21 @@ Set up kubeconfig to access the cluster:
 k3d kubeconfig merge mycluster-gpu --kubeconfig-merge-default
 
 # Verify access
+export KUBECONFIG=$HOME/.kube/config
+kubectl get nodes
+```
+
+**Note:** If you see errors like `The connection to the server localhost:8080 was refused`, the kubeconfig may have an incorrect server address. Fix it:
+
+```bash
+# Check current server address
+kubectl config view -o jsonpath='{.clusters[?(@.name=="k3d-mycluster-gpu")].cluster.server}'
+
+# If it shows 0.0.0.0, update to 127.0.0.1
+KUBE_SERVER=$(kubectl config view -o jsonpath='{.clusters[?(@.name=="k3d-mycluster-gpu")].cluster.server}')
+kubectl config set-cluster k3d-mycluster-gpu --server=$(echo $KUBE_SERVER | sed 's/0.0.0.0/127.0.0.1/')
+
+# Verify again
 kubectl get nodes
 ```
 
@@ -1565,11 +1576,14 @@ k3d-mycluster-gpu-agent-0    Ready    <none>          25s   v1.33.6+k3s1
 
 **Step 3: Verify GPU Visibility**
 
-Check if GPUs are visible to Kubernetes:
+The NVIDIA device plugin is automatically deployed by the custom k3s image (via the manifest in `/var/lib/rancher/k3s/server/manifests/`). Check if GPUs are visible to Kubernetes:
 
 ```bash
-# Wait for device plugin to be ready
+# Wait for device plugin to be ready (it should start automatically)
 kubectl wait --for=condition=ready pod -l name=nvidia-device-plugin-ds -n kube-system --timeout=120s
+
+# Verify device plugin pods are running
+kubectl get pods -n kube-system | grep nvidia
 
 # Check GPU resources on nodes
 kubectl describe node k3d-mycluster-gpu-server-0 | grep nvidia.com/gpu
@@ -1739,6 +1753,11 @@ kubectl wait --for=condition=Ready pod -l app=inference-server --timeout=120s
 
 # Check pod status
 kubectl get pods -l app=inference-server
+
+# Note: The Python server inside the pod needs time to install packages and start
+# Wait an additional 60-90 seconds after pod is Ready, then check logs:
+kubectl logs -l app=inference-server | tail -5
+# You should see "GPU Inference Server running on port 8000" when ready
 ```
 
 **Step 3: Access the Service**
@@ -1746,14 +1765,18 @@ kubectl get pods -l app=inference-server
 Set up port-forward to access the service:
 
 ```bash
+# Ensure pod is fully started (wait for Python server to be ready)
+sleep 60  # Give time for apt-get and Python server startup
+
 # Port-forward in background
-kubectl port-forward svc/inference-server-service 8000:8000 &
+kubectl port-forward svc/inference-server-service 8000:8000 > /tmp/port-forward.log 2>&1 &
+sleep 3  # Wait for port-forward to establish
 
 # Test health endpoint
-curl --max-time 5 http://localhost:8000/health
+curl --max-time 3 http://localhost:8000/health
 
 # Test GPU endpoint
-curl --max-time 5 http://localhost:8000/gpu
+curl --max-time 3 http://localhost:8000/gpu
 ```
 
 Expected responses:
@@ -1826,8 +1849,20 @@ nvidia-smi --query-gpu=index,gpu_name --format=csv
 **Issue: Port-forward not working**
 
 - Ensure the pod is fully started (check logs: `kubectl logs -l app=inference-server`)
+- Wait for Python server to finish installing packages and start listening (60-90 seconds after pod is Ready)
+- Verify server is listening inside pod: `kubectl exec <pod-name> -- curl -s http://localhost:8000/health`
 - Restart port-forward: `pkill -f "port-forward"` then recreate
-- Use NodePort as alternative access method
+- Use NodePort as alternative access method (more reliable)
+
+**Issue: kubectl connection refused (localhost:8080)**
+
+- The kubeconfig may have an incorrect server address pointing to `localhost:8080`
+- Fix by updating the server address:
+  ```bash
+  KUBE_SERVER=$(kubectl config view -o jsonpath='{.clusters[?(@.name=="k3d-mycluster-gpu")].cluster.server}')
+  kubectl config set-cluster k3d-mycluster-gpu --server=$(echo $KUBE_SERVER | sed 's/0.0.0.0/127.0.0.1/')
+  ```
+- Ensure `export KUBECONFIG=$HOME/.kube/config` is set
 
 **Issue: Build fails with "unknown flag: --exclude"**
 
@@ -1844,14 +1879,539 @@ To remove the cluster:
 k3d cluster delete mycluster-gpu
 
 # Remove custom image (optional)
-docker rmi k3s-cuda:v1.33.6-cuda-12.4.1
+docker rmi k3s-cuda:v1.33.6-cuda-12.2.0
+```
+
+### Serving Local Models with vLLM
+
+To serve a model from your local filesystem (e.g., `/raid/models/Phi-tiny-MoE-instruct/`), you need to:
+
+1. **Mount the model directory** into the k3d cluster
+2. **Deploy vLLM** with the mounted model path
+3. **Expose the service** for API access
+
+**Step 1: Ensure Cluster Has Model Volume Mount**
+
+The model directory must be accessible to pods. **Important:** When using k3d, the `hostPath` in your pod YAML must point to the path **inside the k3d node container**, not the host path.
+
+**Create Cluster with Volume Mount:**
+
+```bash
+# Delete existing cluster (if it exists)
+k3d cluster delete mycluster-gpu 2>/dev/null || true
+
+# Create cluster with model directory mounted
+# The --volume flag mounts /raid/models (host) to /models (inside node)
+k3d cluster create mycluster-gpu \
+  --image k3s-cuda:v1.33.6-cuda-12.4.1 \
+  --gpus=all \
+  --servers 1 \
+  --agents 1 \
+  --volume /raid/models:/models
+
+# Verify mount by checking inside the node container
+docker exec k3d-mycluster-gpu-server-0 ls -la /models/Phi-tiny-MoE-instruct/ | head -5
+```
+
+**Important Note on hostPath:**
+
+In your pod YAML, use `/models` (the path inside the k3d node) as the hostPath, **not** `/raid/models`:
+
+```yaml
+volumes:
+- name: models
+  hostPath:
+    path: /models        # ✅ Correct: path inside k3d node
+    type: Directory
+    # NOT /raid/models  # ❌ Wrong: this path doesn't exist in the node container
+```
+
+**Verify Volume Access:**
+
+```bash
+# Test by creating a temporary pod
+kubectl run test-mount --image=busybox --rm -i --restart=Never -- \
+  ls -la /models/Phi-tiny-MoE-instruct/ 2>&1 | head -5
+
+# Should show model files if volume mount is correct
+```
+
+**Step 2: Create vLLM Deployment**
+
+Create `vllm-phi-tiny-moe.yaml`:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-phi-tiny-moe
+  labels:
+    app: vllm
+    model: phi-tiny-moe
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vllm
+      model: phi-tiny-moe
+  template:
+    metadata:
+      labels:
+        app: vllm
+        model: phi-tiny-moe
+    spec:
+      runtimeClassName: nvidia
+      containers:
+      - name: vllm-server
+        image: vllm/vllm-openai:latest
+        command:
+        - python3
+        - -m
+        - vllm.entrypoints.openai.api_server
+        args:
+        - --model
+        - /models/Phi-tiny-MoE-instruct
+        - --host
+        - "0.0.0.0"
+        - --port
+        - "8000"
+        - --tensor-parallel-size
+        - "1"
+        - --gpu-memory-utilization
+        - "0.9"
+        env:
+        - name: CUDA_VISIBLE_DEVICES
+          value: "0"
+        resources:
+          limits:
+            nvidia.com/gpu: 1
+            memory: 32Gi
+          requests:
+            nvidia.com/gpu: 1
+            memory: 16Gi
+        ports:
+        - containerPort: 8000
+          name: http
+        volumeMounts:
+        - name: models
+          mountPath: /models
+          readOnly: true
+      volumes:
+      - name: models
+        hostPath:
+          path: /models
+          type: Directory
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-phi-tiny-moe-service
+  labels:
+    app: vllm
+    model: phi-tiny-moe
+spec:
+  type: ClusterIP
+  selector:
+    app: vllm
+    model: phi-tiny-moe
+  ports:
+  - port: 8000
+    targetPort: 8000
+    name: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-phi-tiny-moe-nodeport
+  labels:
+    app: vllm
+    model: phi-tiny-moe
+spec:
+  type: NodePort
+  selector:
+    app: vllm
+    model: phi-tiny-moe
+  ports:
+  - port: 8000
+    targetPort: 8000
+    nodePort: 30081
+    name: http
+```
+
+**Step 3: Deploy vLLM**
+
+```bash
+# Apply the deployment
+kubectl apply -f vllm-phi-tiny-moe.yaml
+
+# Wait for pod to be ready (this may take a few minutes as vLLM loads the model)
+kubectl wait --for=condition=Ready pod -l app=vllm,model=phi-tiny-moe --timeout=600s
+
+# Check pod status
+kubectl get pods -l app=vllm,model=phi-tiny-moe
+
+# View logs to see model loading progress
+kubectl logs -f -l app=vllm,model=phi-tiny-moe
+```
+
+**Step 4: Test the vLLM API**
+
+Once the pod is ready, test the OpenAI-compatible API. vLLM provides an OpenAI-compatible API server.
+
+**Method 1: Port-Forward (Recommended for Local Testing)**
+
+```bash
+# Start port-forward in background
+kubectl port-forward svc/vllm-phi-tiny-moe-service 8000:8000 > /tmp/vllm-port-forward.log 2>&1 &
+
+# Wait a moment for port-forward to establish
+sleep 2
+
+# Test health endpoint
+curl --max-time 5 http://localhost:8000/health
+
+# Expected response:
+# {"status":"ok"}
+```
+
+**Test Completions Endpoint:**
+
+```bash
+# Simple completion request
+curl --max-time 30 http://localhost:8000/v1/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "/models/Phi-tiny-MoE-instruct",
+    "prompt": "What is machine learning?",
+    "max_tokens": 100,
+    "temperature": 0.7
+  }'
+
+# Pretty-print JSON response
+curl --max-time 30 -s http://localhost:8000/v1/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "/models/Phi-tiny-MoE-instruct",
+    "prompt": "Explain neural networks in one sentence.",
+    "max_tokens": 50,
+    "temperature": 0.5
+  }' | python3 -m json.tool
+```
+
+**Test Chat Completions Endpoint:**
+
+```bash
+# Chat completion (if model supports chat format)
+curl --max-time 30 http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "/models/Phi-tiny-MoE-instruct",
+    "messages": [
+      {"role": "user", "content": "Hello, how are you?"}
+    ],
+    "max_tokens": 100,
+    "temperature": 0.7
+  }'
+
+# Multi-turn conversation
+curl --max-time 30 -s http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "/models/Phi-tiny-MoE-instruct",
+    "messages": [
+      {"role": "system", "content": "You are a helpful assistant."},
+      {"role": "user", "content": "What is the capital of France?"}
+    ],
+    "max_tokens": 50
+  }' | python3 -m json.tool
+```
+
+**List Available Models:**
+
+```bash
+# List models endpoint
+curl --max-time 5 http://localhost:8000/v1/models
+
+# Expected response shows available models
+curl --max-time 5 -s http://localhost:8000/v1/models | python3 -m json.tool
+```
+
+**Method 2: Access via NodePort**
+
+```bash
+# Get node IP
+NODE_IP=$(kubectl get node k3d-mycluster-gpu-server-0 -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}')
+echo "Node IP: $NODE_IP"
+
+# Test health endpoint via NodePort
+curl --max-time 5 http://$NODE_IP:30081/health
+
+# Test completions via NodePort
+curl --max-time 30 http://$NODE_IP:30081/v1/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "/models/Phi-tiny-MoE-instruct",
+    "prompt": "What is AI?",
+    "max_tokens": 50
+  }'
+```
+
+**Method 3: Direct Pod Access (For Debugging)**
+
+```bash
+# Get pod name
+POD_NAME=$(kubectl get pod -l app=vllm,model=phi-tiny-moe -o jsonpath='{.items[0].metadata.name}')
+
+# Port-forward directly to pod
+kubectl port-forward pod/$POD_NAME 8001:8000 > /tmp/pod-port-forward.log 2>&1 &
+
+# Test
+curl --max-time 5 http://localhost:8001/health
+```
+
+**Complete Testing Script:**
+
+Create a test script `test-vllm-api.sh`:
+
+```bash
+#!/bin/bash
+set -e
+
+API_URL="${1:-http://localhost:8000}"
+echo "Testing vLLM API at: $API_URL"
+echo ""
+
+# Test health
+echo "1. Testing health endpoint..."
+curl --max-time 5 -s "$API_URL/health" | python3 -m json.tool || echo "Health check failed"
+echo ""
+
+# List models
+echo "2. Listing available models..."
+curl --max-time 5 -s "$API_URL/v1/models" | python3 -m json.tool || echo "List models failed"
+echo ""
+
+# Test completion
+echo "3. Testing completion endpoint..."
+curl --max-time 30 -s "$API_URL/v1/completions" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "/models/Phi-tiny-MoE-instruct",
+    "prompt": "What is machine learning?",
+    "max_tokens": 50,
+    "temperature": 0.7
+  }' | python3 -m json.tool || echo "Completion failed"
+echo ""
+
+# Test chat (if supported)
+echo "4. Testing chat completion endpoint..."
+curl --max-time 30 -s "$API_URL/v1/chat/completions" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "/models/Phi-tiny-MoE-instruct",
+    "messages": [
+      {"role": "user", "content": "Hello!"}
+    ],
+    "max_tokens": 30
+  }' | python3 -m json.tool || echo "Chat completion failed"
+```
+
+Make it executable and run:
+
+```bash
+chmod +x test-vllm-api.sh
+
+# Test via port-forward
+./test-vllm-api.sh http://localhost:8000
+
+# Or test via NodePort
+NODE_IP=$(kubectl get node k3d-mycluster-gpu-server-0 -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}')
+./test-vllm-api.sh http://$NODE_IP:30081
+```
+
+**Step 5: Monitor GPU Usage**
+
+Check GPU utilization:
+
+```bash
+# Exec into pod and check nvidia-smi
+kubectl exec -it $(kubectl get pod -l app=vllm,model=phi-tiny-moe -o jsonpath='{.items[0].metadata.name}') -- nvidia-smi
+
+# Or check from host
+nvidia-smi
+
+# Monitor GPU usage in real-time
+watch -n 1 nvidia-smi
+```
+
+**Quick Test Script:**
+
+For convenience, use the provided test script:
+
+```bash
+# Make sure port-forward is running
+kubectl port-forward svc/vllm-phi-tiny-moe-service 8000:8000 > /tmp/vllm-port-forward.log 2>&1 &
+
+# Run the test script
+cd /home/fuhwu/workspace/distributedai/code/chapter9
+./test-vllm-api.sh http://localhost:8000
+```
+
+The script will test:
+1. Health endpoint
+2. List models endpoint
+3. Completion endpoint
+4. Chat completion endpoint (if supported)
+
+**Example API Responses:**
+
+**Health Check:**
+```json
+{"status":"ok"}
+```
+
+**List Models:**
+```json
+{
+  "object": "list",
+  "data": [
+    {
+      "id": "/models/Phi-tiny-MoE-instruct",
+      "object": "model",
+      "created": 1234567890,
+      "owned_by": "vllm"
+    }
+  ]
+}
+```
+
+**Completion Response:**
+```json
+{
+  "id": "cmpl-abc123",
+  "object": "text_completion",
+  "created": 1234567890,
+  "model": "/models/Phi-tiny-MoE-instruct",
+  "choices": [
+    {
+      "text": "Machine learning is a subset of artificial intelligence...",
+      "index": 0,
+      "finish_reason": "length"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 5,
+    "completion_tokens": 50,
+    "total_tokens": 55
+  }
+}
+```
+
+### Advanced vLLM Configuration
+
+For production use, you may want to adjust vLLM parameters:
+
+```yaml
+args:
+- --model
+- /models/Phi-tiny-MoE-instruct
+- --host
+- "0.0.0.0"
+- --port
+- "8000"
+- --tensor-parallel-size
+- "1"                    # Increase for multi-GPU
+- --gpu-memory-utilization
+- "0.9"                  # Fraction of GPU memory to use
+- --max-model-len
+- "4096"                 # Maximum sequence length
+- --dtype
+- "auto"                 # Auto-detect dtype
+- --enable-prefix-caching
+- "true"                 # Enable prefix caching
+- --max-num-seqs
+- "256"                  # Maximum concurrent sequences
+- --max-num-batched-tokens
+- "8192"                 # Maximum batched tokens
+```
+
+**Multi-GPU Configuration:**
+
+For models that need multiple GPUs:
+
+```yaml
+args:
+- --tensor-parallel-size
+- "2"                    # Use 2 GPUs
+env:
+- name: CUDA_VISIBLE_DEVICES
+  value: "0,1"           # Specify GPU IDs
+resources:
+  limits:
+    nvidia.com/gpu: 2    # Request 2 GPUs
+  requests:
+    nvidia.com/gpu: 2
+```
+
+### Troubleshooting vLLM Deployment
+
+**Issue: Pod fails to start / OOM errors**
+
+- Increase memory limits: `memory: 64Gi` or higher
+- Reduce `--gpu-memory-utilization` (e.g., `0.8`)
+- Check model size vs. available GPU memory
+
+**Issue: Model not found**
+
+- Verify volume mount: `kubectl describe pod <pod-name> | grep -A 5 Mounts`
+- Check model path: `kubectl exec <pod-name> -- ls -la /models/`
+- Ensure cluster was created with `--volume /raid/models:/models`
+- **Important:** In pod YAML, use `path: /models` (not `/raid/models`) as the hostPath points to the path inside the k3d node container
+- Test volume access: `docker exec k3d-mycluster-gpu-server-0 ls -la /models/Phi-tiny-MoE-instruct/`
+
+**Issue: vLLM fails with "libcuda.so.1: cannot open shared object file"**
+
+- This indicates the pod cannot access GPU devices
+- Ensure you're using the **custom k3s image** with NVIDIA Container Toolkit: `k3s-cuda:v1.33.6-cuda-12.2.0`
+- Verify `runtimeClassName: nvidia` is set in the pod spec
+- Check that NVIDIA device plugin is running: `kubectl get pods -n kube-system | grep nvidia`
+- If using standard k3s image, GPU workloads will not work - you must build and use the custom CUDA-enabled image
+
+**Issue: Slow model loading**
+
+- This is normal for large models (can take 2-5 minutes)
+- Monitor logs: `kubectl logs -f <pod-name>`
+- Check disk I/O: `iostat -x 1`
+
+**Issue: API returns errors**
+
+- Verify model is fully loaded (check logs for "Uvicorn running on")
+- Test health endpoint first: `curl http://localhost:8000/health`
+- Check pod logs for specific error messages
+
+**Issue: Custom k3s image fails during cluster creation**
+
+- If you see "exec /usr/bin/sh: no such file or directory" when creating cluster with custom image, the custom image is missing `/usr/bin/sh` which k3d needs for exec operations
+- **Root cause:** The custom k3s-cuda image was built from CUDA base and may not have included all necessary shell binaries
+- **Solutions:**
+  1. **Fix the custom image:** Ensure `/usr/bin/sh` (or symlink to `/bin/sh`) exists in the custom image
+  2. **Use standard k3s:** Use `rancher/k3s:v1.33.6-k3s1` and manually configure NVIDIA runtime (complex)
+  3. **Use production K8s:** Use kubeadm, k0s, or managed Kubernetes for full GPU support
+  4. **Workaround:** If you have a working custom image, ensure it includes: `/bin/sh`, `/usr/bin/sh`, and basic shell utilities
+
+**Note:** If using your own custom vLLM image (e.g., `vllm-dev:latest`), update the deployment YAML:
+
+```yaml
+containers:
+- name: vllm-server
+  image: vllm-dev:latest  # Use your custom image instead of vllm/vllm-openai:latest
 ```
 
 ### Next Steps
 
 With a working GPU-enabled Kubernetes cluster, you can:
 
-1. **Deploy vLLM:** Use the patterns from earlier sections to deploy vLLM for LLM inference
+1. **Deploy vLLM:** Use the patterns above to deploy vLLM for LLM inference
 2. **Scale workloads:** Test horizontal pod autoscaling with GPU workloads
 3. **Multi-model serving:** Deploy multiple model instances with different GPU allocations
 4. **Production patterns:** Practice canary deployments, A/B testing, and observability
