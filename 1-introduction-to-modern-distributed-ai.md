@@ -6,7 +6,7 @@
 
 Modern AI models have grown beyond what single GPUs can handle. Large language models now range from several billion to over a trillion parameters. Training models with tens of billions of parameters on a single GPU would take months, if they even fit in memory. Serving these models at scale requires distributed architectures.
 
-This chapter covers resource estimation, decision frameworks for choosing between distributed training, fine-tuning, or inference, and practical examples to get started. The focus is on making informed decisions and running distributed workloads effectively.
+This chapter covers resource estimation, decision frameworks for choosing between distributed training, fine-tuning, or inference, and practical examples to get started. Focus on making informed decisions and running distributed workloads effectively.
 
 ---
 
@@ -88,7 +88,7 @@ Don't forget the overhead. PyTorch adds 1-2 GB. The OS needs 5-10 GB. Distribute
 
 Classic machine learning models were designed to fit on a single machine. Traditional ML models - such as linear regression, logistic regression, decision trees, random forests, support vector machines (SVM), and gradient boosting (XGBoost, LightGBM) - typically had thousands to millions of parameters and were trained on datasets that fit in memory. The deep learning era brought models with hundreds of millions of parameters (e.g., ResNet, BERT), requiring GPUs but still manageable on single devices. Today's foundation model era has models with billions to trillions of parameters (e.g., GPT-4, Gemini, LLaMA), requiring distributed systems from day one.
 
-The shift to distributed AI has enabled breakthrough capabilities - models that can understand and generate human-like text, code, and multimodal content. It has also driven enterprise adoption, with companies deploying AI at scale for production workloads, and accelerated research through faster iteration cycles enabled by parallel experimentation.
+The shift to distributed AI enabled breakthrough capabilities - models that can understand and generate human-like text, code, and multimodal content. It also drove enterprise adoption, with companies deploying AI at scale for production workloads, and accelerated research through faster iteration cycles enabled by parallel experimentation.
 
 ---
 
@@ -115,7 +115,7 @@ Then you deploy. Set up autoscaling, scheduling, load balancing, observability. 
 Production feedback tells you what data to collect next, or where the model fails. You loop back to data engineering. The cycle repeats.
 
 
-This book focuses on the distributed technologies you need for training, inference, benchmarking, and deployment. Data engineering gets a brief overview but isn't the main focus. Distributed data processing is important, but it's a well-established topic. Spark, Dask, and Ray have been around for years. This book covers the basics - what you need to know to prepare data for distributed training - but the real focus is on the AI-specific distributed challenges: training large models, serving them at scale, and optimizing inference.
+This book focuses on the distributed technologies you need for training, inference, benchmarking, and deployment. Data engineering gets a brief overview but isn't the main focus. Distributed data processing is important, but it's a well-established topic. Spark, Dask, and Ray have been around for years. This book covers the basics - what you need to know to prepare data for distributed training - but the real focus is on AI-specific distributed challenges: training large models, serving them at scale, and optimizing inference.
 
 The principles are the same across all stages: parallelism, communication, memory management, fault tolerance. But the techniques differ. Training is iterative with frequent gradient syncs. Inference is latency-sensitive with throughput requirements.
 
@@ -135,7 +135,7 @@ A single-node approach would take weeks or months. Processing 8TB of text data f
 
 Modern data curation tools use distributed computing frameworks to scale. Ray lets you run tasks in parallel across clusters. Apache Spark handles large-scale data processing with distributed dataframes. Dask schedules tasks across multiple workers.
 
-For GPU acceleration, RAPIDS (cuDF, cuML) provides GPU-accelerated dataframes and machine learning primitives. GPU-accelerated deduplication uses GPU memory and compute for similarity calculations. Parallel I/O with distributed file systems and object storage maximizes throughput.
+For GPU acceleration, RAPIDS (cuDF, cuML) gives you GPU-accelerated dataframes and machine learning primitives. GPU-accelerated deduplication uses GPU memory and compute for similarity calculations. Parallel I/O with distributed file systems and object storage maximizes throughput.
 
 Take [NVIDIA NeMo Curator](https://github.com/NVIDIA-NeMo/Curator) as an example. It's a scalable data preprocessing and curation toolkit for large-scale AI model training. It processes data across clusters, scaling from single machines to hundreds of nodes. It uses RAPIDS libraries (cuDF, cuML) for GPU-accelerated operations like deduplication and quality filtering. It has modular pipelines - composable data processing stages that run in parallel. It's optimized for distributed storage systems like S3.
 
@@ -159,7 +159,7 @@ For smaller datasets (under 100GB) that fit comfortably in memory, single-node p
 
 ### Integration with Training Pipelines
 
-Distributed data processing feeds into distributed training. The output of data curation - cleaned, deduplicated, and formatted datasets - becomes the input for distributed training systems. Understanding distributed data processing helps you design end-to-end pipelines from raw data to trained models. You can optimize data loading with efficient data sharding and loading for distributed training. You can handle large-scale datasets that are too large for single nodes. Faster data preparation means faster iteration cycles.
+Distributed data processing feeds into distributed training. The output of data curation - cleaned, deduplicated, and formatted datasets - becomes the input for distributed training systems. This helps you design end-to-end pipelines from raw data to trained models. You can optimize data loading with efficient data sharding and loading for distributed training. You can handle large-scale datasets that are too large for single nodes. Faster data preparation means faster iteration cycles.
 
 The distributed systems principles you learn in data processing - parallelism, fault tolerance, efficient I/O - apply directly to distributed training and inference.
 
@@ -167,15 +167,15 @@ The distributed systems principles you learn in data processing - parallelism, f
 
 ## 4. Training vs Inference vs Serving
 
-Understanding the fundamental differences between training, inference, and serving is crucial for designing effective distributed systems. Each has distinct requirements, bottlenecks, and optimization strategies.
+Training, inference, and serving are different. Each has different requirements, bottlenecks, and optimization strategies. Know these differences to design effective distributed systems.
 
 ### Training: The Learning Phase
 
 Training is about learning model parameters from data. The process follows a pattern: forward pass through the model, loss computation, backward pass to compute gradients, and gradient update to adjust parameters. This happens iteratively over multiple epochs until the model converges.
 
-Training requires storing activations, gradients, and optimizer states in memory. The compute is intensive and iterative. In distributed training, you need frequent gradient synchronization across devices to keep all model copies consistent. The main challenges are gradient synchronization overhead, memory constraints for large models, long training times that can span days to weeks, and the need for fault tolerance and checkpointing.
+Training requires storing activations, gradients, and optimizer states in memory. The compute is intensive and iterative. In distributed training, you need frequent gradient synchronization across devices to keep all model copies consistent. The challenges are gradient synchronization overhead, memory constraints for large models, long training times that can span days to weeks, and the need for fault tolerance and checkpointing.
 
-Training a 7B parameter model on 1 trillion tokens typically requires 8 A100 GPUs (80GB each) and about 2 weeks of continuous training. Careful gradient synchronization is needed to maintain training stability across all GPUs.
+Training a 7B parameter model on 1 trillion tokens typically requires 8 A100 GPUs (80GB each) and about 2 weeks of continuous training. You need careful gradient synchronization to maintain training stability across all GPUs.
 
 ### Inference: The Prediction/Generation Phase
 
@@ -187,7 +187,7 @@ The challenges are latency (sub-second for interactive apps), throughput (thousa
 
 Serving is about providing reliable, scalable access to models. It's not just running inference - it's building a production system with a model runner, API gateway, load balancer, and monitoring. The requirements are high availability, fault tolerance, and observability. At scale, you're dealing with multi-model, multi-tenant systems.
 
-The key challenges are system reliability and uptime, multi-model routing and load balancing, cost optimization through GPU utilization and autoscaling, and observability for debugging. A production LLM serving platform might include multiple model variants (different sizes, fine-tuned versions), A/B testing infrastructure, canary deployment pipelines, and distributed tracing and monitoring.
+The challenges are system reliability and uptime, multi-model routing and load balancing, cost optimization through GPU utilization and autoscaling, and observability for debugging. A production LLM serving platform might include multiple model variants (different sizes, fine-tuned versions), A/B testing infrastructure, canary deployment pipelines, and distributed tracing and monitoring.
 
 ### Comparison Table
 
@@ -236,7 +236,7 @@ The model doesn't fit. A 70B model in FP16 needs 140GB just for weights. With KV
 
 Throughput exceeds single GPU capacity. If you need to serve thousands of requests per second, a single GPU won't cut it. A chat application with 10,000 concurrent users needs multiple GPUs or nodes.
 
-You need low latency at high throughput. Real-time services need sub-second latency while handling many requests. This often requires tensor parallelism or multiple inference instances.
+You need low latency at high throughput. Real-time services need sub-second latency while handling many requests. That often requires tensor parallelism or multiple inference instances.
 
 When is single-GPU inference enough? If the model fits with room for KV cache, throughput is within single GPU capacity, latency requirements are met, and cost favors single-GPU deployment, stick with one GPU. Use optimized engines like vLLM or SGLang to maximize utilization.
 
@@ -263,19 +263,19 @@ Start: What is your use case?
 
 ### Real-World Examples
 
-Consider a startup training a 7B model. The model size is 14GB in FP16, and they have one A100 with 80GB. The model fits with room for training overhead, so a single GPU is sufficient. They use mixed precision and gradient checkpointing if needed.
+A startup training a 7B model: model size is 14GB in FP16, they have one A100 with 80GB. The model fits with room for training overhead, so a single GPU is sufficient. They use mixed precision and gradient checkpointing if needed.
 
-An enterprise fine-tuning a 70B model faces a different situation. The model size is 140GB in FP16, exceeding a single GPU's capacity. With 4 A100 GPUs available, they need distributed fine-tuning. They use FSDP or model parallelism, and might consider QLoRA to reduce memory requirements.
+An enterprise fine-tuning a 70B model: model size is 140GB in FP16, exceeding a single GPU's capacity. With 4 A100 GPUs available, they need distributed fine-tuning. They use FSDP or model parallelism, and might consider QLoRA to reduce memory requirements.
 
-For production inference with a 13B model, the requirements are 1000 requests per second with less than 500ms latency. The model size is 26GB in FP16. With 2 A100 GPUs, distributed inference is needed to meet the throughput requirement. They use vLLM with tensor parallelism or multiple instances.
+Production inference with a 13B model: requirements are 1000 requests per second with less than 500ms latency. Model size is 26GB in FP16. With 2 A100 GPUs, distributed inference is needed to meet the throughput requirement. They use vLLM with tensor parallelism or multiple instances.
 
-A research lab training a 1B model has a simpler setup. The model is only 2GB in FP16, the dataset is 100GB, and they have one RTX 4090 with 24GB. The model and data fit comfortably, so a single GPU is sufficient. They use a standard training pipeline.
+A research lab training a 1B model: model is only 2GB in FP16, dataset is 100GB, they have one RTX 4090 with 24GB. The model and data fit comfortably, so a single GPU is sufficient. They use a standard training pipeline.
 
 ---
 
 ## 6. PyTorch Distributed Fundamentals
 
-Before diving into distributed training code, you need to understand the basic concepts and APIs that PyTorch provides. This section covers the essential building blocks that all distributed code relies on.
+Before writing distributed training code, you need the basic concepts and APIs that PyTorch provides. Here are the essential building blocks that all distributed code relies on.
 
 ### Process Groups and Ranks
 
@@ -296,7 +296,7 @@ for i in range(torch.cuda.device_count()):
 
 ### Initializing the Process Group
 
-Before any distributed operations, you must initialize the process group. This tells PyTorch how processes should communicate. The most common backend for GPU training is NCCL (NVIDIA Collective Communications Library).
+Before any distributed operations, initialize the process group. This tells PyTorch how processes should communicate. The most common backend for GPU training is NCCL (NVIDIA Collective Communications Library).
 
 Here's the basic initialization pattern:
 
@@ -312,7 +312,7 @@ def setup(rank, world_size):
     torch.cuda.set_device(rank)  # Set which GPU this process uses
 ```
 
-The simplest test to verify your distributed setup works is in `code/chapter1/ch01_distributed_basic_test.py`. This is a basic distributed test that verifies process group initialization and communication. It doesn't use DDP - it just tests that multiple processes can communicate.
+The simplest test to verify your distributed setup works is in `code/chapter1/ch01_distributed_basic_test.py`. It's a basic distributed test that verifies process group initialization and communication. It doesn't use DDP - it just tests that multiple processes can communicate.
 
 For multi-GPU testing:
 ```bash
@@ -325,13 +325,13 @@ For single-GPU simulation (useful for testing without multiple GPUs), use `code/
 CUDA_VISIBLE_DEVICES=0 torchrun --nproc_per_node=2 code/chapter1/ch01_multi_gpu_simulation.py
 ```
 
-When you run either script, you should see "Rank 0 says hello" and "Rank 1 says hello" printed from different processes. The single-GPU simulation mode is helpful for testing distributed code logic before running on actual multi-GPU setups.
+When you run either script, you should see "Rank 0 says hello" and "Rank 1 says hello" printed from different processes. Single-GPU simulation mode is helpful for testing distributed code logic before running on actual multi-GPU setups.
 
 ### DistributedDataParallel (DDP)
 
 DDP is PyTorch's way of wrapping a model for distributed training. When you wrap a model with DDP, PyTorch automatically handles gradient synchronization across all processes. Each process computes gradients on its local data, then DDP averages these gradients across all processes before updating the model.
 
-The key insight is that DDP assumes each process has a complete copy of the model. The model itself isn't split - only the data is partitioned. Each process trains on a different subset of the data, but all processes maintain identical model parameters after each training step.
+DDP assumes each process has a complete copy of the model. The model itself isn't split - only the data is partitioned. Each process trains on a different subset of the data, but all processes maintain identical model parameters after each training step.
 
 Here's how you wrap a model:
 
@@ -346,7 +346,7 @@ After wrapping, you use the model exactly as you would in single-GPU training. D
 
 ### DistributedSampler
 
-Since each process should train on different data, you need a DistributedSampler. It splits the dataset so each process gets a unique subset. Without it, all processes would see the same data, defeating the purpose of distributed training.
+Each process should train on different data, so you need a DistributedSampler. It splits the dataset so each process gets a unique subset. Without it, all processes see the same data, defeating the purpose of distributed training.
 
 ```python
 from torch.utils.data import DataLoader, DistributedSampler
@@ -359,23 +359,23 @@ sampler = DistributedSampler(
 dataloader = DataLoader(dataset, batch_size=32, sampler=sampler)
 ```
 
-Important: you must call `sampler.set_epoch(epoch)` at the start of each epoch to ensure data shuffling works correctly across epochs.
+You must call `sampler.set_epoch(epoch)` at the start of each epoch to ensure data shuffling works correctly across epochs.
 
 ### Launching Distributed Jobs
 
-You can launch distributed training in two ways. The modern approach uses `torchrun`, which handles process spawning automatically:
+You can launch distributed training in two ways. The modern approach uses `torchrun`, which handles process spawning automatically.
 
 ```bash
 torchrun --nproc_per_node=2 code/chapter1/ch01_multi_gpu_ddp.py
 ```
 
-This launches 2 processes on the current machine. For multi-node training, you'd specify `--nnodes`, `--node_rank`, and `--master_addr` as well.
+This launches 2 processes on the current machine. For multi-node training, specify `--nnodes`, `--node_rank`, and `--master_addr` as well.
 
 The alternative is using `torch.multiprocessing.spawn()` directly in your code, which is what `ch01_multi_gpu_ddp.py` does internally.
 
 ### Common Pitfalls
 
-There are several mistakes that trip up beginners. The code in `code/chapter1/ch01_ddp_pitfalls.py` shows the wrong and right ways:
+Several mistakes trip up beginners. The code in `code/chapter1/ch01_ddp_pitfalls.py` shows the wrong and right ways:
 
 First, all processes must use the same `MASTER_PORT`. If each process uses a different port, they can't communicate. Set it once before initialization, not per-process.
 
@@ -387,13 +387,13 @@ Third, call `sampler.set_epoch(epoch)` in your training loop. This ensures data 
 
 ## 7. Quick Start: Your First Distributed Workloads
 
-Now that you understand the basics, let's run some actual distributed training code. All examples in this section correspond to files in `code/chapter1/`.
+Let's run some actual distributed training code. All examples in this section correspond to files in `code/chapter1/`.
 
 **Note:** All commands in this section should be run from the book root directory (where the `code/` folder is located).
 
 ### Prerequisites Check
 
-First, verify your environment using `code/chapter1/ch01_check_cuda.py`:
+Verify your environment using `code/chapter1/ch01_check_cuda.py`:
 
 ```python
 import torch
@@ -413,7 +413,7 @@ for i in range(torch.cuda.device_count()):
 
 **File:** `code/chapter1/ch01_single_gpu_baseline.py`
 
-Before comparing distributed training, establish a single-GPU baseline. This script trains a simple model on one GPU and measures training time and memory usage. Run it to get baseline metrics:
+Establish a single-GPU baseline before comparing distributed training. This script trains a simple model on one GPU and measures training time and memory usage. Run it to get baseline metrics:
 
 ```bash
 python code/chapter1/ch01_single_gpu_baseline.py
@@ -425,7 +425,7 @@ This gives you a reference point for comparing distributed training performance.
 
 **File:** `code/chapter1/ch01_multi_gpu_ddp.py`
 
-This is a complete distributed training example using DDP. It includes proper setup, DistributedSampler usage, and cleanup. The code shows the full pattern you'll use in real training jobs.
+A complete distributed training example using DDP. It includes proper setup, DistributedSampler usage, and cleanup. The code shows the full pattern you'll use in real training jobs.
 
 **Run it:**
 ```bash
@@ -437,7 +437,6 @@ bash code/chapter1/ch01_launch_torchrun.sh
 ```
 
 The launch script contains the torchrun command with proper arguments, making it easier to run distributed training.
-```
 
 Compare the training time with your single-GPU baseline. You should see a speedup, though not perfectly linear due to communication overhead.
 
@@ -445,7 +444,7 @@ Compare the training time with your single-GPU baseline. You should see a speedu
 
 **File:** `code/chapter1/ch01_profiling.py`
 
-When you need to understand where time and memory are spent, use profiling. The `ch01_profiling.py` script demonstrates how to use PyTorch's profiler to measure CUDA operations and memory usage. Run it to see detailed timing and memory breakdowns:
+When you need to see where time and memory are spent, use profiling. The `ch01_profiling.py` script shows how to use PyTorch's profiler to measure CUDA operations and memory usage. Run it to see detailed timing and memory breakdowns:
 
 ```bash
 # Run from the book root directory
@@ -458,9 +457,9 @@ Compare the single-GPU baseline (`ch01_single_gpu_baseline.py`) with multi-GPU t
 
 The `code/chapter1/` directory also contains utility scripts:
 
-- `ch01_gpu_friendly_config.py`: Shows recommended GPU-friendly configuration settings for batch size, precision, and gradient checkpointing.
+- `ch01_gpu_friendly_config.py`: Recommended GPU-friendly configuration settings for batch size, precision, and gradient checkpointing.
 - `ch01_measure_components.py`: Helper function to measure time spent in data loading, computation, and communication separately.
-- `ch01_ddp_pitfalls.py`: Examples of common mistakes and their correct implementations.
+- `ch01_ddp_pitfalls.py`: Common mistakes and their correct implementations.
 
 ### Launching Distributed Jobs
 
@@ -505,40 +504,17 @@ if rank == 0:
 
 ## Key Takeaways
 
-Before moving to the next chapter, remember:
-
-1. **Estimate resources first:** Use the formulas in this chapter to calculate memory and compute requirements before starting
-2. **Make informed decisions:** Use the decision framework to determine if you need distributed systems for your use case
-3. **Start simple:** Begin with single-GPU solutions, then scale when necessary
-4. **Profile before optimizing:** Measure actual bottlenecks before making changes
-5. **Use the right approach:** Training, fine-tuning, and inference have different requirements and optimization strategies
+Estimate resources first. Use the formulas in this chapter to calculate memory and compute requirements before starting. Make informed decisions using the decision framework to determine if you need distributed systems for your use case. Start simple - begin with single-GPU solutions, then scale when necessary. Profile before optimizing - measure actual bottlenecks before making changes. Use the right approach - training, fine-tuning, and inference have different requirements and optimization strategies.
 
 ---
 
 ## Summary
 
-This chapter has helped you understand when and how to use distributed AI systems. We've covered:
+This chapter covered when and how to use distributed AI systems. You learned resource estimation - formulas and methods to calculate memory and compute requirements for models. You got a decision framework - clear guidelines for determining when you need distributed training, fine-tuning, or inference. You saw quick start examples - practical, runnable code for distributed training, fine-tuning, and inference. You learned the fundamental differences between training, inference, and serving.
 
-1. **Resource estimation:** Formulas and methods to calculate memory and compute requirements for models
-2. **Decision framework:** Clear guidelines for determining when you need distributed training, fine-tuning, or inference
-3. **Quick start examples:** Practical, runnable code for distributed training, fine-tuning, and inference
-4. **Understanding workloads:** The fundamental differences between training, inference, and serving
+The most important lesson: estimate first, decide second, then implement. Don't assume you need distributed systems - calculate your requirements and make an informed decision.
 
-The most important lesson is to **estimate first, decide second, then implement**. Don't assume you need distributed systems - calculate your requirements and make an informed decision.
-
-In the next chapter, we'll dive deeper into GPU hardware, networking, and parallelism strategies, building on the foundation established here.
-
----
-
-## Exercises
-
-1. **Profile a simple model:** Create a small transformer model and profile its memory and compute usage. Identify the largest memory consumers and slowest operations.
-
-2. **Compare single vs multi-GPU:** Run the same training job on 1 GPU and 2 GPUs. Measure the speedup and identify any bottlenecks.
-
-3. **Analyze communication overhead:** Add timing measurements to a DDP training script to measure how much time is spent on gradient synchronization.
-
-4. **Design a distributed system:** For a given model size and dataset, design a distributed training setup including number of GPUs, parallelism strategy, and expected training time.
+The next chapter dives deeper into GPU hardware, networking, and parallelism strategies, building on the foundation established here.
 
 ---
 
