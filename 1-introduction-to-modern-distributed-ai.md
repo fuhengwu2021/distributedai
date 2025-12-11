@@ -49,15 +49,105 @@ The mismatch is clear: model size and compute requirements have grown exponentia
 
 Before you start training or deploying, you need to know how much memory and compute you'll need. Get this wrong, and you'll hit out-of-memory errors or waste money on over-provisioned infrastructure.
 
-The memory footprint depends on what you're storing. For model weights alone, the calculation is straightforward. Each parameter in FP32 takes 4 bytes, FP16/BF16 takes 2 bytes, Int8 takes 1 byte, and Int4 takes 0.5 bytes. For a 7B parameter model, that's 28 GB in FP32, 14 GB in FP16, 7 GB in Int8, and 3.5 GB in Int4.
+The memory footprint depends on what you're storing. For model weights alone, the calculation is straightforward. Each parameter in FP32 takes 4 bytes, FP16/BF16 takes 2 bytes, Int8 takes 1 byte, and Int4 takes 0.5 bytes. For a 7B parameter model, that's 28 GB in FP32, 14 GB in BF16 (or FP16), 7 GB in Int8, and 3.5 GB in Int4.
+
+**Note on precision:** For training, BF16 (bfloat16) is preferred over FP16 (float16). BF16 has the same exponent range as FP32 (8 bits) but reduced mantissa (7 bits), giving it the same dynamic range as FP32. This makes training more stable - less likely to overflow or underflow. FP16 has a smaller exponent range (5 bits), which can cause numerical issues during training. Modern GPUs (A100, H100) have Tensor Cores optimized for BF16. For inference, both FP16 and BF16 work, but BF16 is still preferred for consistency with training.
 
 But model weights are just the start. During training, you also need space for gradients, optimizer states, and activations. For inference, you need KV cache for attention mechanisms. The total memory requirement can be several times larger than just the model weights.
 
 #### Training Memory Requirements
 
-Training needs way more memory than inference. You're storing model weights, gradients (one per parameter), optimizer states, and activations from the forward pass. With Adam optimizer, you need 2× the model size for optimizer states (momentum and variance). SGD is lighter - just the learning rate. Activations depend on batch size and sequence length, but typically add 8-16 GB for a 7B model.
+Training needs way more memory than inference. You're storing model weights, gradients (one per parameter), optimizer states, and activations from the forward pass. The optimizer state size depends on which optimizer you use.
 
-Training a 7B model with FP16 requires about 14 GB for model weights, another 14 GB for gradients, 28 GB for optimizer states with Adam, and 8-16 GB for activations. That's 64-72 GB total per GPU. That's why a 7B model needs at least an A100 (80GB) for training, even with mixed precision. Smaller GPUs won't cut it.
+**SGD:**
+
+$$
+w_{t+1} = \boxed{w_t} - \eta  \boxed{g_t}
+$$
+
+SGD only needs the learning rate $\eta$ (a scalar) to update parameters. Looking at the formula, you compute $g_t$ during backprop, then subtract $\eta g_t$ from $w_t$. The optimizer state is just $\eta$ - negligible memory. You need to store $w_t$ (model weights) and $g_t$ (gradients), but no additional optimizer tensors.
+
+**Adam:**
+
+$$
+w_{t+1} = \boxed{w_t} - \eta
+\frac{\beta_1 \boxed{m_{t-1}} + (1-\beta_1) \boxed{g_t}}{\sqrt{\beta_2 \boxed{v_{t-1}} + (1-\beta_2) \boxed{g_t}^2} + \epsilon}
+\cdot
+\frac{\sqrt{1-\beta_2^t}}{1-\beta_1^t}
+$$
+
+Adam needs more. The formula shows it maintains two per-parameter tensors: $m_{t-1}$ (first-moment estimate) and $v_{t-1}$ (second-moment estimate). Both $m_{t-1}$ and $v_{t-1}$ have the same shape as $w_t$ - one value per parameter. So Adam stores $m_{t-1}$ (1× model size) and $v_{t-1}$ (1× model size), totaling 2× model size for optimizer states. 
+
+$\beta_1$ and $\beta_2$ are hyperparameters - scalar constants (typically $\beta_1=0.9$, $\beta_2=0.999$). You store them once as configuration, not per parameter. Same with $\eta$ (learning rate) and $\epsilon$ - they're scalars, negligible memory. Only tensors with the same shape as $w_t$ (one value per parameter) need significant memory: $w_t$, $g_t$, $m_{t-1}$, and $v_{t-1}$.
+
+That's why Adam needs 2× the model size for optimizer states compared to SGD's near-zero overhead.
+
+**When optimizers are used:**
+
+The training loop follows this sequence: (1) forward pass - compute predictions and loss, storing activations; (2) backward pass - compute gradients $g_t$ for all parameters; (3) optimizer step - use the optimizer to update parameters from $w_t$ to $w_{t+1}$ using gradients $g_t$. 
+
+The optimizer is called after backpropagation completes. At that point, you have gradients $g_t$ for all parameters. The optimizer uses these gradients (and its internal state like $m_{t-1}$ and $v_{t-1}$ for Adam) to compute parameter updates. After the optimizer step, you have updated parameters $w_{t+1}$ ready for the next iteration. The optimizer states ($m_{t-1}$, $v_{t-1}$ for Adam) persist across iterations - they're updated during each optimizer step and stored for the next iteration.
+
+**Memory overlap during training:**
+
+Activations, gradients, and optimizer states don't all overlap at the same time. Here's the timeline:
+
+- **Forward pass**: Only activations in memory (no gradients yet, optimizer states persist but aren't actively used)
+- **Backward pass**: Activations and gradients overlap (you need activations to compute gradients, and gradients accumulate as you go backward)
+- **Optimizer step**: Gradients and optimizer states overlap (optimizer uses gradients and its states to update parameters). Activations are typically freed after backward pass completes, so they don't overlap with optimizer states.
+
+The peak memory occurs during backward pass when both activations and gradients are in memory simultaneously. After backward pass, activations can be freed, so optimizer step only needs gradients and optimizer states.
+
+
+```python
+for epoch in range(num_epochs):
+    model.train()                         # set to training mode
+    for x_batch, y_batch in dataloader:   # iterate over batches
+        optimizer.zero_grad()             # 1. clear gradients
+        y_hat = model(x_batch)            # 2. forward pass
+        loss = criterion(y_hat, y_batch)  # 3. compute loss
+        loss.backward()                   # 4. backward pass
+        optimizer.step()                  # 5. update parameters
+```
+
+![Training Memory Timeline](code/chapter1/training_memory_timeline.png)
+
+**Memory timeline mapped to code:**
+
+The timeline shows memory usage across the training loop. Here's how each stage maps to the code:
+
+- **Line 2 (`y_hat = model(x_batch)`) - Forward Pass**: During forward pass, activations are computed and stored. Memory: weights (14 GB) + optimizer states (28 GB) + activations (12 GB) = 54 GB. Gradients don't exist yet.
+
+- **Line 4 (`loss.backward()`) - Backward Pass**: This is where peak memory occurs. During backpropagation, you need both activations (to compute gradients) and gradients (being computed). Memory: weights (14 GB) + optimizer states (28 GB) + activations (12 GB) + gradients (14 GB) = 68 GB. This is the peak because activations and gradients overlap in memory.
+
+- **Line 5 (`optimizer.step()`) - Optimizer Step**: After backward pass completes, activations can be freed. The optimizer uses gradients and its internal states to update parameters. Memory: weights (14 GB) + optimizer states (28 GB) + gradients (14 GB) = 56 GB. Activations are no longer needed.
+
+The peak memory of 68 GB occurs during `loss.backward()` (line 4) when both activations and gradients are simultaneously in memory. This is why reducing batch size or using gradient checkpointing helps when you hit out-of-memory errors - they reduce activation memory during the backward pass.
+
+**Why activations need memory:**
+
+Activation layers (like ReLU, GELU, sigmoid) don't have parameters - they're just functions applied element-wise. But their outputs need to be stored in memory during training. 
+
+During the forward pass, you compute and store all layer activation outputs. During backpropagation, you compute gradients layer by layer from the last layer backward. For each layer, you need its activation outputs to compute gradients. Once you've computed a layer's gradient and updated its parameters, you can free that layer's activation outputs - they're no longer needed. However, during the backward pass, there's overlap: while computing gradients for one layer, you still have activation outputs from earlier layers in memory. The peak memory occurs when you have both activations (from forward pass) and gradients (from backward pass) simultaneously.
+
+In practice, activations and gradients do overlap in memory during backpropagation. The activation memory scales with batch size and sequence length - larger batches or longer sequences mean more activation outputs to store. Techniques like gradient checkpointing trade compute for memory by recomputing activations instead of storing them all.
+
+**Memory breakdown:**
+
+For a 7B model with BF16: model weights (14 GB), gradients (14 GB), optimizer states with Adam (28 GB for $m_{t-1}$ and $v_{t-1}$), and activations (8-16 GB depending on batch size and sequence length). That's 64-72 GB total per GPU. With SGD, you'd save 28 GB on optimizer states, but Adam's adaptive learning rates usually converge faster, so the trade-off is worth it for most cases. That's why a 7B model needs at least an A100 (80GB) for training with Adam, even with mixed precision (BF16). Smaller GPUs won't cut it.
+
+**Variable definitions:**
+
+$w_t$: model parameters at iteration $t$  
+$w_{t+1}$: updated parameters  
+$g_t$: gradient of loss w.r.t. parameters at iteration $t$ ($g_t = \nabla_w L(w_t)$)  
+$\eta$: learning rate (used for both SGD and Adam)  
+$\beta_1$: decay rate for the first moment (mean)  
+$\beta_2$: decay rate for the second moment (uncentered variance)  
+$m_{t-1}$: first-moment estimate from previous step  
+$v_{t-1}$: second-moment estimate from previous step  
+$\epsilon$: small constant for numerical stability  
+$t$: iteration index used for bias correction
 
 ![Training Memory Breakdown for 7B Model](code/chapter1/training_memory_breakdown.png)
 
@@ -65,21 +155,21 @@ Training a 7B model with FP16 requires about 14 GB for model weights, another 14
 
 #### Inference Memory Requirements
 
-Inference is simpler. You just need the model weights and KV cache for attention. The KV cache size depends on your batch size, sequence length, and model architecture. For a 70B model with FP16, you're looking at 140 GB for model weights and another 20-40 GB for KV cache with a batch size of 32 and sequence length of 2048. That's 160-180 GB total. That's why inference for large models needs multiple GPUs or model parallelism. A single A100 won't hold it.
+Inference is simpler. You just need the model weights and KV cache for attention. The KV cache size depends on your batch size, sequence length, and model architecture. For a 70B model with BF16, you're looking at 140 GB for model weights and another 20-40 GB for KV cache with a batch size of 32 and sequence length of 2048. That's 160-180 GB total. That's why inference for large models needs multiple GPUs or model parallelism. A single A100 won't hold it.
 
 #### GPU Requirements Estimation
 
-For training, calculate your memory needs, add 10-20% safety margin for communication buffers and framework overhead, then see if it fits. A 13B model with FP16 needs about 72 GB per GPU. With safety margin, that's 85 GB. An A100 has 80 GB, so you'll need 2 GPUs with model parallelism or FSDP.
+For training, calculate your memory needs, add 10-20% safety margin for communication buffers and framework overhead, then see if it fits. A 13B model with BF16 needs about 72 GB per GPU. With safety margin, that's 85 GB. An A100 has 80 GB, so you'll need 2 GPUs with model parallelism or FSDP.
 
-For inference, it's similar. Calculate model size plus KV cache. A 70B model in FP16 needs 140 GB just for weights. With KV cache, you're looking at 160-180 GB total. You'll need 2+ A100 GPUs, or use Int8 quantization to get it down to 70 GB for weights, which might fit on one GPU with careful KV cache management.
+For inference, it's similar. Calculate model size plus KV cache. A 70B model in BF16 needs 140 GB just for weights. With KV cache, you're looking at 160-180 GB total. You'll need 2+ A100 GPUs, or use Int8 quantization to get it down to 70 GB for weights, which might fit on one GPU with careful KV cache management.
 
 #### Real-World Considerations
 
-Don't forget the overhead. PyTorch adds 1-2 GB. The OS needs 5-10 GB. Distributed training needs 2-5 GB per GPU for communication buffers. Checkpointing causes temporary spikes. Start conservative and add 20-30% buffer to your estimates. Use mixed precision (FP16/BF16) to cut memory in half compared to FP32. Monitor with `nvidia-smi` to see actual usage. For inference, Int8 quantization can halve memory with minimal accuracy loss. And remember, activations scale linearly with batch size - if you hit OOM, reduce batch size first.
+Don't forget the overhead. PyTorch adds 1-2 GB. The OS needs 5-10 GB. Distributed training needs 2-5 GB per GPU for communication buffers. Checkpointing causes temporary spikes. Start conservative and add 20-30% buffer to your estimates. Use mixed precision (BF16 for training, FP16/BF16 for inference) to cut memory in half compared to FP32. Monitor with `nvidia-smi` to see actual usage. For inference, Int8 quantization can halve memory with minimal accuracy loss. And remember, activations scale linearly with batch size - if you hit OOM, reduce batch size first.
 
 **Quick Reference Table:**
 
-| Model Size | FP32 Weights | FP16 Weights | Training (FP16+Adam) | Inference (FP16) |
+| Model Size | FP32 Weights | BF16 Weights | Training (BF16+Adam) | Inference (BF16) |
 |------------|--------------|--------------|----------------------|------------------|
 | 1B         | 4 GB         | 2 GB         | ~8 GB                | 2-4 GB           |
 | 7B         | 28 GB        | 14 GB        | ~60-70 GB            | 14-20 GB         |
@@ -214,7 +304,7 @@ The question isn't whether distributed systems are cool - it's whether you actua
 
 Three scenarios force you into distributed training:
 
-First, the model doesn't fit. Calculate model size in FP16 (parameters × 2 bytes). If that's more than 80% of your GPU memory, you need model parallelism or FSDP. A 13B model needs 26GB just for weights. With Adam optimizer, you're looking at 72GB total. An A100 has 80GB, so you're cutting it close. You'll need 2+ GPUs.
+First, the model doesn't fit. Calculate model size in BF16 (parameters × 2 bytes). If that's more than 80% of your GPU memory, you need model parallelism or FSDP. A 13B model needs 26GB just for weights. With Adam optimizer, you're looking at 72GB total. An A100 has 80GB, so you're cutting it close. You'll need 2+ GPUs.
 
 Second, training takes too long. If single-GPU training would take weeks or months, and you need faster iteration, go distributed. Training a 7B model on 1T tokens takes about 2 weeks on 8 GPUs. On 1 GPU, it's months.
 
@@ -236,7 +326,7 @@ Parameter-efficient methods like LoRA and QLoRA change the equation. QLoRA on a 
 
 Inference has different constraints than training. You need distribution when:
 
-The model doesn't fit. A 70B model in FP16 needs 140GB just for weights. With KV cache, you're at 160-180GB. That's 2+ A100 GPUs minimum.
+The model doesn't fit. A 70B model in BF16 needs 140GB just for weights. With KV cache, you're at 160-180GB. That's 2+ A100 GPUs minimum.
 
 Throughput exceeds single GPU capacity. If you need to serve thousands of requests per second, a single GPU won't cut it. A chat application with 10,000 concurrent users needs multiple GPUs or nodes.
 
@@ -267,13 +357,13 @@ Start: What is your use case?
 
 ### Real-World Examples
 
-A startup training a 7B model: model size is 14GB in FP16, they have one A100 with 80GB. The model fits with room for training overhead, so a single GPU is sufficient. They use mixed precision and gradient checkpointing if needed.
+A startup training a 7B model: model size is 14GB in BF16, they have one A100 with 80GB. The model fits with room for training overhead, so a single GPU is sufficient. They use mixed precision (BF16) and gradient checkpointing if needed.
 
-An enterprise fine-tuning a 70B model: model size is 140GB in FP16, exceeding a single GPU's capacity. With 4 A100 GPUs available, they need distributed fine-tuning. They use FSDP or model parallelism, and might consider QLoRA to reduce memory requirements.
+An enterprise fine-tuning a 70B model: model size is 140GB in BF16, exceeding a single GPU's capacity. With 4 A100 GPUs available, they need distributed fine-tuning. They use FSDP or model parallelism, and might consider QLoRA to reduce memory requirements.
 
-Production inference with a 13B model: requirements are 1000 requests per second with less than 500ms latency. Model size is 26GB in FP16. With 2 A100 GPUs, distributed inference is needed to meet the throughput requirement. They use vLLM with tensor parallelism or multiple instances.
+Production inference with a 13B model: requirements are 1000 requests per second with less than 500ms latency. Model size is 26GB in BF16. With 2 A100 GPUs, distributed inference is needed to meet the throughput requirement. They use vLLM with tensor parallelism or multiple instances.
 
-A research lab training a 1B model: model is only 2GB in FP16, dataset is 100GB, they have one RTX 4090 with 24GB. The model and data fit comfortably, so a single GPU is sufficient. They use a standard training pipeline.
+A research lab training a 1B model: model is only 2GB in BF16, dataset is 100GB, they have one RTX 4090 with 24GB. The model and data fit comfortably, so a single GPU is sufficient. They use a standard training pipeline with BF16.
 
 ---
 
