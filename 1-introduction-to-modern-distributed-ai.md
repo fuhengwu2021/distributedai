@@ -59,6 +59,10 @@ Training needs way more memory than inference. You're storing model weights, gra
 
 Training a 7B model with FP16 requires about 14 GB for model weights, another 14 GB for gradients, 28 GB for optimizer states with Adam, and 8-16 GB for activations. That's 64-72 GB total per GPU. That's why a 7B model needs at least an A100 (80GB) for training, even with mixed precision. Smaller GPUs won't cut it.
 
+![Training Memory Breakdown for 7B Model](code/chapter1/training_memory_breakdown.png)
+
+
+
 #### Inference Memory Requirements
 
 Inference is simpler. You just need the model weights and KV cache for attention. The KV cache size depends on your batch size, sequence length, and model architecture. For a 70B model with FP16, you're looking at 140 GB for model weights and another 20-40 GB for KV cache with a batch size of 32 and sequence length of 2048. That's 160-180 GB total. That's why inference for large models needs multiple GPUs or model parallelism. A single A100 won't hold it.
