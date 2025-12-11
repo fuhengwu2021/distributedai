@@ -82,6 +82,10 @@ $\beta_1$ and $\beta_2$ are hyperparameters - scalar constants (typically $\beta
 
 That's why Adam needs 2× the model size for optimizer states compared to SGD's near-zero overhead.
 
+**AdamW:**
+
+AdamW (Adam with decoupled weight decay) has the same memory requirements as Adam. The difference is how weight decay is applied - AdamW applies it directly to parameters, while Adam adds it to gradients. But both maintain the same optimizer states: $m_{t-1}$ (1× model size) and $v_{t-1}$ (1× model size), totaling 2× model size. So AdamW also needs 2× the model size for optimizer states.
+
 **When optimizers are used:**
 
 The training loop follows this sequence: (1) forward pass - compute predictions and loss, storing activations; (2) backward pass - compute gradients $g_t$ for all parameters; (3) optimizer step - use the optimizer to update parameters from $w_t$ to $w_{t+1}$ using gradients $g_t$. 
@@ -126,11 +130,65 @@ The peak memory of 68 GB occurs during `loss.backward()` (line 4) when both acti
 
 **Why activations need memory:**
 
-Activation layers (like ReLU, GELU, sigmoid) don't have parameters - they're just functions applied element-wise. But their outputs need to be stored in memory during training. 
+Activation layers (like ReLU, GELU, sigmoid) don't have parameters - they're just functions applied element-wise. But their outputs (activation outputs, often shortened to "activations") need to be stored in memory during training. 
 
-During the forward pass, you compute and store all layer activation outputs. During backpropagation, you compute gradients layer by layer from the last layer backward. For each layer, you need its activation outputs to compute gradients. Once you've computed a layer's gradient and updated its parameters, you can free that layer's activation outputs - they're no longer needed. However, during the backward pass, there's overlap: while computing gradients for one layer, you still have activation outputs from earlier layers in memory. The peak memory occurs when you have both activations (from forward pass) and gradients (from backward pass) simultaneously.
+During the forward pass, you compute and store all layer activation outputs (we call these "activations" for short). During backpropagation, you compute gradients layer by layer from the last layer backward. For each layer, you need its activation outputs to compute gradients. Once you've computed a layer's gradient and updated its parameters, you can free that layer's activation outputs - they're no longer needed. However, during the backward pass, there's overlap: while computing gradients for one layer, you still have activation outputs from earlier layers in memory. The peak memory occurs when you have both activations (activation outputs from forward pass) and gradients (from backward pass) simultaneously.
 
-In practice, activations and gradients do overlap in memory during backpropagation. The activation memory scales with batch size and sequence length - larger batches or longer sequences mean more activation outputs to store. Techniques like gradient checkpointing trade compute for memory by recomputing activations instead of storing them all.
+In practice, activations (activation outputs) and gradients do overlap in memory during backpropagation. The activation memory scales with batch size and sequence length - larger batches or longer sequences mean more activation outputs to store. Techniques like gradient checkpointing trade compute for memory by recomputing activations instead of storing them all.
+
+**Mathematical derivation: Why gradients need activations**
+
+Consider a simple 3-layer DNN: $x \rightarrow z \rightarrow h \rightarrow \hat{y}$ with Linear → Sigmoid → Linear layers:
+
+```python
+class SimpleDNN(nn.Module):
+    def __init__(self, input_dim, output_dim, hidden_dim=1, bias=False):
+        super(SimpleDNN, self).__init__()
+        self.linear1 = nn.Linear(input_dim, hidden_dim, bias=bias)  # x -> z
+        self.activation = nn.Sigmoid()                              # z -> h
+        self.linear2 = nn.Linear(hidden_dim, output_dim, bias=bias) # h -> y_hat
+
+    def forward(self, x):
+        z = self.linear1(x)      # z = W₁x
+        h = self.activation(z)   # h = σ(z)
+        y_hat = self.linear2(h)  # y_hat = W₂h
+        return y_hat
+```
+
+The forward pass is:
+
+$$
+z = W_1 x, \quad h = \sigma(z), \quad \hat{y} = W_2 h, \quad L = \frac{1}{2}(y - \hat{y})^2
+$$
+
+To compute gradients using backpropagation, we apply the chain rule. For $\frac{\partial L}{\partial W_2}$:
+
+$$
+\frac{\partial L}{\partial W_2} = \frac{\partial L}{\partial \hat{y}} \cdot \frac{\partial \hat{y}}{\partial W_2} = (\hat{y} - y) \cdot h
+$$
+
+The gradient depends on $h$ - the activation output from the sigmoid layer. You need $h$ stored in memory to compute this gradient.
+
+For $\frac{\partial L}{\partial W_1}$, the chain is longer:
+
+$$
+\frac{\partial L}{\partial W_1} = \frac{\partial L}{\partial \hat{y}} \cdot \frac{\partial \hat{y}}{\partial h} \cdot \frac{\partial h}{\partial z} \cdot \frac{\partial z}{\partial W_1}
+$$
+
+Expanding each term:
+
+- $\frac{\partial L}{\partial \hat{y}} = \hat{y} - y$ (needs $\hat{y}$)
+- $\frac{\partial \hat{y}}{\partial h} = W_2$ (needs $W_2$)
+- $\frac{\partial h}{\partial z} = \sigma'(z) = \sigma(z)(1-\sigma(z)) = h(1-h)$ (needs $h$)
+- $\frac{\partial z}{\partial W_1} = x$ (needs input $x$)
+
+So:
+
+$$
+\frac{\partial L}{\partial W_1} = (\hat{y} - y) \cdot W_2 \cdot h(1-h) \cdot x
+$$
+
+This gradient requires both $h$ (the activation output from the sigmoid layer) and $x$ (the input data read from the dataloader). Without storing $h$ (activation output) and $x$ (input data) during the forward pass, you can't compute these gradients during backpropagation. That's why activation outputs (activations) and input data must be kept in memory until their gradients are computed.
 
 **Memory breakdown:**
 
