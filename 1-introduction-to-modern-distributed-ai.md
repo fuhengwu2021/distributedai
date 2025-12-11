@@ -55,7 +55,7 @@ But model weights are just the start. During training, you also need space for g
 
 #### Training Memory Requirements
 
-Training needs way more memory than inference. You're storing model weights, gradients (one per parameter), optimizer states, and activations from the forward pass. With Adam optimizer, you need 2× the model size for optimizer states (momentum and variance). SGD is lighter—just the learning rate. Activations depend on batch size and sequence length, but typically add 8-16 GB for a 7B model.
+Training needs way more memory than inference. You're storing model weights, gradients (one per parameter), optimizer states, and activations from the forward pass. With Adam optimizer, you need 2× the model size for optimizer states (momentum and variance). SGD is lighter - just the learning rate. Activations depend on batch size and sequence length, but typically add 8-16 GB for a 7B model.
 
 Training a 7B model with FP16 requires about 14 GB for model weights, another 14 GB for gradients, 28 GB for optimizer states with Adam, and 8-16 GB for activations. That's 64-72 GB total per GPU. That's why a 7B model needs at least an A100 (80GB) for training, even with mixed precision. Smaller GPUs won't cut it.
 
@@ -71,7 +71,7 @@ For inference, it's similar. Calculate model size plus KV cache. A 70B model in 
 
 #### Real-World Considerations
 
-Don't forget the overhead. PyTorch adds 1-2 GB. The OS needs 5-10 GB. Distributed training needs 2-5 GB per GPU for communication buffers. Checkpointing causes temporary spikes. Start conservative and add 20-30% buffer to your estimates. Use mixed precision (FP16/BF16) to cut memory in half compared to FP32. Monitor with `nvidia-smi` to see actual usage. For inference, Int8 quantization can halve memory with minimal accuracy loss. And remember, activations scale linearly with batch size—if you hit OOM, reduce batch size first.
+Don't forget the overhead. PyTorch adds 1-2 GB. The OS needs 5-10 GB. Distributed training needs 2-5 GB per GPU for communication buffers. Checkpointing causes temporary spikes. Start conservative and add 20-30% buffer to your estimates. Use mixed precision (FP16/BF16) to cut memory in half compared to FP32. Monitor with `nvidia-smi` to see actual usage. For inference, Int8 quantization can halve memory with minimal accuracy loss. And remember, activations scale linearly with batch size - if you hit OOM, reduce batch size first.
 
 **Quick Reference Table:**
 
@@ -86,9 +86,9 @@ Don't forget the overhead. PyTorch adds 1-2 GB. The OS needs 5-10 GB. Distribute
 
 ### The Evolution from Classic ML to Foundation Models
 
-Classic machine learning models were designed to fit on a single machine. Traditional ML models—such as linear regression, logistic regression, decision trees, random forests, support vector machines (SVM), and gradient boosting (XGBoost, LightGBM)—typically had thousands to millions of parameters and were trained on datasets that fit in memory. The deep learning era brought models with hundreds of millions of parameters (e.g., ResNet, BERT), requiring GPUs but still manageable on single devices. Today's foundation model era has models with billions to trillions of parameters (e.g., GPT-4, Gemini, LLaMA), requiring distributed systems from day one.
+Classic machine learning models were designed to fit on a single machine. Traditional ML models - such as linear regression, logistic regression, decision trees, random forests, support vector machines (SVM), and gradient boosting (XGBoost, LightGBM) - typically had thousands to millions of parameters and were trained on datasets that fit in memory. The deep learning era brought models with hundreds of millions of parameters (e.g., ResNet, BERT), requiring GPUs but still manageable on single devices. Today's foundation model era has models with billions to trillions of parameters (e.g., GPT-4, Gemini, LLaMA), requiring distributed systems from day one.
 
-The shift to distributed AI has enabled breakthrough capabilities—models that can understand and generate human-like text, code, and multimodal content. It has also driven enterprise adoption, with companies deploying AI at scale for production workloads, and accelerated research through faster iteration cycles enabled by parallel experimentation.
+The shift to distributed AI has enabled breakthrough capabilities - models that can understand and generate human-like text, code, and multimodal content. It has also driven enterprise adoption, with companies deploying AI at scale for production workloads, and accelerated research through faster iteration cycles enabled by parallel experimentation.
 
 ---
 
@@ -104,7 +104,7 @@ The lifecycle looks like this:
 
 You start with data engineering. Collect data, curate it, transform it, validate it, explore it. You're preparing terabytes of data for training. Clean it, deduplicate it, filter for quality, format it. Tools like NeMo Curator handle this at scale.
 
-Then you train the model. Forward pass, backprop, gradient descent. Tune hyperparameters, use parameter-efficient tuning (PEFT), fine-tune, maybe do RLHF. You're learning model parameters from data. This is where distributed training shines—split models and data across GPUs.
+Then you train the model. Forward pass, backprop, gradient descent. Tune hyperparameters, use parameter-efficient tuning (PEFT), fine-tune, maybe do RLHF. You're learning model parameters from data. This is where distributed training shines - split models and data across GPUs.
 
 Once trained, you run inference. Quantize the model, cache activations, convert to ONNX, fuse operators, optimize CUDA kernels. You're generating predictions. Latency and throughput matter here. Distributed inference handles models too large for a single GPU.
 
@@ -115,7 +115,7 @@ Then you deploy. Set up autoscaling, scheduling, load balancing, observability. 
 Production feedback tells you what data to collect next, or where the model fails. You loop back to data engineering. The cycle repeats.
 
 
-This book focuses on the distributed technologies you need for training, inference, benchmarking, and deployment. Data engineering gets a brief overview but isn't the main focus. Distributed data processing is important, but it's a well-established topic. Spark, Dask, and Ray have been around for years. This book covers the basics—what you need to know to prepare data for distributed training—but the real focus is on the AI-specific distributed challenges: training large models, serving them at scale, and optimizing inference.
+This book focuses on the distributed technologies you need for training, inference, benchmarking, and deployment. Data engineering gets a brief overview but isn't the main focus. Distributed data processing is important, but it's a well-established topic. Spark, Dask, and Ray have been around for years. This book covers the basics - what you need to know to prepare data for distributed training - but the real focus is on the AI-specific distributed challenges: training large models, serving them at scale, and optimizing inference.
 
 The principles are the same across all stages: parallelism, communication, memory management, fault tolerance. But the techniques differ. Training is iterative with frequent gradient syncs. Inference is latency-sensitive with throughput requirements.
 
@@ -123,91 +123,45 @@ The principles are the same across all stages: parallelism, communication, memor
 
 ## 3. Distributed Data Processing: Preparing Data at Scale
 
-Before you can train or serve models, you need to prepare your data. Modern AI models are trained on massive datasets—trillions of tokens for language models, billions of images for vision models, and petabytes of multimodal data. Processing and curating this data efficiently requires distributed systems, often before you even start thinking about model training.
+Before you can train or serve models, you need to prepare your data. Modern AI models are trained on massive datasets - trillions of tokens for language models, billions of images for vision models, petabytes of multimodal data. Processing and curating this data efficiently requires distributed systems, often before you even start thinking about model training.
 
 ### The Data Preparation Challenge
 
-Training a large language model requires processing terabytes to petabytes of raw text data. The pipeline typically includes:
+Training a large language model means processing terabytes to petabytes of raw text data. You're loading data from multiple sources - web crawls, databases, APIs. Then you clean it, filter out low-quality content, deduplicate it, detect languages. You score content for training value. You format it - tokenize it, chunk it. You store it efficiently so distributed training can load it fast.
 
-- **Data ingestion**: Loading data from multiple sources (web crawls, databases, APIs)
-- **Cleaning and filtering**: Removing low-quality content, deduplication, language detection
-- **Quality assessment**: Scoring content for training value
-- **Formatting**: Converting to training-ready formats (tokenization, chunking)
-- **Storage**: Efficient storage and retrieval for distributed training
-
-A single-node approach would take weeks or months. For example, processing 8TB of text data for deduplication on a single machine might take days. With distributed processing across multiple nodes, this can be reduced to hours.
+A single-node approach would take weeks or months. Processing 8TB of text data for deduplication on a single machine might take days. With distributed processing across multiple nodes, you can reduce that to hours.
 
 ### Distributed Data Processing Technologies
 
-Modern data curation tools leverage distributed computing frameworks to scale data processing:
+Modern data curation tools use distributed computing frameworks to scale. Ray lets you run tasks in parallel across clusters. Apache Spark handles large-scale data processing with distributed dataframes. Dask schedules tasks across multiple workers.
 
-**Distributed Computing Frameworks:**
-- **Ray**: Distributed task execution framework that enables parallel processing across clusters
-- **Apache Spark**: Large-scale data processing with distributed dataframes
-- **Dask**: Parallel computing with task scheduling across multiple workers
+For GPU acceleration, RAPIDS (cuDF, cuML) provides GPU-accelerated dataframes and machine learning primitives. GPU-accelerated deduplication uses GPU memory and compute for similarity calculations. Parallel I/O with distributed file systems and object storage maximizes throughput.
 
-**GPU-Accelerated Processing:**
-- **RAPIDS (cuDF, cuML)**: GPU-accelerated dataframes and machine learning primitives
-- **GPU-accelerated deduplication**: Using GPU memory and compute for similarity calculations
-- **Parallel I/O**: Distributed file systems and object storage for high-throughput data access
+Take [NVIDIA NeMo Curator](https://github.com/NVIDIA-NeMo/Curator) as an example. It's a scalable data preprocessing and curation toolkit for large-scale AI model training. It processes data across clusters, scaling from single machines to hundreds of nodes. It uses RAPIDS libraries (cuDF, cuML) for GPU-accelerated operations like deduplication and quality filtering. It has modular pipelines - composable data processing stages that run in parallel. It's optimized for distributed storage systems like S3.
 
-**Example: NVIDIA NeMo Curator**
-
-Tools like [NVIDIA NeMo Curator](https://github.com/NVIDIA-NeMo/Curator) demonstrate production-grade distributed data processing. Curator is a scalable data preprocessing and curation toolkit designed for large-scale AI model training. It showcases key distributed data processing patterns:
-
-- **Multi-node scaling**: Processes data across clusters, scaling from single machines to hundreds of nodes
-- **GPU acceleration**: Uses RAPIDS libraries (cuDF, cuML) for GPU-accelerated operations like deduplication and quality filtering
-- **Modular pipelines**: Composable data processing stages that can run in parallel
-- **Efficient I/O**: Optimized for distributed storage systems (S3, distributed file systems)
-
-**Real-world Performance:**
-- **16× faster** fuzzy deduplication on 8TB datasets compared to CPU-based alternatives
-- **Near-linear scaling** from 1 to 4 H100 nodes (2.05 hours → 0.50 hours)
-- **40% lower** total cost of ownership through GPU acceleration
+The performance numbers are real: 16× faster fuzzy deduplication on 8TB datasets compared to CPU-based alternatives. Near-linear scaling from 1 to 4 H100 nodes (2.05 hours → 0.50 hours). 40% lower total cost of ownership through GPU acceleration.
 
 ### Key Distributed Data Processing Patterns
 
-**1. Data Parallelism in Processing**
-- Split datasets across multiple workers
-- Each worker processes a shard independently
-- Aggregate results (e.g., deduplication requires cross-worker communication)
+Data parallelism in processing means splitting datasets across multiple workers. Each worker processes a shard independently. Then you aggregate results. Deduplication requires cross-worker communication, which adds complexity.
 
-**2. Pipeline Parallelism**
-- Stage-based processing: ingestion → cleaning → filtering → formatting
-- Different stages can run in parallel on different workers
-- Streaming data through the pipeline for memory efficiency
+Pipeline parallelism means stage-based processing: ingestion → cleaning → filtering → formatting. Different stages can run in parallel on different workers. You stream data through the pipeline for memory efficiency.
 
-**3. Distributed Storage and I/O**
-- Distributed file systems (HDFS, Lustre) or object storage (S3, GCS)
-- Parallel I/O to maximize bandwidth
-- Caching strategies to reduce redundant reads
+Distributed storage and I/O use distributed file systems (HDFS, Lustre) or object storage (S3, GCS). Parallel I/O maximizes bandwidth. Caching strategies reduce redundant reads.
 
-**4. Fault Tolerance**
-- Checkpointing intermediate results
-- Resumable processing pipelines
-- Handling worker failures gracefully
+Fault tolerance means checkpointing intermediate results. You need resumable processing pipelines. Handle worker failures gracefully. Processing terabytes of data takes time - if a worker crashes, you don't want to start over.
 
 ### When Do You Need Distributed Data Processing?
 
-You need distributed data processing when:
-
-- **Dataset size exceeds single-node capacity**: Multi-terabyte datasets that don't fit in memory or take too long to process
-- **Processing time is a bottleneck**: Single-node processing would take days or weeks
-- **Cost optimization**: GPU-accelerated distributed processing can be more cost-effective than CPU-based single-node processing
-- **Real-time data pipelines**: Continuous data ingestion and processing for ongoing model training
+You need distributed data processing when your dataset size exceeds single-node capacity. Multi-terabyte datasets don't fit in memory or take too long to process. Single-node processing would take days or weeks. GPU-accelerated distributed processing can be more cost-effective than CPU-based single-node processing. Or you need real-time data pipelines - continuous data ingestion and processing for ongoing model training.
 
 For smaller datasets (under 100GB) that fit comfortably in memory, single-node processing is often sufficient. But as datasets grow to terabytes and beyond, distributed processing becomes essential.
 
 ### Integration with Training Pipelines
 
-Distributed data processing feeds into distributed training. The output of data curation—cleaned, deduplicated, and formatted datasets—becomes the input for distributed training systems. Understanding distributed data processing helps you:
+Distributed data processing feeds into distributed training. The output of data curation - cleaned, deduplicated, and formatted datasets - becomes the input for distributed training systems. Understanding distributed data processing helps you design end-to-end pipelines from raw data to trained models. You can optimize data loading with efficient data sharding and loading for distributed training. You can handle large-scale datasets that are too large for single nodes. Faster data preparation means faster iteration cycles.
 
-- **Design end-to-end pipelines**: From raw data to trained models
-- **Optimize data loading**: Efficient data sharding and loading for distributed training
-- **Handle large-scale datasets**: Process datasets that are too large for single nodes
-- **Reduce training time**: Faster data preparation means faster iteration cycles
-
-The distributed systems principles you learn in data processing—parallelism, fault tolerance, efficient I/O—apply directly to distributed training and inference.
+The distributed systems principles you learn in data processing - parallelism, fault tolerance, efficient I/O - apply directly to distributed training and inference.
 
 ---
 
@@ -223,15 +177,15 @@ Training requires storing activations, gradients, and optimizer states in memory
 
 Training a 7B parameter model on 1 trillion tokens typically requires 8 A100 GPUs (80GB each) and about 2 weeks of continuous training. Careful gradient synchronization is needed to maintain training stability across all GPUs.
 
-### Inference: The Prediction Phase
+### Inference: The Prediction/Generation Phase
 
-Inference is about generating predictions from a trained model. Unlike training, inference only needs a forward pass—no gradients, no backward pass, no optimizer states. Memory requirements are lower: just model weights and KV cache for attention mechanisms. The compute intensity per request is lower, but you need high throughput to serve many requests simultaneously. Communication is minimal, mostly only for distributed inference.
+Inference is about generating predictions from a trained model. Unlike training, you only need a forward pass - no gradients, no backward pass, no optimizer states. Memory requirements are lower: just model weights and KV cache for attention mechanisms. The compute per request is lower, but you need high throughput to serve many requests at once. Communication is minimal, mostly only for distributed inference.
 
-The key challenges are low latency requirements (sub-second for interactive applications), high throughput (thousands of requests per second), efficient memory usage through KV cache management, and effective batching and scheduling strategies. Serving a 70B parameter model for chat applications requires optimized inference engines like vLLM or SGLang, continuous batching to maximize GPU utilization, and careful KV cache management to handle variable-length sequences.
+The challenges are latency (sub-second for interactive apps), throughput (thousands of requests per second), efficient memory usage through KV cache management, and effective batching and scheduling. Serving a 70B parameter model for chat requires optimized inference engines like vLLM or SGLang, continuous batching to maximize GPU utilization, and careful KV cache management for variable-length sequences.
 
 ### Serving: The Production System
 
-Serving is about providing reliable, scalable access to models. It's not just running inference—it's building a production system with a model runner, API gateway, load balancer, and monitoring. The requirements are high availability, fault tolerance, and observability. At scale, you're dealing with multi-model, multi-tenant systems.
+Serving is about providing reliable, scalable access to models. It's not just running inference - it's building a production system with a model runner, API gateway, load balancer, and monitoring. The requirements are high availability, fault tolerance, and observability. At scale, you're dealing with multi-model, multi-tenant systems.
 
 The key challenges are system reliability and uptime, multi-model routing and load balancing, cost optimization through GPU utilization and autoscaling, and observability for debugging. A production LLM serving platform might include multiple model variants (different sizes, fine-tuned versions), A/B testing infrastructure, canary deployment pipelines, and distributed tracing and monitoring.
 
@@ -250,7 +204,7 @@ The key challenges are system reliability and uptime, multi-model routing and lo
 
 ## 5. Decision Framework: When Do You Need Distributed Systems?
 
-The question isn't whether distributed systems are cool—it's whether you actually need them. Distributed training adds complexity, communication overhead, and cost. Use it when you have to, not when you want to.
+The question isn't whether distributed systems are cool - it's whether you actually need them. Distributed training adds complexity, communication overhead, and cost. Use it when you have to, not when you want to.
 
 ### When Do You Need Distributed Training?
 
@@ -325,7 +279,7 @@ Before diving into distributed training code, you need to understand the basic c
 
 ### Process Groups and Ranks
 
-In distributed training, multiple processes work together. Each process runs on a different GPU or node. PyTorch organizes these processes into a process group. Within a process group, each process has a unique rank—an integer identifier starting from 0. The total number of processes is called the world size.
+In distributed training, multiple processes work together. Each process runs on a different GPU or node. PyTorch organizes these processes into a process group. Within a process group, each process has a unique rank - an integer identifier starting from 0. The total number of processes is called the world size.
 
 Think of it like this: if you have 4 GPUs, you'll have 4 processes. Process 0 runs on GPU 0, process 1 on GPU 1, and so on. The rank tells each process which GPU it should use and which part of the data it should process.
 
@@ -358,7 +312,7 @@ def setup(rank, world_size):
     torch.cuda.set_device(rank)  # Set which GPU this process uses
 ```
 
-The simplest test to verify your distributed setup works is in `code/chapter1/ch01_distributed_basic_test.py`. This is a basic distributed test that verifies process group initialization and communication. It doesn't use DDP—it just tests that multiple processes can communicate.
+The simplest test to verify your distributed setup works is in `code/chapter1/ch01_distributed_basic_test.py`. This is a basic distributed test that verifies process group initialization and communication. It doesn't use DDP - it just tests that multiple processes can communicate.
 
 For multi-GPU testing:
 ```bash
@@ -377,7 +331,7 @@ When you run either script, you should see "Rank 0 says hello" and "Rank 1 says 
 
 DDP is PyTorch's way of wrapping a model for distributed training. When you wrap a model with DDP, PyTorch automatically handles gradient synchronization across all processes. Each process computes gradients on its local data, then DDP averages these gradients across all processes before updating the model.
 
-The key insight is that DDP assumes each process has a complete copy of the model. The model itself isn't split—only the data is partitioned. Each process trains on a different subset of the data, but all processes maintain identical model parameters after each training step.
+The key insight is that DDP assumes each process has a complete copy of the model. The model itself isn't split - only the data is partitioned. Each process trains on a different subset of the data, but all processes maintain identical model parameters after each training step.
 
 Here's how you wrap a model:
 
@@ -425,7 +379,7 @@ There are several mistakes that trip up beginners. The code in `code/chapter1/ch
 
 First, all processes must use the same `MASTER_PORT`. If each process uses a different port, they can't communicate. Set it once before initialization, not per-process.
 
-Second, always use DistributedSampler with your DataLoader. Without it, each process sees all the data, which means you're not actually doing distributed training—just running the same training multiple times.
+Second, always use DistributedSampler with your DataLoader. Without it, each process sees all the data, which means you're not actually doing distributed training - just running the same training multiple times.
 
 Third, call `sampler.set_epoch(epoch)` in your training loop. This ensures data shuffling works correctly. Without it, each epoch uses the same data order.
 
@@ -570,7 +524,7 @@ This chapter has helped you understand when and how to use distributed AI system
 3. **Quick start examples:** Practical, runnable code for distributed training, fine-tuning, and inference
 4. **Understanding workloads:** The fundamental differences between training, inference, and serving
 
-The most important lesson is to **estimate first, decide second, then implement**. Don't assume you need distributed systems—calculate your requirements and make an informed decision.
+The most important lesson is to **estimate first, decide second, then implement**. Don't assume you need distributed systems - calculate your requirements and make an informed decision.
 
 In the next chapter, we'll dive deeper into GPU hardware, networking, and parallelism strategies, building on the foundation established here.
 
