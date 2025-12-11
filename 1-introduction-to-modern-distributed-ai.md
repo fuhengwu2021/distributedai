@@ -37,11 +37,13 @@ Looking at recent models, the scale is clear. GPT-4 has over 1 trillion paramete
 
 ### The Scale Challenge
 
-Take a 70B parameter model as an example. In full precision (FP32), the model weights alone need 280GB of memory. An A100 GPU has 80GB. You can't even load the model, let alone train it.
+Take a 70B parameter model as an example. In full precision (FP32), the model weights alone need 280GB of memory. An A100 GPU can have 80GB memory. You can't even load the model, let alone train it.
 
-Training these models takes thousands of GPU-hours. A single GPU training run would take months. The datasets are massive too—trillions of tokens. Loading and preprocessing this data efficiently requires distributed pipelines.
+Training these models takes thousands of GPU-hours. A single GPU training run would take months. The datasets are massive too - trillions of tokens. Loading and preprocessing this data efficiently requires `distributed pipelines`.
 
 The mismatch is clear: model size and compute requirements have grown exponentially, while single-GPU memory and compute have grown linearly at best.
+
+![Growth Mismatch: Exponential Model Growth vs Linear GPU Growth](code/chapter1/growth_mismatch.png)
 
 ### Estimating Model Resource Requirements
 
@@ -84,13 +86,50 @@ Don't forget the overhead. PyTorch adds 1-2 GB. The OS needs 5-10 GB. Distribute
 
 ### The Evolution from Classic ML to Foundation Models
 
-Classic machine learning models were designed to fit on a single machine. Traditional ML models had millions of parameters and were trained on datasets that fit in memory. The deep learning era brought models with hundreds of millions of parameters, requiring GPUs but still manageable on single devices. Today's foundation model era has models with billions to trillions of parameters, requiring distributed systems from day one.
+Classic machine learning models were designed to fit on a single machine. Traditional ML models—such as linear regression, logistic regression, decision trees, random forests, support vector machines (SVM), and gradient boosting (XGBoost, LightGBM)—typically had thousands to millions of parameters and were trained on datasets that fit in memory. The deep learning era brought models with hundreds of millions of parameters (e.g., ResNet, BERT), requiring GPUs but still manageable on single devices. Today's foundation model era has models with billions to trillions of parameters (e.g., GPT-4, Gemini, LLaMA), requiring distributed systems from day one.
 
 The shift to distributed AI has enabled breakthrough capabilities—models that can understand and generate human-like text, code, and multimodal content. It has also driven enterprise adoption, with companies deploying AI at scale for production workloads, and accelerated research through faster iteration cycles enabled by parallel experimentation.
 
 ---
 
-## 2. Distributed Data Processing: Preparing Data at Scale
+## 2. The Modern AI Model Lifecycle
+
+Building AI models isn't a one-shot process. It's a cycle: you collect data, train a model, deploy it, see how it performs, then go back and improve the data or model. Each stage feeds into the next.
+
+The lifecycle looks like this:
+
+**Data Engineering** → **Model Training** → **Model Inference** → **Model Benchmarking** → **Model Deployment** → **Data Engineering** (repeat)
+
+![Modern AI Model Lifecycle](code/chapter1/model_lifecycle.png)
+
+**Data Engineering**: Data collection, curation, transformation, validation, exploration. You're preparing terabytes of data for training. This includes cleaning, deduplication, quality filtering, and formatting. Tools like NeMo Curator handle this at scale.
+
+**Model Training**: Forward pass, backprop, gradient descent, hyperparameter tuning, parameter-efficient tuning (PEFT), fine-tuning, RLHF. You're learning model parameters from data. This is where distributed training shines—splitting models and data across GPUs.
+
+**Model Inference**: Quantization, caching, ONNX conversion, operator fusion, CUDA kernel optimization. You're generating predictions from trained models. Latency and throughput matter here. Distributed inference handles models too large for a single GPU.
+
+**Model Benchmarking**: Precision/recall, engineering performance, profiling, stress testing, scenario testing. You're evaluating how well the model works. Distributed evaluation speeds up testing on large datasets.
+
+**Model Deployment**: Autoscaling, scheduling, load balancing, observability. You're putting models in production. This means API gateways, monitoring, and handling thousands of requests per second.
+
+Then you loop back: production feedback tells you what data to collect next, or where the model fails. The cycle repeats.
+
+### What This Book Covers
+
+This book focuses on the distributed technologies you need for training, inference, benchmarking, and deployment:
+
+- **Model Training** (Chapters 3-5): FSDP, DeepSpeed, Zero optimization, gradient synchronization
+- **Model Inference** (Chapters 6-7): vLLM, SGLang, distributed inference, attention optimization
+- **Model Benchmarking** (Chapter 10): Distributed evaluation, performance profiling
+- **Model Deployment** (Chapter 9): Production serving, API gateways, distributed tracing
+
+**Data Engineering** gets a brief overview but isn't the main focus. Distributed data processing is important, but it's a well-established topic. Spark, Dask, and Ray have been around for years. This book covers the basics—what you need to know to prepare data for distributed training—but the real focus is on the AI-specific distributed challenges: training large models, serving them at scale, and optimizing inference.
+
+The principles are the same across all stages: parallelism, communication, memory management, fault tolerance. But the techniques differ. Training is iterative with frequent gradient syncs. Inference is latency-sensitive with throughput requirements. That's why they get separate chapters.
+
+---
+
+## 3. Distributed Data Processing: Preparing Data at Scale
 
 Before you can train or serve models, you need to prepare your data. Modern AI models are trained on massive datasets—trillions of tokens for language models, billions of images for vision models, and petabytes of multimodal data. Processing and curating this data efficiently requires distributed systems, often before you even start thinking about model training.
 
@@ -180,7 +219,7 @@ The distributed systems principles you learn in data processing—parallelism, f
 
 ---
 
-## 3. Training vs Inference vs Serving
+## 4. Training vs Inference vs Serving
 
 Understanding the fundamental differences between training, inference, and serving is crucial for designing effective distributed systems. Each has distinct requirements, bottlenecks, and optimization strategies.
 
@@ -217,7 +256,7 @@ The key challenges are system reliability and uptime, multi-model routing and lo
 
 ---
 
-## 4. Decision Framework: When Do You Need Distributed Systems?
+## 5. Decision Framework: When Do You Need Distributed Systems?
 
 The question isn't whether distributed systems are cool—it's whether you actually need them. Distributed training adds complexity, communication overhead, and cost. Use it when you have to, not when you want to.
 
@@ -288,7 +327,7 @@ A research lab training a 1B model has a simpler setup. The model is only 2GB in
 
 ---
 
-## 5. PyTorch Distributed Fundamentals
+## 6. PyTorch Distributed Fundamentals
 
 Before diving into distributed training code, you need to understand the basic concepts and APIs that PyTorch provides. This section covers the essential building blocks that all distributed code relies on.
 
@@ -400,7 +439,7 @@ Third, call `sampler.set_epoch(epoch)` in your training loop. This ensures data 
 
 ---
 
-## 6. Quick Start: Your First Distributed Workloads
+## 7. Quick Start: Your First Distributed Workloads
 
 Now that you understand the basics, let's run some actual distributed training code. All examples in this section correspond to files in `code/chapter1/`.
 
