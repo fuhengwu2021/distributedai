@@ -102,30 +102,22 @@ The lifecycle looks like this:
 
 ![Modern AI Model Lifecycle](code/chapter1/model_lifecycle.png)
 
-**Data Engineering**: Data collection, curation, transformation, validation, exploration. You're preparing terabytes of data for training. This includes cleaning, deduplication, quality filtering, and formatting. Tools like NeMo Curator handle this at scale.
+You start with data engineering. Collect data, curate it, transform it, validate it, explore it. You're preparing terabytes of data for training. Clean it, deduplicate it, filter for quality, format it. Tools like NeMo Curator handle this at scale.
 
-**Model Training**: Forward pass, backprop, gradient descent, hyperparameter tuning, parameter-efficient tuning (PEFT), fine-tuning, RLHF. You're learning model parameters from data. This is where distributed training shines—splitting models and data across GPUs.
+Then you train the model. Forward pass, backprop, gradient descent. Tune hyperparameters, use parameter-efficient tuning (PEFT), fine-tune, maybe do RLHF. You're learning model parameters from data. This is where distributed training shines—split models and data across GPUs.
 
-**Model Inference**: Quantization, caching, ONNX conversion, operator fusion, CUDA kernel optimization. You're generating predictions from trained models. Latency and throughput matter here. Distributed inference handles models too large for a single GPU.
+Once trained, you run inference. Quantize the model, cache activations, convert to ONNX, fuse operators, optimize CUDA kernels. You're generating predictions. Latency and throughput matter here. Distributed inference handles models too large for a single GPU.
 
-**Model Benchmarking**: Precision/recall, engineering performance, profiling, stress testing, scenario testing. You're evaluating how well the model works. Distributed evaluation speeds up testing on large datasets.
+Before deploying, you benchmark. Measure precision and recall, evaluate engineering performance, profile bottlenecks, run stress tests, test different scenarios. You're checking how well the model works. Distributed evaluation speeds up testing on large datasets.
 
-**Model Deployment**: Autoscaling, scheduling, load balancing, observability. You're putting models in production. This means API gateways, monitoring, and handling thousands of requests per second.
+Then you deploy. Set up autoscaling, scheduling, load balancing, observability. Put the model in production. That means API gateways, monitoring, handling thousands of requests per second.
 
-Then you loop back: production feedback tells you what data to collect next, or where the model fails. The cycle repeats.
+Production feedback tells you what data to collect next, or where the model fails. You loop back to data engineering. The cycle repeats.
 
-### What This Book Covers
 
-This book focuses on the distributed technologies you need for training, inference, benchmarking, and deployment:
+This book focuses on the distributed technologies you need for training, inference, benchmarking, and deployment. Data engineering gets a brief overview but isn't the main focus. Distributed data processing is important, but it's a well-established topic. Spark, Dask, and Ray have been around for years. This book covers the basics—what you need to know to prepare data for distributed training—but the real focus is on the AI-specific distributed challenges: training large models, serving them at scale, and optimizing inference.
 
-- **Model Training** (Chapters 3-5): FSDP, DeepSpeed, Zero optimization, gradient synchronization
-- **Model Inference** (Chapters 6-7): vLLM, SGLang, distributed inference, attention optimization
-- **Model Benchmarking** (Chapter 10): Distributed evaluation, performance profiling
-- **Model Deployment** (Chapter 9): Production serving, API gateways, distributed tracing
-
-**Data Engineering** gets a brief overview but isn't the main focus. Distributed data processing is important, but it's a well-established topic. Spark, Dask, and Ray have been around for years. This book covers the basics—what you need to know to prepare data for distributed training—but the real focus is on the AI-specific distributed challenges: training large models, serving them at scale, and optimizing inference.
-
-The principles are the same across all stages: parallelism, communication, memory management, fault tolerance. But the techniques differ. Training is iterative with frequent gradient syncs. Inference is latency-sensitive with throughput requirements. That's why they get separate chapters.
+The principles are the same across all stages: parallelism, communication, memory management, fault tolerance. But the techniques differ. Training is iterative with frequent gradient syncs. Inference is latency-sensitive with throughput requirements.
 
 ---
 
