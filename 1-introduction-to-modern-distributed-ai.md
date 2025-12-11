@@ -24,17 +24,16 @@ Looking at recent models, the scale is clear. GPT-4 has over 1 trillion paramete
 | Gemini-1 | 1.6T | Google | 2023 |
 | LLaMA-2 | 700B | Meta | 2023 |
 | PanGu-Σ | 1.085T | Huawei | 2023 |
-| DeepSeek-1 | 6.7B | DeepSeek | 2023 |
-| Claude-3 | undisclosed (~>1T MoE est.) | Anthropic | 2024 |
+| DeepSeek-V1 | 6.7B | DeepSeek | 2023 |
 | GPT-4V | 1.8T | OpenAI | 2024 |
 | DeepSeek-V2 | 236B MoE (16 experts, 2 active) | DeepSeek | 2024 |
-| DeepSeek-Coder-V2 | 236B MoE | DeepSeek | 2024 |
 | Grok-4 | ~1.7T (MoE) | xAI | 2025 |
-| Qwen-Max | >1T | Alibaba | 2025 |
-| GPT-4.5 | undisclosed | OpenAI | 2025 |
+| Qwen-Max | ~1.2T | Alibaba | 2025 |
 | GPT-5 | ~2–5T | OpenAI | 2025 |
 | DeepSeek-V3 | 671B MoE (64 experts, 8 active) | DeepSeek | 2025 |
-| DeepSeek-R1 | 671B MoE (reasoning-optimized) | DeepSeek | 2025 |
+| Gemini-3-Pro | ~7.5T | Google | 2025 |
+
+![Model Parameters v.s. Year](code/chapter1/model_comparison_plot.png)
 
 ### The Scale Challenge
 
