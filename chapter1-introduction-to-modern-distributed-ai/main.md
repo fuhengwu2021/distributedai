@@ -273,51 +273,7 @@ The principles are the same across all stages: parallelism, communication, memor
 
 ---
 
-## 3. Distributed Data Processing: Preparing Data at Scale
-
-Before you can train or serve models, you need to prepare your data. Modern AI models are trained on massive datasets - trillions of tokens for language models, billions of images for vision models, petabytes of multimodal data. Processing and curating this data efficiently requires distributed systems, often before you even start thinking about model training.
-
-### The Data Preparation Challenge
-
-Training a large language model means processing terabytes to petabytes of raw text data. You're loading data from multiple sources - web crawls, databases, APIs. Then you clean it, filter out low-quality content, deduplicate it, detect languages. You score content for training value. You format it - tokenize it, chunk it. You store it efficiently so distributed training can load it fast.
-
-A single-node approach would take weeks or months. Processing 8TB of text data for deduplication on a single machine might take days. With distributed processing across multiple nodes, you can reduce that to hours.
-
-### Distributed Data Processing Technologies
-
-Modern data curation tools use distributed computing frameworks to scale. Ray lets you run tasks in parallel across clusters. Apache Spark handles large-scale data processing with distributed dataframes. Dask schedules tasks across multiple workers.
-
-For GPU acceleration, RAPIDS (cuDF, cuML) gives you GPU-accelerated dataframes and machine learning primitives. GPU-accelerated deduplication uses GPU memory and compute for similarity calculations. Parallel I/O with distributed file systems and object storage maximizes throughput.
-
-Take [NVIDIA NeMo Curator](https://github.com/NVIDIA-NeMo/Curator) as an example. It's a scalable data preprocessing and curation toolkit for large-scale AI model training. It processes data across clusters, scaling from single machines to hundreds of nodes. It uses RAPIDS libraries (cuDF, cuML) for GPU-accelerated operations like deduplication and quality filtering. It has modular pipelines - composable data processing stages that run in parallel. It's optimized for distributed storage systems like S3.
-
-The performance numbers are real: 16× faster fuzzy deduplication on 8TB datasets compared to CPU-based alternatives. Near-linear scaling from 1 to 4 H100 nodes (2.05 hours → 0.50 hours). 40% lower total cost of ownership through GPU acceleration.
-
-### Key Distributed Data Processing Patterns
-
-Data parallelism in processing means splitting datasets across multiple workers. Each worker processes a shard independently. Then you aggregate results. Deduplication requires cross-worker communication, which adds complexity.
-
-Pipeline parallelism means stage-based processing: ingestion → cleaning → filtering → formatting. Different stages can run in parallel on different workers. You stream data through the pipeline for memory efficiency.
-
-Distributed storage and I/O use distributed file systems (HDFS, Lustre) or object storage (S3, GCS). Parallel I/O maximizes bandwidth. Caching strategies reduce redundant reads.
-
-Fault tolerance means checkpointing intermediate results. You need resumable processing pipelines. Handle worker failures gracefully. Processing terabytes of data takes time - if a worker crashes, you don't want to start over.
-
-### When Do You Need Distributed Data Processing?
-
-You need distributed data processing when your dataset size exceeds single-node capacity. Multi-terabyte datasets don't fit in memory or take too long to process. Single-node processing would take days or weeks. GPU-accelerated distributed processing can be more cost-effective than CPU-based single-node processing. Or you need real-time data pipelines - continuous data ingestion and processing for ongoing model training.
-
-For smaller datasets (under 100GB) that fit comfortably in memory, single-node processing is often sufficient. But as datasets grow to terabytes and beyond, distributed processing becomes essential.
-
-### Integration with Training Pipelines
-
-Distributed data processing feeds into distributed training. The output of data curation - cleaned, deduplicated, and formatted datasets - becomes the input for distributed training systems. This helps you design end-to-end pipelines from raw data to trained models. You can optimize data loading with efficient data sharding and loading for distributed training. You can handle large-scale datasets that are too large for single nodes. Faster data preparation means faster iteration cycles.
-
-The distributed systems principles you learn in data processing - parallelism, fault tolerance, efficient I/O - apply directly to distributed training and inference.
-
----
-
-## 4. Training vs Inference vs Serving
+## 3. Training vs Inference vs Serving
 
 Training, inference, and serving are different. Each has different requirements, bottlenecks, and optimization strategies. Know these differences to design effective distributed systems.
 
@@ -354,7 +310,7 @@ The challenges are system reliability and uptime, multi-model routing and load b
 
 ---
 
-## 5. Decision Framework: When Do You Need Distributed Systems?
+## 4. Decision Framework: When Do You Need Distributed Systems?
 
 The question isn't whether distributed systems are cool - it's whether you actually need them. Distributed training adds complexity, communication overhead, and cost. Use it when you have to, not when you want to.
 
@@ -425,7 +381,7 @@ A research lab training a 1B model: model is only 2GB in BF16, dataset is 100GB,
 
 ---
 
-## 6. PyTorch Distributed Fundamentals
+## 5. PyTorch Distributed Fundamentals
 
 Before writing distributed training code, you need the basic concepts and APIs that PyTorch provides. Here are the essential building blocks that all distributed code relies on.
 
@@ -537,7 +493,7 @@ Third, call `sampler.set_epoch(epoch)` in your training loop. This ensures data 
 
 ---
 
-## 7. Quick Start: Your First Distributed Workloads
+## 6. Quick Start: Your First Distributed Workloads
 
 Now let's run actual distributed training code. Before we start, verify your environment has PyTorch with CUDA support and at least 2 GPUs. You can check this by running `code/check_cuda.py`, which will show your available GPUs. NCCL is typically included with PyTorch, so you shouldn't need to install it separately.
 
