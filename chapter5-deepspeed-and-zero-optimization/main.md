@@ -805,7 +805,7 @@ Here's a complete example training a large model with ZeRO-3:
 ### Model Code
 
 ```python
-# code/chapter5/train_zero3.py
+# code/train_zero3.py
 import torch
 import torch.nn as nn
 import deepspeed
@@ -967,18 +967,18 @@ if __name__ == "__main__":
 ```bash
 #!/bin/bash
 # Single node (8 GPUs)
-deepspeed --num_gpus=8 code/chapter5/train_zero3.py \
+deepspeed --num_gpus=8 code/train_zero3.py \
   --deepspeed \
-  --deepspeed_config code/chapter5/ds_config_zero3.json
+  --deepspeed_config code/ds_config_zero3.json
 
 # Multi-node (2 nodes, 8 GPUs each)
 deepspeed --num_gpus=8 \
   --num_nodes=2 \
   --master_addr=node0 \
   --master_port=29500 \
-  code/chapter5/train_zero3.py \
+  code/train_zero3.py \
   --deepspeed \
-  --deepspeed_config code/chapter5/ds_config_zero3.json
+  --deepspeed_config code/ds_config_zero3.json
 ```
 
 ## ZeRO vs FSDP: When to Use Which?

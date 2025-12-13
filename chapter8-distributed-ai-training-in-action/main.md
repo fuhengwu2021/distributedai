@@ -31,7 +31,7 @@ Slurm (Simple Linux Utility for Resource Management) is a widely-used open-sourc
 
 For development and testing, you can run multiple Slurm compute nodes (slurmd daemons) on a single physical machine. This allows you to simulate a multi-node cluster for testing distributed training code.
 
-**Key configuration** (see `code/chapter8/config/slurm.conf`):
+**Key configuration** (see `code/config/slurm.conf`):
 
 ```bash
 # Enable multiple slurmd support
@@ -42,7 +42,7 @@ NodeName=node7 NodeHostname=moirai-h200 Port=17017 \
     CPUs=112 RealMemory=240000 Gres=gpu:1 State=UNKNOWN
 ```
 
-**GPU mapping** (see `code/chapter8/config/gres.conf`):
+**GPU mapping** (see `code/config/gres.conf`):
 
 ```bash
 NodeName=node6 Name=gpu File=/dev/nvidia6
@@ -629,7 +629,7 @@ srun -N 2 nvidia-smi
 
 ## 10. Configuration Files Reference
 
-All configuration files are available in `code/chapter8/config/`:
+All configuration files are available in `code/config/`:
 
 - **`slurm.conf`**: Main Slurm configuration
 - **`gres.conf`**: GPU resource mapping
@@ -650,7 +650,7 @@ All configuration files are available in `code/chapter8/config/`:
 - [Slurm Documentation](https://slurm.schedmd.com/)
 - [PyTorch Distributed Training](https://pytorch.org/tutorials/beginner/dist_overview.html)
 - [PyTorch FSDP](https://pytorch.org/tutorials/intermediate/FSDP_tutorial.html)
-- Configuration files: `code/chapter8/config/`
+- Configuration files: `code/config/`
 - https://medium.com/@viktorciroski/optimizing-language-model-training-a-practical-guide-to-slurm-a6621d3c1bf2
 - https://arxiv.org/pdf/2405.00030
 - https://codelabs.developers.google.com/codelabs/hpc-slurm-on-gcp#0

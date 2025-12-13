@@ -97,7 +97,7 @@ For most on-premise clusters, InfiniBand is still the default choice. But if you
 
 If you're buying hardware, DGX systems are pre-integrated—NVIDIA ships you a complete system with GPUs, CPUs, networking (including InfiniBand), and software stack. HGX is more modular—it's a baseboard design that OEMs use to build custom servers. Both can include NVSwitch for intra-node communication and InfiniBand for inter-node.
 
-To actually measure your interconnect bandwidth, you can use NCCL tests or write a simple benchmark. The `code/chapter2/bandwidth_test.py` script gives you a basic single-GPU test. For multi-GPU within a node, you'll want to use `nccl-tests`. For multi-node, NCCL tests will show you the InfiniBand bandwidth between nodes.
+To actually measure your interconnect bandwidth, you can use NCCL tests or write a simple benchmark. The `code/bandwidth_test.py` script gives you a basic single-GPU test. For multi-GPU within a node, you'll want to use `nccl-tests`. For multi-node, NCCL tests will show you the InfiniBand bandwidth between nodes.
 
 ## Distributed Communication Patterns
 
@@ -111,7 +111,7 @@ When you're running distributed training, GPUs need to communicate. The main pat
 
 The thing to watch with communication is not just raw bandwidth, but also startup latency and whether you can overlap it with computation. A fast interconnect helps, but if your communication pattern has high latency, you'll still wait. DDP tries to overlap communication with computation by bucketing gradients, which we'll cover in the next chapter.
 
-You can benchmark these operations yourself. The `code/chapter2/allreduce_microbench.py` script shows a basic example, though you'll need to initialize the process group first (we'll cover that in Chapter 3).
+You can benchmark these operations yourself. The `code/allreduce_microbench.py` script shows a basic example, though you'll need to initialize the process group first (we'll cover that in Chapter 3).
 
 ## Parallelism Strategies
 
@@ -155,6 +155,6 @@ A few practical tips:
 
 - Watch out for NUMA. If you're on a multi-socket system, try to keep processes on the same NUMA node. Cross-NUMA communication adds latency.
 
-The code examples in `code/chapter2/` show basic topology detection and bandwidth testing. For real workloads, you'll use the higher-level APIs in PyTorch or DeepSpeed, but understanding what's happening underneath helps when things don't work as expected.
+The code examples in `code/` show basic topology detection and bandwidth testing. For real workloads, you'll use the higher-level APIs in PyTorch or DeepSpeed, but understanding what's happening underneath helps when things don't work as expected.
 
 In the next chapter, we'll dive into PyTorch DDP, which is the most common way to do data parallelism. We'll cover the setup, common pitfalls, and how to optimize it.

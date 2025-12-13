@@ -55,7 +55,7 @@ Let's build a complete example that you can run on 2 GPUs. This trains a model t
 FSDP2 training example - can run on 2 GPUs to demonstrate sharding
 
 Usage:
-    torchrun --nproc_per_node=2 code/chapter4/train_fsdp2.py
+    torchrun --nproc_per_node=2 code/train_fsdp2.py
 """
 import torch
 import torch.nn as nn
@@ -168,10 +168,10 @@ if __name__ == "__main__":
     main()
 ```
 
-Save this as `code/chapter4/train_fsdp2.py` and run it with:
+Save this as `code/train_fsdp2.py` and run it with:
 
 ```bash
-torchrun --nproc_per_node=2 code/chapter4/train_fsdp2.py
+torchrun --nproc_per_node=2 code/train_fsdp2.py
 ```
 
 This example creates a model with about 135M parameters—too large to fit comfortably on a single GPU with optimizer states. With FSDP2, it shards across 2 GPUs, so each GPU only holds half the parameters, gradients, and optimizer states.

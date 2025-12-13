@@ -33,7 +33,7 @@ Looking at recent models, the scale is clear. GPT-4 has over 1 trillion paramete
 | DeepSeek-V3 | 671B MoE (64 experts, 8 active) | DeepSeek | 2025 |
 | Gemini-3-Pro | ~7.5T | Google | 2025 |
 
-![Model Parameters v.s. Year](code/chapter1/model_comparison_plot.png)
+![Model Parameters v.s. Year](code/model_comparison_plot.png)
 
 ### The Scale Challenge
 
@@ -43,7 +43,7 @@ Training these models takes thousands of GPU-hours. A single GPU training run wo
 
 The mismatch is clear: model size and compute requirements have grown exponentially, while single-GPU memory and compute have grown linearly at best.
 
-![Growth Mismatch: Exponential Model Growth vs Linear GPU Growth](code/chapter1/growth_mismatch.png)
+![Growth Mismatch: Exponential Model Growth vs Linear GPU Growth](code/growth_mismatch.png)
 
 ### Estimating Model Resource Requirements
 
@@ -114,7 +114,7 @@ for epoch in range(num_epochs):
         optimizer.step()                  # 5. update parameters
 ```
 
-![Training Memory Timeline](code/chapter1/training_memory_timeline.png)
+![Training Memory Timeline](code/training_memory_timeline.png)
 
 **Memory timeline mapped to code:**
 
@@ -207,7 +207,7 @@ $v_{t-1}$: second-moment estimate from previous step
 $\epsilon$: small constant for numerical stability  
 $t$: iteration index used for bias correction
 
-![Training Memory Breakdown for 7B Model](code/chapter1/training_memory_breakdown.png)
+![Training Memory Breakdown for 7B Model](code/training_memory_breakdown.png)
 
 
 
@@ -252,7 +252,7 @@ The lifecycle looks like this:
 
 **Data Engineering** → **Model Training** → **Model Inference** → **Model Benchmarking** → **Model Deployment** → **Data Engineering** (repeat)
 
-![Modern AI Model Lifecycle](code/chapter1/model_lifecycle.png)
+![Modern AI Model Lifecycle](code/model_lifecycle.png)
 
 You start with data engineering. Collect data, curate it, transform it, validate it, explore it. You're preparing terabytes of data for training. Clean it, deduplicate it, filter for quality, format it. Tools like NeMo Curator handle this at scale.
 
@@ -435,7 +435,7 @@ In distributed training, multiple processes work together. Each process runs on 
 
 Think of it like this: if you have 4 GPUs, you'll have 4 processes. Process 0 runs on GPU 0, process 1 on GPU 1, and so on. The rank tells each process which GPU it should use and which part of the data it should process.
 
-To check your GPU setup, you can use the code in `code/chapter1/ch01_check_cuda.py`:
+To check your GPU setup, you can use the code in `code/ch01_check_cuda.py`:
 
 ```python
 import torch
@@ -464,17 +464,17 @@ def setup(rank, world_size):
     torch.cuda.set_device(rank)  # Set which GPU this process uses
 ```
 
-The simplest test to verify your distributed setup works is in `code/chapter1/ch01_distributed_basic_test.py`. It's a basic distributed test that verifies process group initialization and communication. It doesn't use DDP - it just tests that multiple processes can communicate.
+The simplest test to verify your distributed setup works is in `code/ch01_distributed_basic_test.py`. It's a basic distributed test that verifies process group initialization and communication. It doesn't use DDP - it just tests that multiple processes can communicate.
 
 For multi-GPU testing:
 ```bash
-torchrun --nproc_per_node=2 code/chapter1/ch01_distributed_basic_test.py
+torchrun --nproc_per_node=2 code/ch01_distributed_basic_test.py
 ```
 
-For single-GPU simulation (useful for testing without multiple GPUs), use `code/chapter1/ch01_multi_gpu_simulation.py`:
+For single-GPU simulation (useful for testing without multiple GPUs), use `code/ch01_multi_gpu_simulation.py`:
 ```bash
 # Simulate 2 processes on GPU 0
-CUDA_VISIBLE_DEVICES=0 torchrun --nproc_per_node=2 code/chapter1/ch01_multi_gpu_simulation.py
+CUDA_VISIBLE_DEVICES=0 torchrun --nproc_per_node=2 code/ch01_multi_gpu_simulation.py
 ```
 
 When you run either script, you should see "Rank 0 says hello" and "Rank 1 says hello" printed from different processes. Single-GPU simulation mode is helpful for testing distributed code logic before running on actual multi-GPU setups.
@@ -518,7 +518,7 @@ You must call `sampler.set_epoch(epoch)` at the start of each epoch to ensure da
 You can launch distributed training in two ways. The modern approach uses `torchrun`, which handles process spawning automatically.
 
 ```bash
-torchrun --nproc_per_node=2 code/chapter1/ch01_multi_gpu_ddp.py
+torchrun --nproc_per_node=2 code/ch01_multi_gpu_ddp.py
 ```
 
 This launches 2 processes on the current machine. For multi-node training, specify `--nnodes`, `--node_rank`, and `--master_addr` as well.
@@ -527,7 +527,7 @@ The alternative is using `torch.multiprocessing.spawn()` directly in your code, 
 
 ### Common Pitfalls
 
-Several mistakes trip up beginners. The code in `code/chapter1/ch01_ddp_pitfalls.py` shows the wrong and right ways:
+Several mistakes trip up beginners. The code in `code/ch01_ddp_pitfalls.py` shows the wrong and right ways:
 
 First, all processes must use the same `MASTER_PORT`. If each process uses a different port, they can't communicate. Set it once before initialization, not per-process.
 
@@ -539,13 +539,13 @@ Third, call `sampler.set_epoch(epoch)` in your training loop. This ensures data 
 
 ## 7. Quick Start: Your First Distributed Workloads
 
-Let's run some actual distributed training code. All examples in this section correspond to files in `code/chapter1/`.
+Let's run some actual distributed training code. All examples in this section correspond to files in `code/`.
 
 **Note:** All commands in this section should be run from the book root directory (where the `code/` folder is located).
 
 ### Prerequisites Check
 
-Verify your environment using `code/chapter1/ch01_check_cuda.py`:
+Verify your environment using `code/ch01_check_cuda.py`:
 
 ```python
 import torch
@@ -563,29 +563,29 @@ for i in range(torch.cuda.device_count()):
 
 ### Quick Start 1: Single-GPU Baseline
 
-**File:** `code/chapter1/ch01_single_gpu_baseline.py`
+**File:** `code/ch01_single_gpu_baseline.py`
 
 Establish a single-GPU baseline before comparing distributed training. This script trains a simple model on one GPU and measures training time and memory usage. Run it to get baseline metrics:
 
 ```bash
-python code/chapter1/ch01_single_gpu_baseline.py
+python code/ch01_single_gpu_baseline.py
 ```
 
 This gives you a reference point for comparing distributed training performance.
 
 ### Quick Start 2: Multi-GPU Distributed Training
 
-**File:** `code/chapter1/ch01_multi_gpu_ddp.py`
+**File:** `code/ch01_multi_gpu_ddp.py`
 
 A complete distributed training example using DDP. It includes proper setup, DistributedSampler usage, and cleanup. The code shows the full pattern you'll use in real training jobs.
 
 **Run it:**
 ```bash
 # Using torchrun (recommended)
-torchrun --nproc_per_node=2 code/chapter1/ch01_multi_gpu_ddp.py
+torchrun --nproc_per_node=2 code/ch01_multi_gpu_ddp.py
 
 # Or use the launch script
-bash code/chapter1/ch01_launch_torchrun.sh
+bash code/ch01_launch_torchrun.sh
 ```
 
 The launch script contains the torchrun command with proper arguments, making it easier to run distributed training.
@@ -594,20 +594,20 @@ Compare the training time with your single-GPU baseline. You should see a speedu
 
 ### Quick Start 3: Profiling and Performance Analysis
 
-**File:** `code/chapter1/ch01_profiling.py`
+**File:** `code/ch01_profiling.py`
 
 When you need to see where time and memory are spent, use profiling. The `ch01_profiling.py` script shows how to use PyTorch's profiler to measure CUDA operations and memory usage. Run it to see detailed timing and memory breakdowns:
 
 ```bash
 # Run from the book root directory
-python code/chapter1/ch01_profiling.py
+python code/ch01_profiling.py
 ```
 
 Compare the single-GPU baseline (`ch01_single_gpu_baseline.py`) with multi-GPU training (`ch01_multi_gpu_ddp.py`) to see where distributed training helps and where communication overhead appears. Typical findings show data loading takes 20-40% of time, forward pass 30-50%, backward pass 40-60%, and communication adds 10-30% overhead in multi-GPU setups.
 
 ### Additional Helper Scripts
 
-The `code/chapter1/` directory also contains utility scripts:
+The `code/` directory also contains utility scripts:
 
 - `ch01_gpu_friendly_config.py`: Recommended GPU-friendly configuration settings for batch size, precision, and gradient checkpointing.
 - `ch01_measure_components.py`: Helper function to measure time spent in data loading, computation, and communication separately.
