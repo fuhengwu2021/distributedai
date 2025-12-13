@@ -571,7 +571,16 @@ Establish a single-GPU baseline before comparing distributed training. This scri
 python code/single_gpu_baseline.py
 ```
 
-This gives you a reference point for comparing distributed training performance. You'll see training loss, accuracy, total time, and peak memory usage. The same model architecture is used in the multi-GPU script for fair comparison.
+Example output after 3 epochs:
+```
+Epoch 1/3, Loss: 0.4164, Accuracy: 84.94%
+Epoch 2/3, Loss: 0.2936, Accuracy: 89.17%
+Epoch 3/3, Loss: 0.2531, Accuracy: 90.58%
+
+Total training time: 8.78s
+```
+
+This gives you a reference point for comparing distributed training performance. The same model architecture is used in the multi-GPU script for fair comparison.
 
 ### Quick Start 2: Multi-GPU Distributed Training
 
@@ -589,21 +598,41 @@ OMP_NUM_THREADS=4 torchrun --nproc_per_node=2 code/multi_gpu_ddp.py
 bash code/launch_torchrun.sh
 ```
 
-The launch script contains the torchrun command with proper arguments, making it easier to run distributed training.
+Example output after 3 epochs with 2 GPUs:
+```
+Epoch 1/3, Loss: 0.4158, Accuracy: 84.55%
+Epoch 2/3, Loss: 0.2882, Accuracy: 89.28%
+Epoch 3/3, Loss: 0.2471, Accuracy: 90.73%
 
-Compare the training time with your single-GPU baseline. You should see a speedup, though not perfectly linear due to communication overhead. With 2 GPUs, you typically see 1.5-1.8× speedup depending on your hardware and network configuration.
-
-### Quick Start 3: Profiling and Performance Analysis
-
-**File:** `code/profiling.py`
-
-When you need to see where time and memory are spent, use profiling. The `profiling.py` script shows how to use PyTorch's profiler to measure CUDA operations and memory usage. Run it to see detailed timing and memory breakdowns:
-
-```bash
-python code/profiling.py
+Total training time: 5.91s
 ```
 
-Compare the single-GPU baseline (`single_gpu_baseline.py`) with multi-GPU training (`multi_gpu_ddp.py`) to see where distributed training helps and where communication overhead appears. Typical findings show data loading takes 20-40% of time, forward pass 30-50%, backward pass 40-60%, and communication adds 10-30% overhead in multi-GPU setups. The FashionMNIST dataset downloads automatically on first run (rank 0 handles the download in distributed mode).
+Comparing with the single-GPU baseline (8.78s), we see a **1.48× speedup** with 2 GPUs. The speedup is not perfectly linear (2×) due to communication overhead from gradient synchronization. The loss and accuracy values are similar, confirming that distributed training maintains training quality while reducing training time.
+
+**Scaling Results:**
+
+We tested the same model with different numbers of GPUs to observe scaling behavior:
+
+| GPUs | Training Time | Speedup |
+|------|---------------|---------|
+| 1    | 8.78s         | 1.00×   |
+| 2    | 5.91s         | 1.48×   |
+| 4    | 3.69s         | 2.38×   |
+| 6    | 2.92s         | 3.01×   |
+| 8    | 2.44s         | 3.60×   |
+
+![Scaling Performance](code/scaling_performance.png)
+
+As we scale from 1 to 8 GPUs, we observe diminishing returns in speedup. While training time decreases from 8.78s to 2.44s (3.6× speedup), the speedup is not perfectly linear. With 8 GPUs, we get 3.6× speedup instead of the ideal 8×.
+
+This happens because:
+1. **Communication overhead**: Each training step requires synchronizing gradients across all GPUs via all-reduce operations
+2. **Fixed communication cost**: The time spent on communication doesn't scale down with more GPUs - it may even increase
+3. **Small model size**: For ResNet18 on FashionMNIST, the computation per step is relatively small, so communication overhead becomes a larger fraction of total time
+
+This is expected behavior for smaller models. For larger models (billions of parameters) and longer training runs, speedup typically scales better (closer to linear) because communication overhead becomes a smaller fraction of total time - the computation dominates, making the communication cost relatively negligible.
+
+The FashionMNIST dataset downloads automatically on first run (rank 0 handles the download in distributed mode).
 
 ### Additional Helper Scripts
 
