@@ -621,65 +621,42 @@ We tested the same model with different numbers of GPUs to observe scaling behav
 | 6    | 2.92s         | 3.01×   |
 | 8    | 2.44s         | 3.60×   |
 
-![Scaling Performance](code/scaling_performance.png)
+![FashionMNIST Scaling Performance](code/fashionmnist_scaling_performance.png)
 
-As we scale from 1 to 8 GPUs, we observe diminishing returns in speedup. While training time decreases from 8.78s to 2.44s (3.6× speedup), the speedup is not perfectly linear. With 8 GPUs, we get 3.6× speedup instead of the ideal 8×.
+As we scale from 1 to 8 GPUs, training time decreases from 8.78s to 2.44s, achieving a **3.6× speedup**. This demonstrates the power of distributed training: by adding more GPUs, we can significantly reduce training time and accelerate model development. The speedup improves with larger workloads, as we'll see in the next example.
 
-This happens because:
-1. **Communication overhead**: Each training step requires synchronizing gradients across all GPUs via all-reduce operations
-2. **Fixed communication cost**: The time spent on communication doesn't scale down with more GPUs - it may even increase
-3. **Small model size**: For ResNet18 on FashionMNIST, the computation per step is relatively small, so communication overhead becomes a larger fraction of total time
+**Extended Training: CIFAR-10 with 20 Epochs**
 
-This is expected behavior for smaller models. For larger models (billions of parameters) and longer training runs, speedup typically scales better (closer to linear) because communication overhead becomes a smaller fraction of total time - the computation dominates, making the communication cost relatively negligible.
+To demonstrate how distributed training performs on more realistic workloads, we tested ResNet18 on CIFAR-10 with 20 epochs. CIFAR-10 is a larger and more complex dataset than FashionMNIST, with 50,000 training images using 3-channel RGB images of 32×32 pixels.
 
-The FashionMNIST dataset downloads automatically on first run (rank 0 handles the download in distributed mode).
-
-### Additional Helper Scripts
-
-The `code/` directory also contains utility scripts:
-
-- `gpu_friendly_config.py`: Recommended GPU-friendly configuration settings for batch size, precision, and gradient checkpointing.
-- `measure_components.py`: Helper function to measure time spent in data loading, computation, and communication separately.
-- `ddp_pitfalls.py`: Common mistakes and their correct implementations.
-
-### Launching Distributed Jobs
-
-**Using torchrun (recommended):**
+We can run it with the following commands:
 
 ```bash
-# Single node, multiple GPUs
-torchrun --nproc_per_node=4 train.py
+# Single-GPU baseline
+python code/single_gpu_extended.py --epochs 20
 
-# Multiple nodes (node 0)
-torchrun --nnodes=2 --node_rank=0 --nproc_per_node=8 \
-    --master_addr="192.168.1.1" --master_port=29500 train.py
-
-# Multiple nodes (node 1)
-torchrun --nnodes=2 --node_rank=1 --nproc_per_node=8 \
-    --master_addr="192.168.1.1" --master_port=29500 train.py
+# Multi-GPU distributed training
+OMP_NUM_THREADS=4 torchrun --nproc_per_node=2 code/multi_gpu_ddp_extended.py --epochs 20
+OMP_NUM_THREADS=4 torchrun --nproc_per_node=4 code/multi_gpu_ddp_extended.py --epochs 20
+OMP_NUM_THREADS=4 torchrun --nproc_per_node=6 code/multi_gpu_ddp_extended.py --epochs 20
+OMP_NUM_THREADS=4 torchrun --nproc_per_node=8 code/multi_gpu_ddp_extended.py --epochs 20
 ```
 
-### Quick Validation
+This represents a more substantial training task that better showcases the benefits of distributed training.
 
-**Check if distributed training is working:**
+| GPUs | Training Time | Speedup |
+|------|---------------|---------|
+| 1    | 73.00s (1.22 min) | 1.00×   |
+| 2    | 46.47s (0.77 min) | 1.57×   |
+| 4    | 27.72s (0.46 min) | 2.63×   |
+| 6    | 21.24s (0.35 min) | 3.44×   |
+| 8    | 18.20s (0.30 min) | 4.01×   |
 
-```python
-import time
+![CIFAR-10 Scaling Performance](code/cifar10_scaling_performance.png)
 
-# Measure training speed
-start = time.time()
-# ... training step ...
-elapsed = time.time() - start
+With CIFAR-10, we observe excellent scaling performance. Training time decreases from 73 seconds with 1 GPU to just 18.2 seconds with 8 GPUs, achieving a **4.01× speedup**. This is significantly better than the FashionMNIST results and demonstrates near-linear scaling. The improvement comes from the larger computation workload per epoch, which means the time spent on gradient synchronization becomes a smaller fraction of the total training time. With 20 epochs, the communication overhead is also amortized across more training steps, further improving efficiency. The larger batch size and more complex model better utilize multiple GPUs, with each GPU having sufficient computation work between communication steps to maximize parallel efficiency.
 
-if rank == 0:
-    print(f"Time per step: {elapsed:.3f}s")
-    print(f"Using {world_size} GPUs")
-```
-
-**Common issues:**
-- **Hanging:** Check NCCL communication, firewall settings
-- **OOM:** Reduce batch size or use gradient accumulation
-- **Slow:** Check data loading, use high-speed interconnects
+The 4.01× speedup with 8 GPUs shows that distributed training scales effectively for larger workloads. As the computation per step increases, the relative cost of communication decreases, leading to better scaling efficiency. This is why distributed training is essential for large-scale model training where single-GPU training would take days or weeks. For larger models with billions of parameters, distributed training scales even more effectively, with speedups approaching linear scaling as computation dominates the training time.
 
 ---
 
