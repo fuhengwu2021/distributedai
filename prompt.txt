@@ -69,3 +69,39 @@ refer to outline_detailed.md, create a outline_simplified.md based on the md fil
 保留章节结构、卖点、价值，但删除细到“每节标题”
 改成“chapter overview + learning goals”格式（自由度最大）
 依旧显得专业，但完全不会被框死
+
+把这个文件夹的结构reorg一下, like below
+
+chapterx-slurg(title)/
+main.md
++ code/
+    abc.py
+    ...
++ paper/
+    xyz.pdf
+
+
+for chapter 1. main.md is /media/wukong/jackie/git.repo/distributed-ai/1-introduction-to-modern-distributed-ai.md
+
+
+In the current repo. I actually want a separate code repo as a submodule
+
+the repo is like 
+
+coderepo/
++ code/
+    1/
+        abc.py
+        xyz.py
+    2/
+        123.py
+        asd.py
+
+
+
+And my chapter1-introduction-to-modern-distributed-ai/code is actually a soft link to coderepo/code/1 folder
+
+
+the coderepo is resources/coderepo.
+
+Can you reorg the folder for me?

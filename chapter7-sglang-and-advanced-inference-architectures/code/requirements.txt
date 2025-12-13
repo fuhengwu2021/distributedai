@@ -1,5 +1,0 @@
-torch
-transformers
-requests
-tqdm
-datasets
