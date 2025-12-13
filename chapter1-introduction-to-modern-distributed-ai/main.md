@@ -539,39 +539,14 @@ Third, call `sampler.set_epoch(epoch)` in your training loop. This ensures data 
 
 ## 7. Quick Start: Your First Distributed Workloads
 
-Let's run some actual distributed training code. All examples in this section correspond to files in `code/`.
+Now let's run actual distributed training code. Before we start, verify your environment has PyTorch with CUDA support and at least 2 GPUs. You can check this by running `code/check_cuda.py`, which will show your available GPUs. NCCL is typically included with PyTorch, so you shouldn't need to install it separately.
 
-**Note:** All commands in this section should be run from the book root directory (where the `code/` folder is located).
+We'll begin with a simple baseline to establish a performance reference point, then move to distributed training to see the speedup in action.
 
-### Prerequisites Check
+### Single-GPU Baseline
 
-Verify your environment using `code/check_cuda.py`:
+First, let's establish a baseline. We train ResNet18 on FashionMNIST, which completes in under 30 seconds on a single GPU—perfect for quick experiments. Run `python code/single_gpu_baseline.py` and you should see output like this after 3 epochs:
 
-```python
-import torch
-
-print(f"CUDA available: {torch.cuda.is_available()}")
-print(f"Number of GPUs: {torch.cuda.device_count()}")
-for i in range(torch.cuda.device_count()):
-    print(f"GPU {i}: {torch.cuda.get_device_name(i)}")
-```
-
-**Requirements:**
-- PyTorch with CUDA support
-- 2+ GPUs (for distributed examples)
-- NCCL (usually included with PyTorch)
-
-### Quick Start 1: Single-GPU Baseline
-
-**File:** `code/single_gpu_baseline.py`
-
-Establish a single-GPU baseline before comparing distributed training. This script trains ResNet18 (from torchvision) on the FashionMNIST dataset. The model completes training in under 30 seconds on a single GPU, making it perfect for quick experiments and comparisons.
-
-```bash
-python code/single_gpu_baseline.py
-```
-
-Example output after 3 epochs:
 ```
 Epoch 1/3, Loss: 0.4164, Accuracy: 84.94%
 Epoch 2/3, Loss: 0.2936, Accuracy: 89.17%
@@ -580,38 +555,19 @@ Epoch 3/3, Loss: 0.2531, Accuracy: 90.58%
 Total training time: 8.78s
 ```
 
-This gives you a reference point for comparing distributed training performance. The same model architecture is used in the multi-GPU script for fair comparison.
+This gives us a reference point. The same model architecture is used in the distributed version for a fair comparison.
 
-### Quick Start 2: Multi-GPU Distributed Training
+### Multi-GPU Distributed Training
 
-**File:** `code/multi_gpu_ddp.py`
+Now let's run the distributed version. The script uses the same ResNet18 model on FashionMNIST, but splits the work across multiple GPUs. Run it with:
 
-A complete distributed training example using DDP. This script trains the same ResNet18 model (from torchvision) on FashionMNIST using multiple GPUs. It uses the exact same model architecture as the single-GPU baseline for fair comparison. It includes proper setup, DistributedSampler usage, and cleanup. The code shows the full pattern you'll use in real training jobs.
-
-**Run it:**
 ```bash
-# Using torchrun (recommended)
-# Set OMP_NUM_THREADS before running to avoid warning
 OMP_NUM_THREADS=4 torchrun --nproc_per_node=2 code/multi_gpu_ddp.py
-
-# Or use the launch script (sets OMP_NUM_THREADS automatically)
-bash code/launch_torchrun.sh
 ```
 
-Example output after 3 epochs with 2 GPUs:
-```
-Epoch 1/3, Loss: 0.4158, Accuracy: 84.55%
-Epoch 2/3, Loss: 0.2882, Accuracy: 89.28%
-Epoch 3/3, Loss: 0.2471, Accuracy: 90.73%
+Or use the launch script: `bash code/launch_torchrun.sh`. With 2 GPUs, you'll see similar loss and accuracy values, but the training completes in 5.91 seconds instead of 8.78 seconds—a **1.48× speedup**.
 
-Total training time: 5.91s
-```
-
-Comparing with the single-GPU baseline (8.78s), we see a **1.48× speedup** with 2 GPUs. The speedup is not perfectly linear (2×) due to communication overhead from gradient synchronization. The loss and accuracy values are similar, confirming that distributed training maintains training quality while reducing training time.
-
-**Scaling Results:**
-
-We tested the same model with different numbers of GPUs to observe scaling behavior:
+We tested scaling from 1 to 8 GPUs to see how performance improves:
 
 | GPUs | Training Time | Speedup |
 |------|---------------|---------|
@@ -623,26 +579,22 @@ We tested the same model with different numbers of GPUs to observe scaling behav
 
 ![FashionMNIST Scaling Performance](code/fashionmnist_scaling_performance.png)
 
-As we scale from 1 to 8 GPUs, training time decreases from 8.78s to 2.44s, achieving a **3.6× speedup**. This demonstrates the power of distributed training: by adding more GPUs, we can significantly reduce training time and accelerate model development. The speedup improves with larger workloads, as we'll see in the next example.
+Training time drops from 8.78 seconds to 2.44 seconds with 8 GPUs, achieving a **3.6× speedup**. Adding more GPUs significantly reduces training time and accelerates development cycles. The speedup becomes even more pronounced with larger workloads, as we'll see next.
 
-**Extended Training: CIFAR-10 with 20 Epochs**
+### Extended Training: CIFAR-10 with 20 Epochs
 
-To demonstrate how distributed training performs on more realistic workloads, we tested ResNet18 on CIFAR-10 with 20 epochs. CIFAR-10 is a larger and more complex dataset than FashionMNIST, with 50,000 training images using 3-channel RGB images of 32×32 pixels.
+For a more realistic workload, we tested ResNet18 on CIFAR-10 with 20 epochs. CIFAR-10 is larger and more complex than FashionMNIST, with 50,000 training images using 3-channel RGB images of 32×32 pixels. This better showcases the benefits of distributed training.
 
-We can run it with the following commands:
+Run the single-GPU baseline with `python code/single_gpu_extended.py --epochs 20`, then test distributed training with:
 
 ```bash
-# Single-GPU baseline
-python code/single_gpu_extended.py --epochs 20
-
-# Multi-GPU distributed training
 OMP_NUM_THREADS=4 torchrun --nproc_per_node=2 code/multi_gpu_ddp_extended.py --epochs 20
 OMP_NUM_THREADS=4 torchrun --nproc_per_node=4 code/multi_gpu_ddp_extended.py --epochs 20
 OMP_NUM_THREADS=4 torchrun --nproc_per_node=6 code/multi_gpu_ddp_extended.py --epochs 20
 OMP_NUM_THREADS=4 torchrun --nproc_per_node=8 code/multi_gpu_ddp_extended.py --epochs 20
 ```
 
-This represents a more substantial training task that better showcases the benefits of distributed training.
+The results show even better scaling:
 
 | GPUs | Training Time | Speedup |
 |------|---------------|---------|
@@ -654,9 +606,9 @@ This represents a more substantial training task that better showcases the benef
 
 ![CIFAR-10 Scaling Performance](code/cifar10_scaling_performance.png)
 
-With CIFAR-10, we observe excellent scaling performance. Training time decreases from 73 seconds with 1 GPU to just 18.2 seconds with 8 GPUs, achieving a **4.01× speedup**. This is significantly better than the FashionMNIST results and demonstrates near-linear scaling. The improvement comes from the larger computation workload per epoch, which means the time spent on gradient synchronization becomes a smaller fraction of the total training time. With 20 epochs, the communication overhead is also amortized across more training steps, further improving efficiency. The larger batch size and more complex model better utilize multiple GPUs, with each GPU having sufficient computation work between communication steps to maximize parallel efficiency.
+Training time drops from 73 seconds to 18.2 seconds with 8 GPUs, achieving a **4.01× speedup**—better than the FashionMNIST results. The larger computation workload per epoch means gradient synchronization takes a smaller fraction of total time. With 20 epochs, communication overhead is amortized across more training steps. Each GPU has enough computation work between communication steps to maximize parallel efficiency.
 
-The 4.01× speedup with 8 GPUs shows that distributed training scales effectively for larger workloads. As the computation per step increases, the relative cost of communication decreases, leading to better scaling efficiency. This is why distributed training is essential for large-scale model training where single-GPU training would take days or weeks. For larger models with billions of parameters, distributed training scales even more effectively, with speedups approaching linear scaling as computation dominates the training time.
+This demonstrates why distributed training is essential for large-scale model training. As computation per step increases, the relative cost of communication decreases, leading to better scaling efficiency. For models with billions of parameters, distributed training scales even more effectively, with speedups approaching linear scaling as computation dominates the training time.
 
 ---
 
