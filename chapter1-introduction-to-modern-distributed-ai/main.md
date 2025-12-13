@@ -565,32 +565,33 @@ for i in range(torch.cuda.device_count()):
 
 **File:** `code/single_gpu_baseline.py`
 
-Establish a single-GPU baseline before comparing distributed training. This script trains a simple model on one GPU and measures training time and memory usage. Run it to get baseline metrics:
+Establish a single-GPU baseline before comparing distributed training. This script trains ResNet18 (from torchvision) on the FashionMNIST dataset. The model completes training in under 30 seconds on a single GPU, making it perfect for quick experiments and comparisons.
 
 ```bash
 python code/single_gpu_baseline.py
 ```
 
-This gives you a reference point for comparing distributed training performance.
+This gives you a reference point for comparing distributed training performance. You'll see training loss, accuracy, total time, and peak memory usage. The same model architecture is used in the multi-GPU script for fair comparison.
 
 ### Quick Start 2: Multi-GPU Distributed Training
 
 **File:** `code/multi_gpu_ddp.py`
 
-A complete distributed training example using DDP. It includes proper setup, DistributedSampler usage, and cleanup. The code shows the full pattern you'll use in real training jobs.
+A complete distributed training example using DDP. This script trains the same ResNet18 model (from torchvision) on FashionMNIST using multiple GPUs. It uses the exact same model architecture as the single-GPU baseline for fair comparison. It includes proper setup, DistributedSampler usage, and cleanup. The code shows the full pattern you'll use in real training jobs.
 
 **Run it:**
 ```bash
 # Using torchrun (recommended)
-torchrun --nproc_per_node=2 code/multi_gpu_ddp.py
+# Set OMP_NUM_THREADS before running to avoid warning
+OMP_NUM_THREADS=4 torchrun --nproc_per_node=2 code/multi_gpu_ddp.py
 
-# Or use the launch script
+# Or use the launch script (sets OMP_NUM_THREADS automatically)
 bash code/launch_torchrun.sh
 ```
 
 The launch script contains the torchrun command with proper arguments, making it easier to run distributed training.
 
-Compare the training time with your single-GPU baseline. You should see a speedup, though not perfectly linear due to communication overhead.
+Compare the training time with your single-GPU baseline. You should see a speedup, though not perfectly linear due to communication overhead. With 2 GPUs, you typically see 1.5-1.8× speedup depending on your hardware and network configuration.
 
 ### Quick Start 3: Profiling and Performance Analysis
 
@@ -599,11 +600,10 @@ Compare the training time with your single-GPU baseline. You should see a speedu
 When you need to see where time and memory are spent, use profiling. The `profiling.py` script shows how to use PyTorch's profiler to measure CUDA operations and memory usage. Run it to see detailed timing and memory breakdowns:
 
 ```bash
-# Run from the book root directory
 python code/profiling.py
 ```
 
-Compare the single-GPU baseline (`single_gpu_baseline.py`) with multi-GPU training (`multi_gpu_ddp.py`) to see where distributed training helps and where communication overhead appears. Typical findings show data loading takes 20-40% of time, forward pass 30-50%, backward pass 40-60%, and communication adds 10-30% overhead in multi-GPU setups.
+Compare the single-GPU baseline (`single_gpu_baseline.py`) with multi-GPU training (`multi_gpu_ddp.py`) to see where distributed training helps and where communication overhead appears. Typical findings show data loading takes 20-40% of time, forward pass 30-50%, backward pass 40-60%, and communication adds 10-30% overhead in multi-GPU setups. The FashionMNIST dataset downloads automatically on first run (rank 0 handles the download in distributed mode).
 
 ### Additional Helper Scripts
 
