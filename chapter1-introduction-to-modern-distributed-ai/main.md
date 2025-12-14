@@ -174,7 +174,7 @@ An interesting observation is that $z$ is not needed. Looking at the gradient co
 
 However, this isn't true for all activation functions. Some activation functions have derivatives that explicitly depend on the input value $z$, not just the output $h$. This means you cannot compute the derivative from $h$ alone—you need to store the original $z$ value.
 
-For example, consider GELU (Gaussian Error Linear Unit):
+For example, consider GELU (Gaussian Error Linear Unit). The exact form uses the cumulative distribution function:
 
 $$
 h = z \cdot \Phi(z)
@@ -186,7 +186,21 @@ $$
 \frac{\partial h}{\partial z} = \Phi(z) + z \cdot \phi(z)
 $$
 
-where $\phi$ is the probability density function. This derivative explicitly contains $z$ in the term $z \cdot \phi(z)$. Since $\Phi(z)$ and $\phi(z)$ are not easily invertible functions, you cannot recover $z$ from $h$ alone. Therefore, you need to store the original $z$ value to compute the derivative during backpropagation.
+where $\phi$ is the probability density function. This derivative explicitly contains $z$ in the term $z \cdot \phi(z)$.
+
+In practice, GELU is often approximated using tanh for computational efficiency:
+
+$$
+h = 0.5 \cdot z \cdot \left(1 + \tanh\left(\sqrt{\frac{2}{\pi}} \cdot (z + c \cdot z^3)\right)\right)
+$$
+
+where $c \approx 0.044715$ is a constant. The derivative of this approximation is:
+
+$$
+\frac{\partial h}{\partial z} = 0.5 \cdot \left(1 + \tanh\left(\sqrt{\frac{2}{\pi}} \cdot (z + c \cdot z^3)\right)\right) + 0.5 \cdot z \cdot \left(1 - \tanh^2\left(\sqrt{\frac{2}{\pi}} \cdot (z + c \cdot z^3)\right)\right) \cdot \sqrt{\frac{2}{\pi}} \cdot (1 + 3c \cdot z^2)
+$$
+
+Even with the tanh approximation, the derivative still explicitly contains $z$ in multiple terms, including $z$ itself and $z^2$ and $z^3$ inside the tanh arguments. Since $\tanh$ is not easily invertible and the expression involves $z$ in multiple places, you cannot recover $z$ from $h$ alone. Therefore, you need to store the original $z$ value to compute the derivative during backpropagation, regardless of whether you use the exact GELU form or the tanh approximation.
 
 Similarly, Swish (also known as SiLU, Sigmoid Linear Unit) has:
 
@@ -202,14 +216,11 @@ $$
 
 Again, the derivative contains $z$ explicitly, and you cannot express it purely in terms of $h$. To compute $\frac{\partial h}{\partial z}$, you need both $z$ and $\sigma(z)$, which means storing the original $z$ value.
 
-In practice, frameworks often store both pre-activation values (like $z$) and post-activation values (like $h$) to support all activation functions efficiently. This ensures that backpropagation can compute gradients correctly regardless of which activation function is used, even if it means storing slightly more memory than the theoretical minimum for some functions.
+In practice, frameworks like PyTorch store whatever intermediate values are needed to compute gradients during backpropagation. For activation functions whose derivatives can be expressed in terms of their outputs (like sigmoid), the framework may only store the post-activation values. For functions whose derivatives require the input (like GELU or Swish), the framework stores the pre-activation values. The autograd system automatically determines what needs to be saved based on the operations in the computation graph, ensuring gradients can be computed correctly while minimizing memory usage where possible.
 
-During the forward pass, you compute and store all layer activation outputs (we call these "activations" for short). During backpropagation, you compute gradients layer by layer from the last layer backward.
+During the forward pass, you compute and store all layer activation outputs (we call these "activations" for short). During backpropagation, you compute gradients layer by layer from the last layer backward. For each layer, you need its activation outputs to compute gradients. Once you've computed a layer's gradient and updated its parameters, you can free that layer's activation outputs—they're no longer needed. However, during the backward pass, there's overlap: while computing gradients for one layer, you still have activation outputs from earlier layers in memory. The peak memory occurs when you have both activations (from forward pass) and gradients (from backward pass) simultaneously.
 
-
-For each layer, you need its activation outputs to compute gradients. Once you've computed a layer's gradient and updated its parameters, you can free that layer's activation outputs - they're no longer needed. However, during the backward pass, there's overlap: while computing gradients for one layer, you still have activation outputs from earlier layers in memory. The peak memory occurs when you have both activations (activation outputs from forward pass) and gradients (from backward pass) simultaneously.
-
-In practice, activations (activation outputs) and gradients do overlap in memory during backpropagation. The activation memory scales with batch size and sequence length - larger batches or longer sequences mean more activation outputs to store. Techniques like gradient checkpointing trade compute for memory by recomputing activations instead of storing them all.
+The activation memory scales with batch size and sequence length—larger batches or longer sequences mean more activation outputs to store. Techniques like gradient checkpointing trade compute for memory by recomputing activations instead of storing them all.
 
 **Training Stage**
 
