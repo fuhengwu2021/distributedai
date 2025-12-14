@@ -8,8 +8,6 @@ Modern AI models have grown beyond what single GPUs can handle. Large language m
 
 This chapter walks through resource estimation, decision frameworks for choosing between distributed training, fine-tuning, or inference, and practical examples to get you started.
 
----
-
 ## 1. Why Modern AI Requires Distribution
 
 A few years ago, you could train most models on a single GPU. ResNet-50 on ImageNet took a couple of days. Today, training a 70B parameter language model on a single GPU would take months, if it even fits in memory. The models got bigger, the datasets got bigger, and single-GPU training became impractical.
@@ -227,8 +225,6 @@ Classic machine learning models were designed to fit on a single machine. Tradit
 
 The shift to distributed AI enabled breakthrough capabilities - models that can understand and generate human-like text, code, and multimodal content. It also drove enterprise adoption, with companies deploying AI at scale for production workloads, and accelerated research through faster iteration cycles enabled by parallel experimentation.
 
----
-
 ## 2. The Modern AI Model Lifecycle
 
 Building AI models isn't a one-shot process. It's a cycle: you collect data, train a model, deploy it, see how it performs, then go back and improve the data or model. Each stage feeds into the next.
@@ -255,8 +251,6 @@ Production feedback tells you what data to collect next, or where the model fail
 This book focuses on the distributed technologies you need for training, inference, benchmarking, and deployment. Data engineering gets a brief overview but isn't the main focus. Distributed data processing is important, but it's a well-established topic. Spark, Dask, and Ray have been around for years. This book covers the basics - what you need to know to prepare data for distributed training - but the real focus is on AI-specific distributed challenges: training large models, serving them at scale, and optimizing inference.
 
 The principles are the same across all stages: parallelism, communication, memory management, fault tolerance. But the techniques differ. Training is iterative with frequent gradient syncs. Inference is latency-sensitive with throughput requirements.
-
----
 
 ## 3. Training vs Inference vs Serving
 
@@ -293,8 +287,6 @@ The challenges include system reliability and uptime, multi-model routing and lo
 | **Latency Requirement** | Hours to days | Milliseconds to seconds | Milliseconds |
 | **Throughput Focus** | Samples per second | Tokens per second | Requests per second |
 
----
-
 ## 4. Decision Framework: When Do You Need Distributed Systems?
 
 Distributed systems add complexity, communication overhead, and cost. Use them when you have to, not when you want to.
@@ -316,8 +308,6 @@ When both model size and training time are manageable, your fine-tuning approach
 Large datasets where data loading becomes the bottleneck benefit from distributed data loading. Multi-terabyte datasets are good candidates for data parallelism.
 
 For inference or serving, the logic is similar. If the model exceeds single GPU memory, use model parallelism. A 70B model in BF16 needs 140GB for weights. With KV cache, you're looking at 160-180GB, which requires at least 2 A100 GPUs. If memory is fine but you need high throughput—thousands of requests per second—use multiple GPUs for distributed inference. Real-time services that need sub-second latency at high throughput often require tensor parallelism or multiple inference instances. When both memory and throughput fit within single GPU limits, stick with one GPU and use optimized engines like vLLM or SGLang to maximize efficiency.
-
----
 
 ## 5. Environment Setup
 
@@ -348,8 +338,6 @@ for i in range(torch.cuda.device_count()):
 Running this should show your available GPUs:
 
 ![GPU setup](img/2.png)
-
----
 
 ## 6. Hands-On: Running Distributed Training and Inference
 
@@ -482,8 +470,6 @@ With 2 GPUs using the data-split pattern, we achieve **1.89× speedup**, nearly 
 
 Both patterns demonstrate the power of distributed inference: throughput scales almost linearly with the number of GPUs, making it ideal for production serving workloads that require high request rates. The inference patterns shown here use data parallelism, suitable for models that fit on a single GPU. For large language models that exceed single-GPU memory, later chapters will explore advanced techniques such as expert parallelism, sequence parallelism, tensor parallelism, and serving frameworks like vLLM and SGLang.
 
----
-
 ## 7. PyTorch Distributed Fundamentals
 
 Now that you've seen distributed training and inference in action, let's understand the fundamental concepts and APIs that make it work. The essential building blocks are process groups, ranks, and communication primitives. These form the foundation for all distributed operations, whether you're using DDP or FSDP for data-parallel training, implementing custom parallelism strategies, or building distributed inference systems.
@@ -586,13 +572,9 @@ This launches 2 processes on the current machine. For multi-node training, speci
 
 This command uses several distributed primitives we've covered: `init_process_group()` to set up communication, `barrier()` to synchronize dataset downloading, `DistributedSampler` to partition data, and `DDP` which internally uses `allreduce()` to synchronize gradients during `loss.backward()`.
 
----
-
 This chapter walked through resource estimation, decision frameworks, and practical examples for distributed AI systems. The core idea is simple: estimate your requirements first, then decide whether you actually need distributed systems. Don't assume you need them—calculate memory and compute needs, check if your model fits, and only then consider distribution.
 
 The next chapter explores GPU hardware, networking, and parallelism strategies in more depth.
-
----
 
 ## Further Reading
 
