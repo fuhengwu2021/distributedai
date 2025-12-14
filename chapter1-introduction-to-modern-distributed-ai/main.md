@@ -55,17 +55,26 @@ But model weights are just the start. During training, you also need space for g
 
 #### Training Memory Requirements
 
-Training needs way more memory than inference. You're storing model weights, gradients (one per parameter), optimizer states, and activations from the forward pass. The optimizer state size depends on which optimizer you use.
+Training needs way more memory than inference. You need to store model weights, gradients (one per parameter), optimizer states, and activations from the forward pass.
 
-SGD:
+**Optimizer State**
+
+The optimizer state size depends on which optimizer you use. Take Stochastic Gradient Descent (SGD) as an example, the model weights are updated according to this formula:
 
 $$
 w_{t+1} = \boxed{w_t} - \eta  \boxed{g_t}
 $$
 
-SGD only needs the learning rate $\eta$ (a scalar) to update parameters. Looking at the formula, you compute $g_t$ during backprop, then subtract $\eta g_t$ from $w_t$. The optimizer state is just $\eta$ - negligible memory. You need to store $w_t$ (model weights) and $g_t$ (gradients), but no additional optimizer tensors.
+where:
 
-Adam:
+$w_t$: model parameters at iteration $t$  
+$w_{t+1}$: updated parameters  
+$g_t$: gradient of loss w.r.t. parameters at iteration $t$ ($g_t = \nabla_w L(w_t)$)  
+$\eta$: learning rate (used for both SGD and Adaptive Moment Estimation (Adam))  
+
+The boxed variables are what we need to keep in memory. SGD only needs the learning rate $\eta$ (a scalar) to update parameters. Looking at the formula, you compute $g_t$ during backprop, then subtract $\eta g_t$ from $w_t$. The optimizer state is just $\eta$ - negligible memory. You need to store $w_t$ (model weights) and $g_t$ (gradients), but no additional optimizer tensors.
+
+Adaptive Moment Estimation (Adam)'s formula is more complex:
 
 $$
 w_{t+1} = \boxed{w_t} - \eta
@@ -74,24 +83,38 @@ w_{t+1} = \boxed{w_t} - \eta
 \frac{\sqrt{1-\beta_2^t}}{1-\beta_1^t}
 $$
 
+Variable definitions are as follows:
+
+$\beta_1$: decay rate for the first moment (mean)  
+$\beta_2$: decay rate for the second moment (uncentered variance)  
+$m_{t-1}$: first-moment estimate from previous step  
+$v_{t-1}$: second-moment estimate from previous step  
+$\epsilon$: small constant for numerical stability  
+$t$: iteration index used for bias correction
+
 Adam needs more. The formula shows it maintains two per-parameter tensors: $m_{t-1}$ (first-moment estimate) and $v_{t-1}$ (second-moment estimate). Both $m_{t-1}$ and $v_{t-1}$ have the same shape as $w_t$ - one value per parameter. So Adam stores $m_{t-1}$ (1× model size) and $v_{t-1}$ (1× model size), totaling 2× model size for optimizer states. 
 
 $\beta_1$ and $\beta_2$ are hyperparameters - scalar constants (typically $\beta_1=0.9$, $\beta_2=0.999$). You store them once as configuration, not per parameter. Same with $\eta$ (learning rate) and $\epsilon$ - they're scalars, negligible memory. Only tensors with the same shape as $w_t$ (one value per parameter) need significant memory: $w_t$, $g_t$, $m_{t-1}$, and $v_{t-1}$.
 
 That's why Adam needs 2× the model size for optimizer states compared to SGD's near-zero overhead.
 
-AdamW:
-
 AdamW (Adam with decoupled weight decay) has the same memory requirements as Adam. The difference is how weight decay is applied - AdamW applies it directly to parameters, while Adam adds it to gradients. But both maintain the same optimizer states: $m_{t-1}$ (1× model size) and $v_{t-1}$ (1× model size), totaling 2× model size. So AdamW also needs 2× the model size for optimizer states.
 
-The training loop follows this sequence: forward pass computes predictions and loss, storing activations; backward pass computes gradients $g_t$ for all parameters; optimizer step uses the optimizer to update parameters from $w_t$ to $w_{t+1}$ using gradients $g_t$. 
+Here's a summary of optimizer state memory requirements for common optimizers:
 
-The optimizer is called after backpropagation completes. At that point, you have gradients $g_t$ for all parameters. The optimizer uses these gradients and its internal state like $m_{t-1}$ and $v_{t-1}$ for Adam to compute parameter updates. After the optimizer step, you have updated parameters $w_{t+1}$ ready for the next iteration. The optimizer states ($m_{t-1}$, $v_{t-1}$ for Adam) persist across iterations—they're updated during each optimizer step and stored for the next iteration.
+| Optimizer | Optimizer States | Memory (relative to model size) |
+|-----------|------------------|--------------------------------|
+| SGD | Learning rate $\eta$ (scalar) | ~0× |
+| RMSprop | $v_{t-1}$ (second moment) | 1× |
+| Adagrad | Accumulated gradient squares | 1× |
+| Adam | $m_{t-1}$ (first moment) + $v_{t-1}$ (second moment) | 2× |
+| AdamW | $m_{t-1}$ (first moment) + $v_{t-1}$ (second moment) | 2× |
 
-Activations, gradients, and optimizer states don't all overlap at the same time. During the forward pass, only activations are in memory—no gradients yet, and optimizer states persist but aren't actively used. During the backward pass, activations and gradients overlap because you need activations to compute gradients, and gradients accumulate as you go backward. During the optimizer step, gradients and optimizer states overlap as the optimizer uses gradients and its states to update parameters. Activations are typically freed after the backward pass completes, so they don't overlap with optimizer states.
+The table shows optimizer states only. You still need to store model weights (1×) and gradients (1×) regardless of which optimizer you use.
 
-The peak memory occurs during backward pass when both activations and gradients are in memory simultaneously. After backward pass, activations can be freed, so optimizer step only needs gradients and optimizer states.
+**Training Stage**
 
+During training, memory usage varies across different stages of the training loop. Understanding when each component is needed helps you estimate peak memory requirements and identify optimization opportunities.
 
 ```python
 for epoch in range(num_epochs):
@@ -104,6 +127,19 @@ for epoch in range(num_epochs):
         optimizer.step()                  # 5. update parameters
 ```
 
+Let's break down what happens in each step and what's stored in memory:
+
+Step 2 (Forward pass): The model computes predictions `y_hat` from inputs `x_batch`. During this process, it stores intermediate activations (like $h$ in our earlier example) that will be needed for backpropagation. At this point, memory contains: model weights $w_t$, activations, and optimizer states (like $m_{t-1}$ and $v_{t-1}$ for Adam) from previous iterations.
+
+Step 4 (Backward pass): `loss.backward()` computes gradients $g_t = \nabla_w L(w_t)$ for all parameters. This requires the activations stored during the forward pass. Memory now contains: $w_t$, activations (still needed), gradients $g_t$, and optimizer states.
+
+Step 5 (Optimizer step): `optimizer.step()` updates parameters from $w_t$ to $w_{t+1}$ using the gradients $g_t$ and the optimizer's internal state. For Adam, this means using $m_{t-1}$ and $v_{t-1}$ along with $g_t$ to compute the update. After this step, the optimizer states are updated (e.g., $m_{t-1}$ becomes $m_t$, $v_{t-1}$ becomes $v_t$) and stored for the next iteration. Activations can now be freed since they're no longer needed.
+
+Activations, gradients, and optimizer states don't all exist in memory at the same time. During the forward pass, only activations are actively used—gradients don't exist yet, and optimizer states persist from previous iterations but aren't accessed. During the backward pass, activations and gradients overlap because you need activations to compute gradients. During the optimizer step, gradients and optimizer states overlap as the optimizer uses both to update parameters. Activations are typically freed after the backward pass completes, so they don't overlap with optimizer states.
+
+The peak memory usage occurs during the backward pass when both activations and gradients are in memory simultaneously. After the backward pass, activations can be freed, so the optimizer step only needs gradients and optimizer states.
+
+
 ![Training Memory Timeline](code/training_memory_timeline.png)
 
 The timeline shows memory usage across the training loop. Here's how each stage maps to the code. On line 2 (`y_hat = model(x_batch)`), the forward pass computes and stores activations. Memory usage is weights (14 GB) plus optimizer states (28 GB) plus activations (12 GB), totaling 54 GB. Gradients don't exist yet.
@@ -114,17 +150,16 @@ On line 5 (`optimizer.step()`), after the backward pass completes, activations c
 
 The peak memory of 68 GB occurs during `loss.backward()` (line 4) when both activations and gradients are simultaneously in memory. This is why reducing batch size or using gradient checkpointing helps when you hit out-of-memory errors - they reduce activation memory during the backward pass.
 
-Why activations need memory:
+**Why gradients need activations?**
 
 Activation layers (like ReLU, GELU, sigmoid) don't have parameters - they're just functions applied element-wise. But their outputs (activation outputs, often shortened to "activations") need to be stored in memory during training. 
 
-During the forward pass, you compute and store all layer activation outputs (we call these "activations" for short). During backpropagation, you compute gradients layer by layer from the last layer backward. For each layer, you need its activation outputs to compute gradients. Once you've computed a layer's gradient and updated its parameters, you can free that layer's activation outputs - they're no longer needed. However, during the backward pass, there's overlap: while computing gradients for one layer, you still have activation outputs from earlier layers in memory. The peak memory occurs when you have both activations (activation outputs from forward pass) and gradients (from backward pass) simultaneously.
+Consider a simple 3-layer DNN `SimpleDNN` as below:
 
-In practice, activations (activation outputs) and gradients do overlap in memory during backpropagation. The activation memory scales with batch size and sequence length - larger batches or longer sequences mean more activation outputs to store. Techniques like gradient checkpointing trade compute for memory by recomputing activations instead of storing them all.
+![](img/simplednn.png)
 
-Mathematical derivation: Why gradients need activations
 
-Consider a simple 3-layer DNN: $x \rightarrow z \rightarrow h \rightarrow \hat{y}$ with Linear → Sigmoid → Linear layers:
+The data flow is $x \rightarrow z \rightarrow h \rightarrow \hat{y}$ with Linear → Sigmoid → Linear layers, where input $x$ passes through the first linear layer to produce $z$, then through the sigmoid activation to produce $h$, and finally through the second linear layer to produce the prediction $\hat{y}$. The code in PyTorch would be as follows:
 
 ```python
 class SimpleDNN(nn.Module):
@@ -135,9 +170,9 @@ class SimpleDNN(nn.Module):
         self.linear2 = nn.Linear(hidden_dim, output_dim, bias=bias) # h -> y_hat
 
     def forward(self, x):
-        z = self.linear1(x)      # z = W₁x
-        h = self.activation(z)   # h = σ(z)
-        y_hat = self.linear2(h)  # y_hat = W₂h
+        z = self.linear1(x)      # z = W_1 * x
+        h = self.activation(z)   # h = sigmoid(z)
+        y_hat = self.linear2(h)  # y_hat = W_2 * h
         return y_hat
 ```
 
@@ -147,7 +182,9 @@ $$
 z = W_1 x, \quad h = \sigma(z), \quad \hat{y} = W_2 h, \quad L = \frac{1}{2}(y - \hat{y})^2
 $$
 
-To compute gradients using backpropagation, we apply the chain rule. For $\frac{\partial L}{\partial W_2}$:
+To compute gradients using backpropagation, we apply the chain rule.
+
+For $\frac{\partial L}{\partial W_2}$:
 
 $$
 \frac{\partial L}{\partial W_2} = \frac{\partial L}{\partial \hat{y}} \cdot \frac{\partial \hat{y}}{\partial W_2} = (\hat{y} - y) \cdot h
@@ -171,22 +208,21 @@ $$
 
 This gradient requires both $h$ (the activation output from the sigmoid layer) and $x$ (the input data read from the dataloader). Without storing $h$ (activation output) and $x$ (input data) during the forward pass, you can't compute these gradients during backpropagation. That's why activation outputs (activations) and input data must be kept in memory until their gradients are computed.
 
+An interesting observation is that $z$ is not needed. Looking at the gradient computation, we need $\frac{\partial h}{\partial z} = \sigma'(z)$ to compute $\frac{\partial L}{\partial W_1}$. For sigmoid, the derivative is $\sigma'(z) = \sigma(z)(1-\sigma(z)) = h(1-h)$. Since we already have $h$ stored from the forward pass, we can compute the derivative directly from $h$ without needing the original $z$ value. This is a property of sigmoid and some other activation functions—their derivatives can be expressed in terms of their outputs, so you don't need to store the pre-activation values.
+
+However, this isn't true for all activation functions. For example, consider GELU (Gaussian Error Linear Unit) where $h = z \cdot \Phi(z)$ and $\Phi$ is the cumulative distribution function of the standard normal distribution. The derivative is $\frac{\partial h}{\partial z} = \Phi(z) + z \cdot \phi(z)$, where $\phi$ is the probability density function. This derivative explicitly contains $z$ in the term $z \cdot \phi(z)$, so you cannot compute it from $h$ alone—you need to store the original $z$ value. Similarly, Swish (also known as SiLU) has $h = z \cdot \sigma(z)$ with derivative $\sigma(z) + z \cdot \sigma(z)(1-\sigma(z))$, which also requires $z$. In practice, frameworks often store both pre-activation and post-activation values to support all activation functions efficiently.
+
+During the forward pass, you compute and store all layer activation outputs (we call these "activations" for short). During backpropagation, you compute gradients layer by layer from the last layer backward.
+
+
+For each layer, you need its activation outputs to compute gradients. Once you've computed a layer's gradient and updated its parameters, you can free that layer's activation outputs - they're no longer needed. However, during the backward pass, there's overlap: while computing gradients for one layer, you still have activation outputs from earlier layers in memory. The peak memory occurs when you have both activations (activation outputs from forward pass) and gradients (from backward pass) simultaneously.
+
+In practice, activations (activation outputs) and gradients do overlap in memory during backpropagation. The activation memory scales with batch size and sequence length - larger batches or longer sequences mean more activation outputs to store. Techniques like gradient checkpointing trade compute for memory by recomputing activations instead of storing them all.
+
+
 Memory breakdown:
 
 For a 7B model with BF16: model weights (14 GB), gradients (14 GB), optimizer states with Adam (28 GB for $m_{t-1}$ and $v_{t-1}$), and activations (8-16 GB depending on batch size and sequence length). That's 64-72 GB total per GPU. With SGD, you'd save 28 GB on optimizer states, but Adam's adaptive learning rates usually converge faster, so the trade-off is worth it for most cases. That's why a 7B model needs at least an A100 (80GB) for training with Adam, even with mixed precision (BF16). Smaller GPUs won't cut it.
-
-Variable definitions are as follows:
-
-$w_t$: model parameters at iteration $t$  
-$w_{t+1}$: updated parameters  
-$g_t$: gradient of loss w.r.t. parameters at iteration $t$ ($g_t = \nabla_w L(w_t)$)  
-$\eta$: learning rate (used for both SGD and Adam)  
-$\beta_1$: decay rate for the first moment (mean)  
-$\beta_2$: decay rate for the second moment (uncentered variance)  
-$m_{t-1}$: first-moment estimate from previous step  
-$v_{t-1}$: second-moment estimate from previous step  
-$\epsilon$: small constant for numerical stability  
-$t$: iteration index used for bias correction
 
 ![Training Memory Breakdown for 7B Model](code/training_memory_breakdown.png)
 

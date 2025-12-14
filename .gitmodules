@@ -22,3 +22,6 @@
 [submodule "resources/nemo-curator"]
 	path = resources/nemo-curator
 	url = https://github.com/NVIDIA-NeMo/Curator.git
+[submodule "resources/tilert"]
+	path = resources/tilert
+	url = https://github.com/tile-ai/TileRT.git
