@@ -308,9 +308,7 @@ Building AI models isn't a one-shot process. It's a cycle: you collect data, tra
 
 The lifecycle looks like this:
 
-Data Engineering → Model Training → Model Inference → Model Benchmarking → Model Deployment → Data Engineering (repeat)
-
-![Modern AI Model Lifecycle](code/model_lifecycle.png)
+![Modern AI Model Lifecycle](img/mdlc.png)
 
 You start with data engineering. Collect data, curate it, transform it, validate it, explore it. You're preparing terabytes of data for training. Clean it, deduplicate it, filter for quality, format it. Tools like NeMo Curator handle this at scale.
 
@@ -329,11 +327,11 @@ This book focuses on the distributed technologies you need for training, inferen
 
 The principles are the same across all stages: parallelism, communication, memory management, fault tolerance. But the techniques differ. Training is iterative with frequent gradient syncs. Inference is latency-sensitive with throughput requirements.
 
-## 3. Training vs Inference vs Serving
+### Training vs Inference vs Serving
 
 Training, inference, and serving are different. Each has different requirements, bottlenecks, and optimization strategies. Know these differences to design effective distributed systems.
 
-### Training: The Learning Phase
+#### Training: The Learning Phase
 
 Training is about learning model parameters from data. The process follows a pattern: forward pass through the model, loss computation, backward pass to compute gradients, and gradient update to adjust parameters. This happens iteratively over multiple epochs until the model converges.
 
@@ -341,19 +339,19 @@ Training requires storing activations, gradients, and optimizer states in memory
 
 Training a 7B parameter model on 1 trillion tokens typically requires 8 A100 GPUs (80GB each) and about 2 weeks of continuous training. You need careful gradient synchronization to maintain training stability across all GPUs.
 
-### Inference: The Prediction/Generation Phase
+#### Inference: The Prediction/Generation Phase
 
 Inference is about generating predictions from a trained model. Unlike training, you only need a forward pass—no gradients, no backward pass, no optimizer states. Memory requirements are lower because you only need model weights and KV cache for attention mechanisms. The compute per request is lower, but you need high throughput to serve many requests at once. Communication is minimal, mostly only for distributed inference.
 
 The challenges include latency (sub-second for interactive apps), throughput (thousands of requests per second), efficient memory usage through KV cache management, and effective batching and scheduling. Serving a 70B parameter model for chat requires optimized inference engines like vLLM or SGLang, continuous batching to maximize GPU utilization, and careful KV cache management for variable-length sequences.
 
-### Serving: The Production System
+#### Serving: The Production System
 
 Serving is about providing reliable, scalable access to models. It's not just running inference—it's building a production system with a model runner, API gateway, load balancer, and monitoring. The requirements include high availability, fault tolerance, and observability. At scale, you're dealing with multi-model, multi-tenant systems.
 
 The challenges include system reliability and uptime, multi-model routing and load balancing, cost optimization through GPU utilization and autoscaling, and observability for debugging. A production LLM serving platform might include multiple model variants (different sizes, fine-tuned versions), A/B testing infrastructure, canary deployment pipelines, and distributed tracing and monitoring.
 
-### Comparison Table
+#### Comparison Table
 
 | Aspect | Training | Inference | Serving |
 |--------|----------|-----------|---------|
@@ -364,7 +362,7 @@ The challenges include system reliability and uptime, multi-model routing and lo
 | **Latency Requirement** | Hours to days | Milliseconds to seconds | Milliseconds |
 | **Throughput Focus** | Samples per second | Tokens per second | Requests per second |
 
-## 4. Decision Framework: When Do You Need Distributed Systems?
+## 3. Decision Framework: When Do You Need Distributed Systems?
 
 Distributed systems add complexity, communication overhead, and cost. Use them when you have to, not when you want to.
 
@@ -386,7 +384,7 @@ Large datasets where data loading becomes the bottleneck benefit from distribute
 
 For inference or serving, the logic is similar. If the model exceeds single GPU memory, use model parallelism. A 70B model in BF16 needs 140GB for weights. With KV cache, you're looking at 160-180GB, which requires at least 2 A100 GPUs. If memory is fine but you need high throughput—thousands of requests per second—use multiple GPUs for distributed inference. Real-time services that need sub-second latency at high throughput often require tensor parallelism or multiple inference instances. When both memory and throughput fit within single GPU limits, stick with one GPU and use optimized engines like vLLM or SGLang to maximize efficiency.
 
-## 5. Environment Setup
+## 4. Environment Setup
 
 In this book, we will use PyTorch as our main frame work, and the code is in git repo https://github.com/fuhengwu2021/coderepo.
 
@@ -416,7 +414,7 @@ Running this should show your available GPUs:
 
 ![GPU setup](img/2.png)
 
-## 6. Hands-On: Running Distributed Training and Inference
+## 5. Hands-On: Running Distributed Training and Inference
 
 We'll begin with a simple baseline to establish a performance reference point, then move to distributed training to see the speedup in action.
 
@@ -547,7 +545,7 @@ With 2 GPUs using the data-split pattern, we achieve **1.89× speedup**, nearly 
 
 Both patterns demonstrate the power of distributed inference: throughput scales almost linearly with the number of GPUs, making it ideal for production serving workloads that require high request rates. The inference patterns shown here use data parallelism, suitable for models that fit on a single GPU. For large language models that exceed single-GPU memory, later chapters will explore advanced techniques such as expert parallelism, sequence parallelism, tensor parallelism, and serving frameworks like vLLM and SGLang.
 
-## 7. PyTorch Distributed Fundamentals
+## 6. PyTorch Distributed Fundamentals
 
 Now that you've seen distributed training and inference in action, let's understand the fundamental concepts and APIs that make it work. The essential building blocks are process groups, ranks, and communication primitives. These form the foundation for all distributed operations, whether you're using DDP or FSDP for data-parallel training, implementing custom parallelism strategies, or building distributed inference systems.
 
