@@ -566,6 +566,33 @@ Training time drops from 73 seconds to 18.2 seconds with 8 GPUs, achieving a **4
 
 This demonstrates why distributed training is essential for large-scale model training. As computation per step increases, the relative cost of communication decreases, leading to better scaling efficiency. For models with billions of parameters, distributed training scales even more effectively, with speedups approaching linear scaling as computation dominates the training time.
 
+### Distributed Inference: Throughput Scaling
+
+While training focuses on reducing time-to-convergence, inference focuses on throughput—how many requests you can process per second. Distributed inference allows multiple GPUs to process different requests simultaneously, dramatically increasing throughput.
+
+We benchmarked ResNet18 inference on FashionMNIST to measure throughput scaling. The single-GPU baseline processes requests sequentially, while distributed inference splits requests across multiple GPUs in parallel.
+
+Run the benchmarks with:
+
+```bash
+# Single-GPU inference baseline
+python code/single_gpu_inference.py --requests 1000
+
+# Multi-GPU distributed inference
+OMP_NUM_THREADS=4 torchrun --nproc_per_node=2 code/multi_gpu_inference.py --requests 1000
+OMP_NUM_THREADS=4 torchrun --nproc_per_node=4 code/multi_gpu_inference.py --requests 1000
+OMP_NUM_THREADS=4 torchrun --nproc_per_node=8 code/multi_gpu_inference.py --requests 1000
+```
+
+Example results from benchmarking:
+
+| GPUs | Throughput (req/s) | Speedup |
+|------|---------------------|---------|
+| 1    | 540.94 req/s        | 1.00×   |
+| 2    | 1043.84 req/s       | 1.93×   |
+
+With 2 GPUs, we achieve **1.93× speedup**, nearly doubling the throughput. Distributed inference achieves near-linear scaling because each GPU processes independent requests. Unlike training, there's no gradient synchronization overhead—each GPU simply runs inference on its assigned requests. This makes distributed inference highly efficient for serving scenarios where you need to handle many concurrent requests. The throughput scales almost linearly with the number of GPUs, making it ideal for production serving workloads that require high request rates.
+
 ---
 
 ## Key Takeaways
