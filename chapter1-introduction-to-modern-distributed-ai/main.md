@@ -6,7 +6,7 @@
 
 Modern AI models have grown beyond what single GPUs can handle. Large language models now range from several billion to over a trillion parameters. Training models with tens of billions of parameters on a single GPU would take months, if they even fit in memory. Serving these models at scale requires distributed architectures.
 
-This chapter covers resource estimation, decision frameworks for choosing between distributed training, fine-tuning, or inference, and practical examples to get started. Focus on making informed decisions and running distributed workloads effectively.
+This chapter walks through resource estimation, decision frameworks for choosing between distributed training, fine-tuning, or inference, and practical examples to get you started.
 
 ---
 
@@ -322,21 +322,21 @@ The decision framework is summarized in the decision tree below. Start by identi
 
 ### Understanding the Decision Tree
 
-For **training or fine-tuning**, check model memory first. If your model exceeds single GPU capacity (calculate in BF16: parameters × 2 bytes), you need model or parameter parallelism (FSDP, tensor parallelism, etc.). A 13B model needs 26GB for weights; with Adam optimizer, that's 72GB total—too close for comfort on an 80GB A100.
+When training or fine-tuning, start by checking whether your model fits in memory. Calculate model size in BF16 (parameters × 2 bytes). If it exceeds single GPU capacity, you'll need model or parameter parallelism like FSDP or tensor parallelism. A 13B model needs 26GB for weights alone. Add Adam optimizer states and you're looking at 72GB total, which is cutting it close on an 80GB A100.
 
-If the model fits but training takes too long (weeks or months on a single GPU), use data parallelism. Training a 7B model on 1T tokens takes about 2 weeks on 8 GPUs versus months on 1 GPU.
+If the model fits but training drags on for weeks or months, data parallelism can speed things up. Training a 7B model on 1T tokens takes about two weeks on 8 GPUs, compared to months on a single GPU.
 
-If both model size and training time are manageable, consider your fine-tuning approach. Parameter-efficient methods like LoRA and QLoRA can change the equation—QLoRA on a 70B model fits in a 48GB GPU by only training adapter weights, while full fine-tuning needs multiple GPUs. But if the base model doesn't fit, you still need model parallelism regardless.
+When both model size and training time are manageable, your fine-tuning approach matters. Parameter-efficient methods like LoRA and QLoRA change the equation. QLoRA on a 70B model fits in a 48GB GPU because it only trains adapter weights, while full fine-tuning of the same model needs multiple GPUs. But if the base model doesn't fit, you still need model parallelism regardless of which training method you choose.
 
-For large datasets where data loading becomes the bottleneck, distributed data loading helps. Multi-terabyte datasets benefit from data parallelism.
+Large datasets where data loading becomes the bottleneck benefit from distributed data loading. Multi-terabyte datasets are good candidates for data parallelism.
 
-For **inference or serving**, if the model exceeds single GPU memory, use model parallelism. A 70B model in BF16 needs 140GB for weights; with KV cache, that's 160-180GB—requiring 2+ A100 GPUs. If memory is fine but you need high throughput (thousands of requests per second), use multiple GPUs for distributed inference. For real-time services needing sub-second latency at high throughput, use tensor parallelism or multiple inference instances. If both memory and throughput are within single GPU limits, stick with one GPU, using optimized engines like vLLM or SGLang.
+For inference or serving, the logic is similar. If the model exceeds single GPU memory, use model parallelism. A 70B model in BF16 needs 140GB for weights. With KV cache, you're looking at 160-180GB, which requires at least 2 A100 GPUs. If memory is fine but you need high throughput—thousands of requests per second—use multiple GPUs for distributed inference. Real-time services that need sub-second latency at high throughput often require tensor parallelism or multiple inference instances. When both memory and throughput fit within single GPU limits, stick with one GPU and use optimized engines like vLLM or SGLang to maximize efficiency.
 
 ### Examples
 
-**Training:** A 7B model (14GB in BF16) fits on one A100 (80GB), so single GPU works. A 70B model (140GB) needs distributed training with FSDP or model parallelism across multiple GPUs, though QLoRA can reduce memory requirements.
+A 7B model (14GB in BF16) fits on one A100 (80GB), so single GPU works. A 70B model (140GB) needs distributed training with FSDP or model parallelism across multiple GPUs, though QLoRA can reduce memory requirements.
 
-**Inference:** A 13B model (26GB) serving 1000 requests/second needs distributed inference across 2+ GPUs to meet throughput. A 1B model (2GB) fits comfortably on a single GPU with standard optimizations.
+For inference, a 13B model (26GB) serving 1000 requests per second needs distributed inference across 2+ GPUs to meet throughput. A 1B model (2GB) fits comfortably on a single GPU with standard optimizations.
 
 ---
 
@@ -448,16 +448,6 @@ torchrun --nproc_per_node=2 code/multi_gpu_ddp.py
 This launches 2 processes on the current machine. For multi-node training, specify `--nnodes`, `--node_rank`, and `--master_addr` as well.
 
 The alternative is using `torch.multiprocessing.spawn()` directly in your code, which is what `multi_gpu_ddp.py` does internally.
-
-### Common Pitfalls
-
-Several mistakes trip up beginners. The code in `code/ddp_pitfalls.py` shows the wrong and right ways:
-
-First, all processes must use the same `MASTER_PORT`. If each process uses a different port, they can't communicate. Set it once before initialization, not per-process.
-
-Second, always use DistributedSampler with your DataLoader. Without it, each process sees all the data, which means you're not actually doing distributed training - just running the same training multiple times.
-
-Third, call `sampler.set_epoch(epoch)` in your training loop. This ensures data shuffling works correctly. Without it, each epoch uses the same data order.
 
 ---
 
