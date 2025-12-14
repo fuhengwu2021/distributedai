@@ -112,45 +112,7 @@ Here's a summary of optimizer state memory requirements for common optimizers:
 
 The table shows optimizer states only. You still need to store model weights (1×) and gradients (1×) regardless of which optimizer you use.
 
-**Training Stage**
-
-During training, memory usage varies across different stages of the training loop. Understanding when each component is needed helps you estimate peak memory requirements and identify optimization opportunities.
-
-```python
-for epoch in range(num_epochs):
-    model.train()                         # set to training mode
-    for x_batch, y_batch in dataloader:   # iterate over batches
-        optimizer.zero_grad()             # 1. clear gradients
-        y_hat = model(x_batch)            # 2. forward pass
-        loss = criterion(y_hat, y_batch)  # 3. compute loss
-        loss.backward()                   # 4. backward pass
-        optimizer.step()                  # 5. update parameters
-```
-
-Let's break down what happens in each step and what's stored in memory:
-
-Step 2 (Forward pass): The model computes predictions `y_hat` from inputs `x_batch`. During this process, it stores intermediate activations (like $h$ in our earlier example) that will be needed for backpropagation. At this point, memory contains: model weights $w_t$, activations, and optimizer states (like $m_{t-1}$ and $v_{t-1}$ for Adam) from previous iterations.
-
-Step 4 (Backward pass): `loss.backward()` computes gradients $g_t = \nabla_w L(w_t)$ for all parameters. This requires the activations stored during the forward pass. Memory now contains: $w_t$, activations (still needed), gradients $g_t$, and optimizer states.
-
-Step 5 (Optimizer step): `optimizer.step()` updates parameters from $w_t$ to $w_{t+1}$ using the gradients $g_t$ and the optimizer's internal state. For Adam, this means using $m_{t-1}$ and $v_{t-1}$ along with $g_t$ to compute the update. After this step, the optimizer states are updated (e.g., $m_{t-1}$ becomes $m_t$, $v_{t-1}$ becomes $v_t$) and stored for the next iteration. Activations can now be freed since they're no longer needed.
-
-Activations, gradients, and optimizer states don't all exist in memory at the same time. During the forward pass, only activations are actively used—gradients don't exist yet, and optimizer states persist from previous iterations but aren't accessed. During the backward pass, activations and gradients overlap because you need activations to compute gradients. During the optimizer step, gradients and optimizer states overlap as the optimizer uses both to update parameters. Activations are typically freed after the backward pass completes, so they don't overlap with optimizer states.
-
-The peak memory usage occurs during the backward pass when both activations and gradients are in memory simultaneously. After the backward pass, activations can be freed, so the optimizer step only needs gradients and optimizer states.
-
-
-![Training Memory Timeline](code/training_memory_timeline.png)
-
-The timeline shows memory usage across the training loop. Here's how each stage maps to the code. On line 2 (`y_hat = model(x_batch)`), the forward pass computes and stores activations. Memory usage is weights (14 GB) plus optimizer states (28 GB) plus activations (12 GB), totaling 54 GB. Gradients don't exist yet.
-
-On line 4 (`loss.backward()`), the backward pass is where peak memory occurs. During backpropagation, you need both activations to compute gradients and the gradients being computed. Memory usage is weights (14 GB) plus optimizer states (28 GB) plus activations (12 GB) plus gradients (14 GB), totaling 68 GB. This is the peak because activations and gradients overlap in memory.
-
-On line 5 (`optimizer.step()`), after the backward pass completes, activations can be freed. The optimizer uses gradients and its internal states to update parameters. Memory usage is weights (14 GB) plus optimizer states (28 GB) plus gradients (14 GB), totaling 56 GB. Activations are no longer needed.
-
-The peak memory of 68 GB occurs during `loss.backward()` (line 4) when both activations and gradients are simultaneously in memory. This is why reducing batch size or using gradient checkpointing helps when you hit out-of-memory errors - they reduce activation memory during the backward pass.
-
-**Why gradients need activations?**
+**Activation Output**
 
 Activation layers (like ReLU, GELU, sigmoid) don't have parameters - they're just functions applied element-wise. But their outputs (activation outputs, often shortened to "activations") need to be stored in memory during training. 
 
@@ -210,7 +172,37 @@ This gradient requires both $h$ (the activation output from the sigmoid layer) a
 
 An interesting observation is that $z$ is not needed. Looking at the gradient computation, we need $\frac{\partial h}{\partial z} = \sigma'(z)$ to compute $\frac{\partial L}{\partial W_1}$. For sigmoid, the derivative is $\sigma'(z) = \sigma(z)(1-\sigma(z)) = h(1-h)$. Since we already have $h$ stored from the forward pass, we can compute the derivative directly from $h$ without needing the original $z$ value. This is a property of sigmoid and some other activation functions—their derivatives can be expressed in terms of their outputs, so you don't need to store the pre-activation values.
 
-However, this isn't true for all activation functions. For example, consider GELU (Gaussian Error Linear Unit) where $h = z \cdot \Phi(z)$ and $\Phi$ is the cumulative distribution function of the standard normal distribution. The derivative is $\frac{\partial h}{\partial z} = \Phi(z) + z \cdot \phi(z)$, where $\phi$ is the probability density function. This derivative explicitly contains $z$ in the term $z \cdot \phi(z)$, so you cannot compute it from $h$ alone—you need to store the original $z$ value. Similarly, Swish (also known as SiLU) has $h = z \cdot \sigma(z)$ with derivative $\sigma(z) + z \cdot \sigma(z)(1-\sigma(z))$, which also requires $z$. In practice, frameworks often store both pre-activation and post-activation values to support all activation functions efficiently.
+However, this isn't true for all activation functions. Some activation functions have derivatives that explicitly depend on the input value $z$, not just the output $h$. This means you cannot compute the derivative from $h$ alone—you need to store the original $z$ value.
+
+For example, consider GELU (Gaussian Error Linear Unit):
+
+$$
+h = z \cdot \Phi(z)
+$$
+
+where $\Phi$ is the cumulative distribution function of the standard normal distribution. The derivative is:
+
+$$
+\frac{\partial h}{\partial z} = \Phi(z) + z \cdot \phi(z)
+$$
+
+where $\phi$ is the probability density function. This derivative explicitly contains $z$ in the term $z \cdot \phi(z)$. Since $\Phi(z)$ and $\phi(z)$ are not easily invertible functions, you cannot recover $z$ from $h$ alone. Therefore, you need to store the original $z$ value to compute the derivative during backpropagation.
+
+Similarly, Swish (also known as SiLU, Sigmoid Linear Unit) has:
+
+$$
+h = z \cdot \sigma(z)
+$$
+
+with derivative:
+
+$$
+\frac{\partial h}{\partial z} = \sigma(z) + z \cdot \sigma(z)(1-\sigma(z))
+$$
+
+Again, the derivative contains $z$ explicitly, and you cannot express it purely in terms of $h$. To compute $\frac{\partial h}{\partial z}$, you need both $z$ and $\sigma(z)$, which means storing the original $z$ value.
+
+In practice, frameworks often store both pre-activation values (like $z$) and post-activation values (like $h$) to support all activation functions efficiently. This ensures that backpropagation can compute gradients correctly regardless of which activation function is used, even if it means storing slightly more memory than the theoretical minimum for some functions.
 
 During the forward pass, you compute and store all layer activation outputs (we call these "activations" for short). During backpropagation, you compute gradients layer by layer from the last layer backward.
 
@@ -218,6 +210,44 @@ During the forward pass, you compute and store all layer activation outputs (we 
 For each layer, you need its activation outputs to compute gradients. Once you've computed a layer's gradient and updated its parameters, you can free that layer's activation outputs - they're no longer needed. However, during the backward pass, there's overlap: while computing gradients for one layer, you still have activation outputs from earlier layers in memory. The peak memory occurs when you have both activations (activation outputs from forward pass) and gradients (from backward pass) simultaneously.
 
 In practice, activations (activation outputs) and gradients do overlap in memory during backpropagation. The activation memory scales with batch size and sequence length - larger batches or longer sequences mean more activation outputs to store. Techniques like gradient checkpointing trade compute for memory by recomputing activations instead of storing them all.
+
+**Training Stage**
+
+During training, memory usage varies across different stages of the training loop. Understanding when each component is needed helps you estimate peak memory requirements and identify optimization opportunities.
+
+```python
+for epoch in range(num_epochs):
+    model.train()                         # set to training mode
+    for x_batch, y_batch in dataloader:   # iterate over batches
+        optimizer.zero_grad()             # 1. clear gradients
+        y_hat = model(x_batch)            # 2. forward pass
+        loss = criterion(y_hat, y_batch)  # 3. compute loss
+        loss.backward()                   # 4. backward pass
+        optimizer.step()                  # 5. update parameters
+```
+
+Let's break down what happens in each step and what's stored in memory:
+
+Step 2 (Forward pass): The model computes predictions `y_hat` from inputs `x_batch`. During this process, it stores intermediate activations (like $h$ in our earlier example) that will be needed for backpropagation. At this point, memory contains: model weights $w_t$, activations, and optimizer states (like $m_{t-1}$ and $v_{t-1}$ for Adam) from previous iterations.
+
+Step 4 (Backward pass): `loss.backward()` computes gradients $g_t = \nabla_w L(w_t)$ for all parameters. This requires the activations stored during the forward pass. Memory now contains: $w_t$, activations (still needed), gradients $g_t$, and optimizer states.
+
+Step 5 (Optimizer step): `optimizer.step()` updates parameters from $w_t$ to $w_{t+1}$ using the gradients $g_t$ and the optimizer's internal state. For Adam, this means using $m_{t-1}$ and $v_{t-1}$ along with $g_t$ to compute the update. After this step, the optimizer states are updated (e.g., $m_{t-1}$ becomes $m_t$, $v_{t-1}$ becomes $v_t$) and stored for the next iteration. Activations can now be freed since they're no longer needed.
+
+Activations, gradients, and optimizer states don't all exist in memory at the same time. During the forward pass, only activations are actively used—gradients don't exist yet, and optimizer states persist from previous iterations but aren't accessed. During the backward pass, activations and gradients overlap because you need activations to compute gradients. During the optimizer step, gradients and optimizer states overlap as the optimizer uses both to update parameters. Activations are typically freed after the backward pass completes, so they don't overlap with optimizer states.
+
+The peak memory usage occurs during the backward pass when both activations and gradients are in memory simultaneously. After the backward pass, activations can be freed, so the optimizer step only needs gradients and optimizer states.
+
+
+![Training Memory Timeline](code/training_memory_timeline.png)
+
+The timeline shows memory usage across the training loop. Here's how each stage maps to the code. On line 2 (`y_hat = model(x_batch)`), the forward pass computes and stores activations. Memory usage is weights (14 GB) plus optimizer states (28 GB) plus activations (12 GB), totaling 54 GB. Gradients don't exist yet.
+
+On line 4 (`loss.backward()`), the backward pass is where peak memory occurs. During backpropagation, you need both activations to compute gradients and the gradients being computed. Memory usage is weights (14 GB) plus optimizer states (28 GB) plus activations (12 GB) plus gradients (14 GB), totaling 68 GB. This is the peak because activations and gradients overlap in memory.
+
+On line 5 (`optimizer.step()`), after the backward pass completes, activations can be freed. The optimizer uses gradients and its internal states to update parameters. Memory usage is weights (14 GB) plus optimizer states (28 GB) plus gradients (14 GB), totaling 56 GB. Activations are no longer needed.
+
+The peak memory of 68 GB occurs during `loss.backward()` (line 4) when both activations and gradients are simultaneously in memory. This is why reducing batch size or using gradient checkpointing helps when you hit out-of-memory errors - they reduce activation memory during the backward pass.
 
 
 Memory breakdown:
