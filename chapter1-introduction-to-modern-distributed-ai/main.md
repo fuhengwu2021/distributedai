@@ -324,17 +324,9 @@ Second, training takes too long. If single-GPU training would take weeks or mont
 
 Third, the dataset is too large. If data loading becomes the bottleneck, or you can't fit the dataset on a single node, use data parallelism. Multi-terabyte datasets benefit from distributed data loading.
 
+The same principles apply to fine-tuning. If the base model doesn't fit on a single GPU, you need model parallelism. Parameter-efficient methods like LoRA and QLoRA can help—QLoRA on a 70B model can fit in a 48GB GPU because it only trains adapter weights, while full fine-tuning of the same model needs multiple GPUs.
+
 When is single-GPU enough? If the model fits comfortably with room for activations, training completes in hours to days, the dataset fits locally, and budget favors single-GPU solutions, stick with one GPU.
-
-### When Do You Need Distributed Fine-tuning?
-
-Fine-tuning is usually lighter than full training, but you might still need distribution.
-
-If the base model is too large for a single GPU, you need model parallelism. Fine-tuning a 70B model requires splitting it across multiple GPUs, just like training.
-
-Large fine-tuning datasets benefit from distributed data loading. If you're fine-tuning on a domain-specific corpus with millions of examples, multiple GPUs help.
-
-Parameter-efficient methods like LoRA and QLoRA change the equation. QLoRA on a 70B model can fit in a 48GB GPU because it only trains adapter weights. Full fine-tuning of the same model needs multiple GPUs. If you can use LoRA/QLoRA, you can often stick with a single GPU.
 
 ### When Do You Need Distributed Inference?
 
@@ -502,7 +494,7 @@ Third, call `sampler.set_epoch(epoch)` in your training loop. This ensures data 
 
 ---
 
-## 6. Quick Start: Your First Distributed Workloads
+## 6. Hands-On: Running Distributed Training and Inference
 
 Now let's run actual distributed training code. Before we start, verify your environment has PyTorch with CUDA support and at least 2 GPUs. You can check this by running `code/check_cuda.py`, which will show your available GPUs. NCCL is typically included with PyTorch, so you shouldn't need to install it separately.
 
