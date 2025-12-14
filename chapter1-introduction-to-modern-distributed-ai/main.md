@@ -540,11 +540,13 @@ Set it in your shell before `torchrun` starts—setting it inside your Python sc
 
 ### DistributedDataParallel (DDP)
 
-DDP is PyTorch's way of wrapping a model for data-parallel distributed training. When you wrap a model with DDP, PyTorch automatically handles gradient synchronization across all processes. Each process computes gradients on its local data, then DDP averages these gradients across all processes before updating the model.
+This section provides a brief overview of DDP. Chapter 3 covers DDP in depth with detailed implementation, optimization techniques, and best practices.
 
-DDP assumes each process has a complete copy of the model. The model itself isn't split—only the data is partitioned. Each process trains on a different subset of the data, but all processes maintain identical model parameters after each training step. DDP is the most common approach for distributed training when your model fits on a single GPU. For larger models, FSDP (Fully Sharded Data Parallel) shards the model across GPUs while still using data parallelism. Later chapters will cover FSDP and other parallelism strategies like tensor parallelism and pipeline parallelism.
+DDP wraps a model for data-parallel distributed training. When you wrap a model with DDP, PyTorch automatically synchronizes gradients across all processes. Each process computes gradients on its local data, then DDP averages these gradients before updating the model.
 
-To wrap a model with DDP:
+DDP assumes each process has a complete copy of the model. Only the data is partitioned—each process trains on a different subset, but all processes maintain identical model parameters after each training step. DDP works well when your model fits on a single GPU. For larger models, FSDP (Fully Sharded Data Parallel) shards the model across GPUs while still using data parallelism. Later chapters will cover FSDP and other parallelism strategies like tensor parallelism and pipeline parallelism.
+
+Wrap a model with DDP:
 
 ```python
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -553,7 +555,7 @@ model = YourModel().cuda(rank)
 model = DDP(model, device_ids=[rank])
 ```
 
-After wrapping, you use the model exactly as you would in single-GPU training. DDP handles the synchronization behind the scenes during `loss.backward()`.
+After wrapping, use the model exactly as you would in single-GPU training. DDP handles synchronization during `loss.backward()`.
 
 ### DistributedSampler
 
