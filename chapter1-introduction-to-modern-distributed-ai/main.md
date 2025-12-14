@@ -574,7 +574,7 @@ Call `sampler.set_epoch(epoch)` at the start of each epoch to ensure data shuffl
 
 ### Launching Distributed Jobs
 
-You can launch distributed training in two ways. The modern approach uses `torchrun`, which handles process spawning automatically:
+The modern approach uses `torchrun`, which handles process spawning automatically:
 
 ```bash
 torchrun --nproc_per_node=2 code/multi_gpu_ddp.py
@@ -582,7 +582,7 @@ torchrun --nproc_per_node=2 code/multi_gpu_ddp.py
 
 This launches 2 processes on the current machine. For multi-node training, specify `--nnodes`, `--node_rank`, and `--master_addr` as well.
 
-The alternative is using `torch.multiprocessing.spawn()` directly in your code, which is what `multi_gpu_ddp.py` does internally.
+This command uses several distributed primitives we've covered: `init_process_group()` to set up communication, `barrier()` to synchronize dataset downloading, `DistributedSampler` to partition data, and `DDP` which internally uses `allreduce()` to synchronize gradients during `loss.backward()`.
 
 ---
 
