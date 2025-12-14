@@ -312,64 +312,31 @@ The challenges are system reliability and uptime, multi-model routing and load b
 
 ## 4. Decision Framework: When Do You Need Distributed Systems?
 
-The question isn't whether distributed systems are cool - it's whether you actually need them. Distributed training adds complexity, communication overhead, and cost. Use it when you have to, not when you want to.
-
-### When Do You Need Distributed Training?
-
-Three scenarios force you into distributed training:
-
-First, the model doesn't fit. Calculate model size in BF16 (parameters × 2 bytes). If that's more than 80% of your GPU memory, you need model parallelism or FSDP. A 13B model needs 26GB just for weights. With Adam optimizer, you're looking at 72GB total. An A100 has 80GB, so you're cutting it close. You'll need 2+ GPUs.
-
-Second, training takes too long. If single-GPU training would take weeks or months, and you need faster iteration, go distributed. Training a 7B model on 1T tokens takes about 2 weeks on 8 GPUs. On 1 GPU, it's months.
-
-Third, the dataset is too large. If data loading becomes the bottleneck, or you can't fit the dataset on a single node, use data parallelism. Multi-terabyte datasets benefit from distributed data loading.
-
-The same principles apply to fine-tuning. If the base model doesn't fit on a single GPU, you need model parallelism. Parameter-efficient methods like LoRA and QLoRA can help—QLoRA on a 70B model can fit in a 48GB GPU because it only trains adapter weights, while full fine-tuning of the same model needs multiple GPUs.
-
-When is single-GPU enough? If the model fits comfortably with room for activations, training completes in hours to days, the dataset fits locally, and budget favors single-GPU solutions, stick with one GPU.
-
-### When Do You Need Distributed Inference?
-
-Inference has different constraints than training. You need distribution when:
-
-The model doesn't fit. A 70B model in BF16 needs 140GB just for weights. With KV cache, you're at 160-180GB. That's 2+ A100 GPUs minimum.
-
-Throughput exceeds single GPU capacity. If you need to serve thousands of requests per second, a single GPU won't cut it. A chat application with 10,000 concurrent users needs multiple GPUs or nodes.
-
-You need low latency at high throughput. Real-time services need sub-second latency while handling many requests. That often requires tensor parallelism or multiple inference instances.
-
-When is single-GPU inference enough? If the model fits with room for KV cache, throughput is within single GPU capacity, latency requirements are met, and cost favors single-GPU deployment, stick with one GPU. Use optimized engines like vLLM or SGLang to maximize utilization.
+Distributed systems add complexity, communication overhead, and cost. Use them when you have to, not when you want to.
 
 ### Decision Tree: Quick Reference
 
-```
-Start: What is your use case?
-│
-├─ Training from scratch?
-│  ├─ Model > 60GB? → Distributed Training (FSDP/Model Parallel)
-│  ├─ Training time too long? → Distributed Training (Data Parallel)
-│  └─ Both OK? → Single GPU
-│
-├─ Fine-tuning?
-│  ├─ Base model > GPU memory? → Distributed Fine-tuning
-│  ├─ Using LoRA/QLoRA? → Usually single GPU OK
-│  └─ Large dataset? → Consider distributed
-│
-└─ Inference/Serving?
-   ├─ Model > GPU memory? → Distributed Inference (Model Parallel)
-   ├─ High throughput needed? → Distributed Inference (Multiple GPUs)
-   └─ Both OK? → Single GPU with optimization (vLLM/SGLang)
-```
+The decision framework is summarized in the decision tree below. Start by identifying your use case: training (or fine-tuning) versus inference and serving.
 
-### Real-World Examples
+![Decision Framework: When Do You Need Distributed Systems?](img/1.png)
 
-A startup training a 7B model: model size is 14GB in BF16, they have one A100 with 80GB. The model fits with room for training overhead, so a single GPU is sufficient. They use mixed precision (BF16) and gradient checkpointing if needed.
+### Understanding the Decision Tree
 
-An enterprise fine-tuning a 70B model: model size is 140GB in BF16, exceeding a single GPU's capacity. With 4 A100 GPUs available, they need distributed fine-tuning. They use FSDP or model parallelism, and might consider QLoRA to reduce memory requirements.
+For **training or fine-tuning**, check model memory first. If your model exceeds single GPU capacity (calculate in BF16: parameters × 2 bytes), you need model or parameter parallelism (FSDP, tensor parallelism, etc.). A 13B model needs 26GB for weights; with Adam optimizer, that's 72GB total—too close for comfort on an 80GB A100.
 
-Production inference with a 13B model: requirements are 1000 requests per second with less than 500ms latency. Model size is 26GB in BF16. With 2 A100 GPUs, distributed inference is needed to meet the throughput requirement. They use vLLM with tensor parallelism or multiple instances.
+If the model fits but training takes too long (weeks or months on a single GPU), use data parallelism. Training a 7B model on 1T tokens takes about 2 weeks on 8 GPUs versus months on 1 GPU.
 
-A research lab training a 1B model: model is only 2GB in BF16, dataset is 100GB, they have one RTX 4090 with 24GB. The model and data fit comfortably, so a single GPU is sufficient. They use a standard training pipeline with BF16.
+If both model size and training time are manageable, consider your fine-tuning approach. Parameter-efficient methods like LoRA and QLoRA can change the equation—QLoRA on a 70B model fits in a 48GB GPU by only training adapter weights, while full fine-tuning needs multiple GPUs. But if the base model doesn't fit, you still need model parallelism regardless.
+
+For large datasets where data loading becomes the bottleneck, distributed data loading helps. Multi-terabyte datasets benefit from data parallelism.
+
+For **inference or serving**, if the model exceeds single GPU memory, use model parallelism. A 70B model in BF16 needs 140GB for weights; with KV cache, that's 160-180GB—requiring 2+ A100 GPUs. If memory is fine but you need high throughput (thousands of requests per second), use multiple GPUs for distributed inference. For real-time services needing sub-second latency at high throughput, use tensor parallelism or multiple inference instances. If both memory and throughput are within single GPU limits, stick with one GPU, using optimized engines like vLLM or SGLang.
+
+### Examples
+
+**Training:** A 7B model (14GB in BF16) fits on one A100 (80GB), so single GPU works. A 70B model (140GB) needs distributed training with FSDP or model parallelism across multiple GPUs, though QLoRA can reduce memory requirements.
+
+**Inference:** A 13B model (26GB) serving 1000 requests/second needs distributed inference across 2+ GPUs to meet throughput. A 1B model (2GB) fits comfortably on a single GPU with standard optimizations.
 
 ---
 
