@@ -1,0 +1,121 @@
+#!/bin/bash
+
+# Monitor script to watch main.md files and auto-convert to PDF
+# Usage:
+#   ./monitor.sh                    # Monitor all chapters
+#   ./monitor.sh 1                   # Monitor only chapter 1
+#   ./monitor.sh 1 2 3               # Monitor specific chapters
+
+# Get the script directory (root of the project)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+CONVERT_SCRIPT="$SCRIPT_DIR/convert_to_pdf.sh"
+
+# Colors for output
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Function to extract chapter number from path
+get_chapter_number() {
+    local path="$1"
+    # Extract chapter number from path like chapter1-... or chapter10-...
+    if [[ "$path" =~ chapter([0-9]+) ]]; then
+        echo "${BASH_REMATCH[1]}"
+    else
+        echo ""
+    fi
+}
+
+# Function to convert a specific chapter
+convert_chapter() {
+    local chapter_num="$1"
+    local chapter_name="$2"
+    
+    echo -e "${BLUE}[$(date +'%Y-%m-%d %H:%M:%S')]${NC} Detected change in ${YELLOW}$chapter_name${NC}"
+    echo -e "${BLUE}[$(date +'%Y-%m-%d %H:%M:%S')]${NC} Converting chapter $chapter_num to PDF..."
+    
+    if "$CONVERT_SCRIPT" "$chapter_num" > /tmp/convert_${chapter_num}.log 2>&1; then
+        echo -e "${GREEN}[$(date +'%Y-%m-%d %H:%M:%S')]${NC} ✓ Successfully converted chapter $chapter_num"
+    else
+        echo -e "${YELLOW}[$(date +'%Y-%m-%d %H:%M:%S')]${NC} ✗ Conversion failed for chapter $chapter_num"
+        echo -e "${YELLOW}Check log: /tmp/convert_${chapter_num}.log${NC}"
+    fi
+    echo ""
+}
+
+# Function to monitor files
+monitor_files() {
+    local watch_dirs=()
+    
+    # If specific chapters are provided, monitor only those
+    if [ $# -gt 0 ]; then
+        for chapter_num in "$@"; do
+            # Find chapter directory
+            chapter_dir=$(find . -maxdepth 1 -type d -name "chapter${chapter_num}-*" | head -1)
+            if [ -n "$chapter_dir" ] && [ -f "$chapter_dir/main.md" ]; then
+                watch_dirs+=("$chapter_dir")
+                echo -e "${GREEN}Monitoring:${NC} $chapter_dir/main.md"
+            else
+                echo -e "${YELLOW}Warning:${NC} Chapter $chapter_num not found or main.md missing"
+            fi
+        done
+    else
+        # Monitor all chapters
+        echo -e "${GREEN}Monitoring all chapters...${NC}"
+        while IFS= read -r -d '' dir; do
+            if [ -f "$dir/main.md" ]; then
+                watch_dirs+=("$dir")
+                chapter_num=$(get_chapter_number "$dir")
+                echo -e "${GREEN}Monitoring:${NC} $dir/main.md (Chapter $chapter_num)"
+            fi
+        done < <(find . -maxdepth 1 -type d -name "chapter*" -print0 | sort -z)
+    fi
+    
+    if [ ${#watch_dirs[@]} -eq 0 ]; then
+        echo -e "${YELLOW}No chapters to monitor. Exiting.${NC}"
+        exit 1
+    fi
+    
+    echo ""
+    echo -e "${BLUE}========================================${NC}"
+    echo -e "${BLUE}File monitor started${NC}"
+    echo -e "${BLUE}Press Ctrl+C to stop${NC}"
+    echo -e "${BLUE}========================================${NC}"
+    echo ""
+    
+    # Use inotifywait to monitor file changes
+    inotifywait -m -r -e close_write,moved_to --format '%w%f' "${watch_dirs[@]}" 2>/dev/null | while read -r file; do
+        # Only process main.md files
+        if [[ "$file" == */main.md ]]; then
+            chapter_num=$(get_chapter_number "$file")
+            chapter_dir=$(dirname "$file")
+            chapter_name=$(basename "$chapter_dir")
+            
+            if [ -n "$chapter_num" ]; then
+                # Small delay to ensure file is fully written
+                sleep 0.5
+                convert_chapter "$chapter_num" "$chapter_name"
+            fi
+        fi
+    done
+}
+
+# Check if convert_to_pdf.sh exists
+if [ ! -f "$CONVERT_SCRIPT" ]; then
+    echo -e "${YELLOW}Error:${NC} convert_to_pdf.sh not found at $CONVERT_SCRIPT"
+    exit 1
+fi
+
+# Check if inotifywait is available
+if ! command -v inotifywait &> /dev/null; then
+    echo -e "${YELLOW}Error:${NC} inotifywait not found. Please install inotify-tools:"
+    echo "  sudo apt-get install inotify-tools  # Ubuntu/Debian"
+    echo "  sudo yum install inotify-tools     # CentOS/RHEL"
+    exit 1
+fi
+
+# Start monitoring
+monitor_files "$@"
