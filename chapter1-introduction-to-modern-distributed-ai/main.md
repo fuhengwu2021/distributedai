@@ -53,7 +53,7 @@ The memory footprint depends on what you're storing. For model weights alone, th
 
 For training, BF16 (bfloat16) is preferred over FP16 (float16). BF16 has the same exponent range as FP32 (8 bits) but reduced mantissa (7 bits), giving it the same dynamic range as FP32. This makes training more stable—less likely to overflow or underflow. FP16 has a smaller exponent range (5 bits), which can cause numerical issues during training. Modern GPUs (A100, H100) have Tensor Cores optimized for BF16. For inference, both FP16 and BF16 work, but BF16 is still preferred for consistency with training.
 
-But model weights are just the start. During training, you also need space for gradients, optimizer states, and activations. For inference, you need KV cache for attention mechanisms. The total memory requirement can be several times larger than just the model weights.
+But model weights are just the start. During training, you also need space for gradients, optimizer states, and activations. For inference, you need KV cache for attention mechanisms. The KV cache is crucial for LLM inference—it stores the key-value pairs from previous tokens in the sequence, allowing the model to avoid recomputing attention over the entire sequence for each new token. This dramatically speeds up autoregressive generation, but it requires significant memory that scales with batch size and sequence length. The total memory requirement can be several times larger than just the model weights.
 
 #### Training Memory Requirements
 
@@ -196,7 +196,9 @@ $t$: iteration index used for bias correction
 
 #### Inference Memory Requirements
 
-Inference is simpler. You just need the model weights and KV cache for attention. The KV cache size depends on your batch size, sequence length, and model architecture. For a 70B model with BF16, you're looking at 140 GB for model weights and another 20-40 GB for KV cache with a batch size of 32 and sequence length of 2048. That's 160-180 GB total. That's why inference for large models needs multiple GPUs or model parallelism. A single A100 won't hold it.
+Inference is simpler. You just need the model weights and KV cache for attention. The KV cache is key for LLM inference—it stores computed key-value pairs from previous tokens, allowing the model to generate each new token without recomputing attention over the entire sequence. This makes autoregressive generation much faster, but the cache grows with each generated token and scales with batch size and sequence length.
+
+The KV cache size depends on your batch size, sequence length, and model architecture. For a 70B model with BF16, you're looking at 140 GB for model weights and another 20-40 GB for KV cache with a batch size of 32 and sequence length of 2048. That's 160-180 GB total. That's why inference for large models needs multiple GPUs or model parallelism. A single A100 won't hold it.
 
 #### GPU Requirements Estimation
 
