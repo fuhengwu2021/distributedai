@@ -61,8 +61,9 @@ Part 3: Benchmarking and Specialized Paradigms
 The above is the book i want to write.
 
 行文风格类似 /home/wukong/git.repo/mocksphere.com-ai-20250929/agent_output/oreilly/distributed-machine-learning-with-python
+不要太多列表或者冒号，总结之类的。不要让人一看就是GPT AI生成的.
+可运行的command要单独一行，读者好拷贝运行。
 
-不要让人一看就是GPT AI生成的.
 
 refer to outline_detailed.md, create a outline_simplified.md based on the md files in the folder and 把大纲从“执行级”改成“概念级”, 调整 wording 让未来更自由
 把你整个大纲重新包装成 Packt 喜欢但非常宽松的版本

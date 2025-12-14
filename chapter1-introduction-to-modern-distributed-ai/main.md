@@ -51,7 +51,7 @@ Before you start training or deploying, you need to know how much memory and com
 
 The memory footprint depends on what you're storing. For model weights alone, the calculation is straightforward. Each parameter in FP32 takes 4 bytes, FP16/BF16 takes 2 bytes, Int8 takes 1 byte, and Int4 takes 0.5 bytes. For a 7B parameter model, that's 28 GB in FP32, 14 GB in BF16 (or FP16), 7 GB in Int8, and 3.5 GB in Int4.
 
-**Note on precision:** For training, BF16 (bfloat16) is preferred over FP16 (float16). BF16 has the same exponent range as FP32 (8 bits) but reduced mantissa (7 bits), giving it the same dynamic range as FP32. This makes training more stable - less likely to overflow or underflow. FP16 has a smaller exponent range (5 bits), which can cause numerical issues during training. Modern GPUs (A100, H100) have Tensor Cores optimized for BF16. For inference, both FP16 and BF16 work, but BF16 is still preferred for consistency with training.
+For training, BF16 (bfloat16) is preferred over FP16 (float16). BF16 has the same exponent range as FP32 (8 bits) but reduced mantissa (7 bits), giving it the same dynamic range as FP32. This makes training more stable—less likely to overflow or underflow. FP16 has a smaller exponent range (5 bits), which can cause numerical issues during training. Modern GPUs (A100, H100) have Tensor Cores optimized for BF16. For inference, both FP16 and BF16 work, but BF16 is still preferred for consistency with training.
 
 But model weights are just the start. During training, you also need space for gradients, optimizer states, and activations. For inference, you need KV cache for attention mechanisms. The total memory requirement can be several times larger than just the model weights.
 
@@ -59,7 +59,7 @@ But model weights are just the start. During training, you also need space for g
 
 Training needs way more memory than inference. You're storing model weights, gradients (one per parameter), optimizer states, and activations from the forward pass. The optimizer state size depends on which optimizer you use.
 
-**SGD:**
+SGD:
 
 $$
 w_{t+1} = \boxed{w_t} - \eta  \boxed{g_t}
@@ -67,7 +67,7 @@ $$
 
 SGD only needs the learning rate $\eta$ (a scalar) to update parameters. Looking at the formula, you compute $g_t$ during backprop, then subtract $\eta g_t$ from $w_t$. The optimizer state is just $\eta$ - negligible memory. You need to store $w_t$ (model weights) and $g_t$ (gradients), but no additional optimizer tensors.
 
-**Adam:**
+Adam:
 
 $$
 w_{t+1} = \boxed{w_t} - \eta
@@ -82,23 +82,15 @@ $\beta_1$ and $\beta_2$ are hyperparameters - scalar constants (typically $\beta
 
 That's why Adam needs 2× the model size for optimizer states compared to SGD's near-zero overhead.
 
-**AdamW:**
+AdamW:
 
 AdamW (Adam with decoupled weight decay) has the same memory requirements as Adam. The difference is how weight decay is applied - AdamW applies it directly to parameters, while Adam adds it to gradients. But both maintain the same optimizer states: $m_{t-1}$ (1× model size) and $v_{t-1}$ (1× model size), totaling 2× model size. So AdamW also needs 2× the model size for optimizer states.
 
-**When optimizers are used:**
+The training loop follows this sequence: forward pass computes predictions and loss, storing activations; backward pass computes gradients $g_t$ for all parameters; optimizer step uses the optimizer to update parameters from $w_t$ to $w_{t+1}$ using gradients $g_t$. 
 
-The training loop follows this sequence: (1) forward pass - compute predictions and loss, storing activations; (2) backward pass - compute gradients $g_t$ for all parameters; (3) optimizer step - use the optimizer to update parameters from $w_t$ to $w_{t+1}$ using gradients $g_t$. 
+The optimizer is called after backpropagation completes. At that point, you have gradients $g_t$ for all parameters. The optimizer uses these gradients and its internal state like $m_{t-1}$ and $v_{t-1}$ for Adam to compute parameter updates. After the optimizer step, you have updated parameters $w_{t+1}$ ready for the next iteration. The optimizer states ($m_{t-1}$, $v_{t-1}$ for Adam) persist across iterations—they're updated during each optimizer step and stored for the next iteration.
 
-The optimizer is called after backpropagation completes. At that point, you have gradients $g_t$ for all parameters. The optimizer uses these gradients (and its internal state like $m_{t-1}$ and $v_{t-1}$ for Adam) to compute parameter updates. After the optimizer step, you have updated parameters $w_{t+1}$ ready for the next iteration. The optimizer states ($m_{t-1}$, $v_{t-1}$ for Adam) persist across iterations - they're updated during each optimizer step and stored for the next iteration.
-
-**Memory overlap during training:**
-
-Activations, gradients, and optimizer states don't all overlap at the same time. Here's the timeline:
-
-- **Forward pass**: Only activations in memory (no gradients yet, optimizer states persist but aren't actively used)
-- **Backward pass**: Activations and gradients overlap (you need activations to compute gradients, and gradients accumulate as you go backward)
-- **Optimizer step**: Gradients and optimizer states overlap (optimizer uses gradients and its states to update parameters). Activations are typically freed after backward pass completes, so they don't overlap with optimizer states.
+Activations, gradients, and optimizer states don't all overlap at the same time. During the forward pass, only activations are in memory—no gradients yet, and optimizer states persist but aren't actively used. During the backward pass, activations and gradients overlap because you need activations to compute gradients, and gradients accumulate as you go backward. During the optimizer step, gradients and optimizer states overlap as the optimizer uses gradients and its states to update parameters. Activations are typically freed after the backward pass completes, so they don't overlap with optimizer states.
 
 The peak memory occurs during backward pass when both activations and gradients are in memory simultaneously. After backward pass, activations can be freed, so optimizer step only needs gradients and optimizer states.
 
@@ -116,19 +108,15 @@ for epoch in range(num_epochs):
 
 ![Training Memory Timeline](code/training_memory_timeline.png)
 
-**Memory timeline mapped to code:**
+The timeline shows memory usage across the training loop. Here's how each stage maps to the code. On line 2 (`y_hat = model(x_batch)`), the forward pass computes and stores activations. Memory usage is weights (14 GB) plus optimizer states (28 GB) plus activations (12 GB), totaling 54 GB. Gradients don't exist yet.
 
-The timeline shows memory usage across the training loop. Here's how each stage maps to the code:
+On line 4 (`loss.backward()`), the backward pass is where peak memory occurs. During backpropagation, you need both activations to compute gradients and the gradients being computed. Memory usage is weights (14 GB) plus optimizer states (28 GB) plus activations (12 GB) plus gradients (14 GB), totaling 68 GB. This is the peak because activations and gradients overlap in memory.
 
-- **Line 2 (`y_hat = model(x_batch)`) - Forward Pass**: During forward pass, activations are computed and stored. Memory: weights (14 GB) + optimizer states (28 GB) + activations (12 GB) = 54 GB. Gradients don't exist yet.
-
-- **Line 4 (`loss.backward()`) - Backward Pass**: This is where peak memory occurs. During backpropagation, you need both activations (to compute gradients) and gradients (being computed). Memory: weights (14 GB) + optimizer states (28 GB) + activations (12 GB) + gradients (14 GB) = 68 GB. This is the peak because activations and gradients overlap in memory.
-
-- **Line 5 (`optimizer.step()`) - Optimizer Step**: After backward pass completes, activations can be freed. The optimizer uses gradients and its internal states to update parameters. Memory: weights (14 GB) + optimizer states (28 GB) + gradients (14 GB) = 56 GB. Activations are no longer needed.
+On line 5 (`optimizer.step()`), after the backward pass completes, activations can be freed. The optimizer uses gradients and its internal states to update parameters. Memory usage is weights (14 GB) plus optimizer states (28 GB) plus gradients (14 GB), totaling 56 GB. Activations are no longer needed.
 
 The peak memory of 68 GB occurs during `loss.backward()` (line 4) when both activations and gradients are simultaneously in memory. This is why reducing batch size or using gradient checkpointing helps when you hit out-of-memory errors - they reduce activation memory during the backward pass.
 
-**Why activations need memory:**
+Why activations need memory:
 
 Activation layers (like ReLU, GELU, sigmoid) don't have parameters - they're just functions applied element-wise. But their outputs (activation outputs, often shortened to "activations") need to be stored in memory during training. 
 
@@ -136,7 +124,7 @@ During the forward pass, you compute and store all layer activation outputs (we 
 
 In practice, activations (activation outputs) and gradients do overlap in memory during backpropagation. The activation memory scales with batch size and sequence length - larger batches or longer sequences mean more activation outputs to store. Techniques like gradient checkpointing trade compute for memory by recomputing activations instead of storing them all.
 
-**Mathematical derivation: Why gradients need activations**
+Mathematical derivation: Why gradients need activations
 
 Consider a simple 3-layer DNN: $x \rightarrow z \rightarrow h \rightarrow \hat{y}$ with Linear → Sigmoid → Linear layers:
 
@@ -175,12 +163,7 @@ $$
 \frac{\partial L}{\partial W_1} = \frac{\partial L}{\partial \hat{y}} \cdot \frac{\partial \hat{y}}{\partial h} \cdot \frac{\partial h}{\partial z} \cdot \frac{\partial z}{\partial W_1}
 $$
 
-Expanding each term:
-
-- $\frac{\partial L}{\partial \hat{y}} = \hat{y} - y$ (needs $\hat{y}$)
-- $\frac{\partial \hat{y}}{\partial h} = W_2$ (needs $W_2$)
-- $\frac{\partial h}{\partial z} = \sigma'(z) = \sigma(z)(1-\sigma(z)) = h(1-h)$ (needs $h$)
-- $\frac{\partial z}{\partial W_1} = x$ (needs input $x$)
+Expanding each term: $\frac{\partial L}{\partial \hat{y}} = \hat{y} - y$ (needs $\hat{y}$), $\frac{\partial \hat{y}}{\partial h} = W_2$ (needs $W_2$), $\frac{\partial h}{\partial z} = \sigma'(z) = \sigma(z)(1-\sigma(z)) = h(1-h)$ (needs $h$), and $\frac{\partial z}{\partial W_1} = x$ (needs input $x$).
 
 So:
 
@@ -190,11 +173,11 @@ $$
 
 This gradient requires both $h$ (the activation output from the sigmoid layer) and $x$ (the input data read from the dataloader). Without storing $h$ (activation output) and $x$ (input data) during the forward pass, you can't compute these gradients during backpropagation. That's why activation outputs (activations) and input data must be kept in memory until their gradients are computed.
 
-**Memory breakdown:**
+Memory breakdown:
 
 For a 7B model with BF16: model weights (14 GB), gradients (14 GB), optimizer states with Adam (28 GB for $m_{t-1}$ and $v_{t-1}$), and activations (8-16 GB depending on batch size and sequence length). That's 64-72 GB total per GPU. With SGD, you'd save 28 GB on optimizer states, but Adam's adaptive learning rates usually converge faster, so the trade-off is worth it for most cases. That's why a 7B model needs at least an A100 (80GB) for training with Adam, even with mixed precision (BF16). Smaller GPUs won't cut it.
 
-**Variable definitions:**
+Variable definitions are as follows:
 
 $w_t$: model parameters at iteration $t$  
 $w_{t+1}$: updated parameters  
@@ -223,9 +206,9 @@ For inference, it's similar. Calculate model size plus KV cache. A 70B model in 
 
 #### Real-World Considerations
 
-Don't forget the overhead. PyTorch adds 1-2 GB. The OS needs 5-10 GB. Distributed training needs 2-5 GB per GPU for communication buffers. Checkpointing causes temporary spikes. Start conservative and add 20-30% buffer to your estimates. Use mixed precision (BF16 for training, FP16/BF16 for inference) to cut memory in half compared to FP32. Monitor with `nvidia-smi` to see actual usage. For inference, Int8 quantization can halve memory with minimal accuracy loss. And remember, activations scale linearly with batch size - if you hit OOM, reduce batch size first.
+Don't forget the overhead. PyTorch adds 1-2 GB. The OS needs 5-10 GB. Distributed training needs 2-5 GB per GPU for communication buffers. Checkpointing causes temporary spikes. Start conservative and add 20-30% buffer to your estimates. Use mixed precision (BF16 for training, FP16/BF16 for inference) to cut memory in half compared to FP32. Monitor with `nvidia-smi` to see actual usage. For inference, Int8 quantization can halve memory with minimal accuracy loss. Remember that activations scale linearly with batch size—if you hit OOM, reduce batch size first.
 
-**Quick Reference Table:**
+Quick Reference Table:
 
 | Model Size | FP32 Weights | BF16 Weights | Training (BF16+Adam) | Inference (BF16) |
 |------------|--------------|--------------|----------------------|------------------|
@@ -250,7 +233,7 @@ Building AI models isn't a one-shot process. It's a cycle: you collect data, tra
 
 The lifecycle looks like this:
 
-**Data Engineering** → **Model Training** → **Model Inference** → **Model Benchmarking** → **Model Deployment** → **Data Engineering** (repeat)
+Data Engineering → Model Training → Model Inference → Model Benchmarking → Model Deployment → Data Engineering (repeat)
 
 ![Modern AI Model Lifecycle](code/model_lifecycle.png)
 
@@ -281,21 +264,21 @@ Training, inference, and serving are different. Each has different requirements,
 
 Training is about learning model parameters from data. The process follows a pattern: forward pass through the model, loss computation, backward pass to compute gradients, and gradient update to adjust parameters. This happens iteratively over multiple epochs until the model converges.
 
-Training requires storing activations, gradients, and optimizer states in memory. The compute is intensive and iterative. In distributed training, you need frequent gradient synchronization across devices to keep all model copies consistent. The challenges are gradient synchronization overhead, memory constraints for large models, long training times that can span days to weeks, and the need for fault tolerance and checkpointing.
+Training requires storing activations, gradients, and optimizer states in memory. The compute is intensive and iterative. In distributed training, you need frequent gradient synchronization across devices to keep all model copies consistent. The challenges include gradient synchronization overhead, memory constraints for large models, long training times that can span days to weeks, and the need for fault tolerance and checkpointing.
 
 Training a 7B parameter model on 1 trillion tokens typically requires 8 A100 GPUs (80GB each) and about 2 weeks of continuous training. You need careful gradient synchronization to maintain training stability across all GPUs.
 
 ### Inference: The Prediction/Generation Phase
 
-Inference is about generating predictions from a trained model. Unlike training, you only need a forward pass - no gradients, no backward pass, no optimizer states. Memory requirements are lower: just model weights and KV cache for attention mechanisms. The compute per request is lower, but you need high throughput to serve many requests at once. Communication is minimal, mostly only for distributed inference.
+Inference is about generating predictions from a trained model. Unlike training, you only need a forward pass—no gradients, no backward pass, no optimizer states. Memory requirements are lower because you only need model weights and KV cache for attention mechanisms. The compute per request is lower, but you need high throughput to serve many requests at once. Communication is minimal, mostly only for distributed inference.
 
-The challenges are latency (sub-second for interactive apps), throughput (thousands of requests per second), efficient memory usage through KV cache management, and effective batching and scheduling. Serving a 70B parameter model for chat requires optimized inference engines like vLLM or SGLang, continuous batching to maximize GPU utilization, and careful KV cache management for variable-length sequences.
+The challenges include latency (sub-second for interactive apps), throughput (thousands of requests per second), efficient memory usage through KV cache management, and effective batching and scheduling. Serving a 70B parameter model for chat requires optimized inference engines like vLLM or SGLang, continuous batching to maximize GPU utilization, and careful KV cache management for variable-length sequences.
 
 ### Serving: The Production System
 
-Serving is about providing reliable, scalable access to models. It's not just running inference - it's building a production system with a model runner, API gateway, load balancer, and monitoring. The requirements are high availability, fault tolerance, and observability. At scale, you're dealing with multi-model, multi-tenant systems.
+Serving is about providing reliable, scalable access to models. It's not just running inference—it's building a production system with a model runner, API gateway, load balancer, and monitoring. The requirements include high availability, fault tolerance, and observability. At scale, you're dealing with multi-model, multi-tenant systems.
 
-The challenges are system reliability and uptime, multi-model routing and load balancing, cost optimization through GPU utilization and autoscaling, and observability for debugging. A production LLM serving platform might include multiple model variants (different sizes, fine-tuned versions), A/B testing infrastructure, canary deployment pipelines, and distributed tracing and monitoring.
+The challenges include system reliability and uptime, multi-model routing and load balancing, cost optimization through GPU utilization and autoscaling, and observability for debugging. A production LLM serving platform might include multiple model variants (different sizes, fine-tuned versions), A/B testing infrastructure, canary deployment pipelines, and distributed tracing and monitoring.
 
 ### Comparison Table
 
@@ -407,7 +390,7 @@ The key is setting it in your shell before `torchrun` starts—setting it inside
 
 DDP is PyTorch's way of wrapping a model for distributed training. When you wrap a model with DDP, PyTorch automatically handles gradient synchronization across all processes. Each process computes gradients on its local data, then DDP averages these gradients across all processes before updating the model.
 
-DDP assumes each process has a complete copy of the model. The model itself isn't split - only the data is partitioned. Each process trains on a different subset of the data, but all processes maintain identical model parameters after each training step.
+DDP assumes each process has a complete copy of the model. The model itself isn't split—only the data is partitioned. Each process trains on a different subset of the data, but all processes maintain identical model parameters after each training step.
 
 Here's how you wrap a model:
 
@@ -453,13 +436,25 @@ The alternative is using `torch.multiprocessing.spawn()` directly in your code, 
 
 ## 6. Hands-On: Running Distributed Training and Inference
 
-Now let's run actual distributed training code. Before we start, verify your environment has PyTorch with CUDA support and at least 2 GPUs. You can check this by running `code/check_cuda.py`, which will show your available GPUs. NCCL is typically included with PyTorch, so you shouldn't need to install it separately.
+Now let's run actual distributed training code. Before we start, verify your environment has PyTorch with CUDA support and at least 2 GPUs.
+
+```bash
+python code/check_cuda.py
+```
+
+This will show your available GPUs. NCCL is typically included with PyTorch, so you shouldn't need to install it separately.
 
 We'll begin with a simple baseline to establish a performance reference point, then move to distributed training to see the speedup in action.
 
 ### Single-GPU Baseline
 
-First, let's establish a baseline. We train ResNet18 on FashionMNIST, which completes in under 30 seconds on a single GPU—perfect for quick experiments. Run `python code/single_gpu_baseline.py` and you should see output like this after 3 epochs:
+Let's start with a baseline. We train ResNet18 on FashionMNIST, which completes in under 30 seconds on a single GPU—perfect for quick experiments.
+
+```bash
+python code/single_gpu_baseline.py
+```
+
+You should see output like this after 3 epochs:
 
 ```
 Epoch 1/3, Loss: 0.4164, Accuracy: 84.94%
@@ -473,13 +468,19 @@ This gives us a reference point. The same model architecture is used in the dist
 
 ### Multi-GPU Distributed Training
 
-Now let's run the distributed version. The script uses the same ResNet18 model on FashionMNIST, but splits the work across multiple GPUs. Run it with:
+Now let's run the distributed version. The script uses the same ResNet18 model on FashionMNIST, but splits the work across multiple GPUs.
 
 ```bash
 torchrun --nproc_per_node=2 code/multi_gpu_ddp.py
 ```
 
-Or use the launch script: `bash code/launch_torchrun.sh`. With 2 GPUs, you'll see similar loss and accuracy values, but the training completes in 5.91 seconds instead of 8.78 seconds—a **1.48× speedup**.
+Or use the launch script:
+
+```bash
+bash code/launch_torchrun.sh
+```
+
+With 2 GPUs, you'll see similar loss and accuracy values, but the training completes in 5.91 seconds instead of 8.78 seconds—a **1.48× speedup**.
 
 We tested scaling from 1 to 8 GPUs to see how performance improves:
 
@@ -499,7 +500,13 @@ Training time drops from 8.78 seconds to 2.44 seconds with 8 GPUs, achieving a *
 
 For a more realistic workload, we tested ResNet18 on CIFAR-10 with 20 epochs. CIFAR-10 is larger and more complex than FashionMNIST, with 50,000 training images using 3-channel RGB images of 32×32 pixels. This better showcases the benefits of distributed training.
 
-Run the single-GPU baseline with `python code/single_gpu_extended.py --epochs 20`, then test distributed training with:
+Run the single-GPU baseline:
+
+```bash
+python code/single_gpu_extended.py --epochs 20
+```
+
+Then test distributed training:
 
 ```bash
 torchrun --nproc_per_node=2 code/multi_gpu_ddp_extended.py --epochs 20
@@ -530,24 +537,25 @@ While training focuses on reducing time-to-convergence, inference focuses on thr
 
 We benchmarked ResNet18 inference on FashionMNIST to measure throughput scaling. Unlike training, inference has no gradient synchronization overhead—each GPU simply processes its assigned requests independently. This makes distributed inference highly efficient for serving scenarios.
 
-**Two Distribution Patterns:**
+There are two common approaches to distributing inference requests. The data-split pattern (`multi_gpu_inference.py`) pre-divides requests among GPUs using `DistributedSampler`, where each GPU processes a fixed subset of data. This approach is simple and efficient for batch processing. The request-split pattern (`multi_gpu_inference_queue.py`) assigns requests dynamically in round-robin fashion, where each GPU processes requests as they are assigned, simulating a real queue system. This pattern is better for production serving where requests arrive asynchronously.
 
-There are two common approaches to distributing inference requests. The **data-split pattern** (`multi_gpu_inference.py`) pre-divides requests among GPUs using `DistributedSampler`, where each GPU processes a fixed subset of data. This approach is simple and efficient for batch processing. The **request-split pattern** (`multi_gpu_inference_queue.py`) assigns requests dynamically in round-robin fashion, where each GPU processes requests as they are assigned, simulating a real queue system. This pattern is better for production serving where requests arrive asynchronously.
-
-**Benchmarking Results:**
-
-Run the benchmarks with:
+Run the benchmarks. Start with the single-GPU baseline:
 
 ```bash
-# Single-GPU inference baseline
 python code/single_gpu_inference.py --requests 1000
+```
 
-# Multi-GPU distributed inference (data-split pattern)
+Then test distributed inference with the data-split pattern:
+
+```bash
 torchrun --nproc_per_node=2 code/multi_gpu_inference.py --requests 1000
 torchrun --nproc_per_node=4 code/multi_gpu_inference.py --requests 1000
 torchrun --nproc_per_node=8 code/multi_gpu_inference.py --requests 1000
+```
 
-# Multi-GPU distributed inference (request-split pattern)
+And the request-split pattern:
+
+```bash
 torchrun --nproc_per_node=2 code/multi_gpu_inference_queue.py --requests 1000
 ```
 
@@ -565,25 +573,18 @@ Both patterns demonstrate the power of distributed inference: throughput scales 
 
 ---
 
-## Key Takeaways
+This chapter walked through resource estimation, decision frameworks, and practical examples for distributed AI systems. The core idea is simple: estimate your requirements first, then decide whether you actually need distributed systems. Don't assume you need them—calculate memory and compute needs, check if your model fits, and only then consider distribution.
 
-Estimate resources first. Use the formulas in this chapter to calculate memory and compute requirements before starting. Make informed decisions using the decision framework to determine if you need distributed systems for your use case. Start simple - begin with single-GPU solutions, then scale when necessary. Profile before optimizing - measure actual bottlenecks before making changes. Use the right approach - training, fine-tuning, and inference have different requirements and optimization strategies.
-
----
-
-## Summary
-
-This chapter covered when and how to use distributed AI systems. You learned resource estimation - formulas and methods to calculate memory and compute requirements for models. You got a decision framework - clear guidelines for determining when you need distributed training, fine-tuning, or inference. You saw quick start examples - practical, runnable code for distributed training, fine-tuning, and inference. You learned the fundamental differences between training, inference, and serving.
-
-The most important lesson: estimate first, decide second, then implement. Don't assume you need distributed systems - calculate your requirements and make an informed decision.
-
-The next chapter dives deeper into GPU hardware, networking, and parallelism strategies, building on the foundation established here.
+The next chapter explores GPU hardware, networking, and parallelism strategies in more depth.
 
 ---
 
 ## Further Reading
 
-- PyTorch Distributed Training: https://pytorch.org/tutorials/intermediate/ddp_tutorial.html
-- NVIDIA NCCL Documentation: https://docs.nvidia.com/deeplearning/nccl/
-- GPU Memory Management: https://pytorch.org/docs/stable/notes/cuda.html
-- Profiling PyTorch Models: https://pytorch.org/tutorials/recipes/recipes/profiler_recipe.html
+PyTorch Distributed Training: https://pytorch.org/tutorials/intermediate/ddp_tutorial.html
+
+NVIDIA NCCL Documentation: https://docs.nvidia.com/deeplearning/nccl/
+
+GPU Memory Management: https://pytorch.org/docs/stable/notes/cuda.html
+
+Profiling PyTorch Models: https://pytorch.org/tutorials/recipes/recipes/profiler_recipe.html
