@@ -327,13 +327,15 @@ For inference, a 13B model (26GB) serving 1000 requests per second needs distrib
 
 ## 5. PyTorch Distributed Fundamentals
 
-Before writing distributed training code, you need the basic concepts and APIs that PyTorch provides. Here are the essential building blocks that all distributed code relies on.
+Before writing distributed training code, you need the basic concepts and APIs that PyTorch provides. Here are the essential building blocks: process groups, ranks, and communication primitives. These form the foundation for all distributed operations, whether you're using DDP or FSDP for data-parallel training, implementing custom parallelism strategies, or building distributed inference systems.
 
 ### Process Groups and Ranks
 
-In distributed training, multiple processes work together. Each process runs on a different GPU or node. PyTorch organizes these processes into a process group. Within a process group, each process has a unique rank - an integer identifier starting from 0. The total number of processes is called the world size.
+In distributed training, multiple processes work together. Each process runs on a different GPU or node. PyTorch organizes these processes into a process group. Within a process group, each process has a unique rank—an integer identifier starting from 0. The total number of processes is called the world size.
 
 Think of it like this: if you have 4 GPUs, you'll have 4 processes. Process 0 runs on GPU 0, process 1 on GPU 1, and so on. The rank tells each process which GPU it should use and which part of the data it should process.
+
+There are two types of ranks: global rank and local rank. The global rank is unique across all processes in the entire distributed job, ranging from 0 to world_size - 1. The local rank is unique only within a single node, starting from 0 on each node. For example, in a 2-node setup with 4 GPUs per node, node 0 has local ranks 0-3 (global ranks 0-3), and node 1 has local ranks 0-3 (global ranks 4-7). The local rank typically corresponds to the GPU index on that node, which is why you often see `torch.cuda.set_device(local_rank)` in distributed code.
 
 To check your GPU setup, you can use the code in `code/check_cuda.py`:
 
@@ -390,9 +392,9 @@ The key is setting it in your shell before `torchrun` starts—setting it inside
 
 ### DistributedDataParallel (DDP)
 
-DDP is PyTorch's way of wrapping a model for distributed training. When you wrap a model with DDP, PyTorch automatically handles gradient synchronization across all processes. Each process computes gradients on its local data, then DDP averages these gradients across all processes before updating the model.
+DDP is PyTorch's way of wrapping a model for data-parallel distributed training. When you wrap a model with DDP, PyTorch automatically handles gradient synchronization across all processes. Each process computes gradients on its local data, then DDP averages these gradients across all processes before updating the model.
 
-DDP assumes each process has a complete copy of the model. The model itself isn't split—only the data is partitioned. Each process trains on a different subset of the data, but all processes maintain identical model parameters after each training step.
+DDP assumes each process has a complete copy of the model. The model itself isn't split—only the data is partitioned. Each process trains on a different subset of the data, but all processes maintain identical model parameters after each training step. DDP is the most common approach for distributed training when your model fits on a single GPU. For larger models, FSDP (Fully Sharded Data Parallel) shards the model across GPUs while still using data parallelism. Later chapters will cover FSDP and other parallelism strategies like tensor parallelism and pipeline parallelism.
 
 Here's how you wrap a model:
 
