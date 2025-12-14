@@ -306,6 +306,8 @@ The shift to distributed AI enabled breakthrough capabilities - models that can 
 
 Building AI models isn't a one-shot process. It's a cycle: you collect data, train a model, deploy it, see how it performs, then go back and improve the data or model. Each stage feeds into the next.
 
+\newpage
+
 The lifecycle looks like this:
 
 ![Modern AI Model Lifecycle](img/mdlc.png)
@@ -329,7 +331,16 @@ The principles are the same across all stages: parallelism, communication, memor
 
 ### Training vs Inference vs Serving
 
-Training, inference, and serving are different. Each has different requirements, bottlenecks, and optimization strategies. Know these differences to design effective distributed systems.
+Training, inference, and serving are different. Each has different requirements, bottlenecks, and optimization strategies. Understanding these differences helps you design effective distributed systems.
+
+| Aspect | Training | Inference | Serving |
+|--------|----------|-----------|---------|
+| **Primary Goal** | Learn parameters | Generate predictions | Provide access |
+| **Memory Usage** | High (activations + gradients) | Medium (weights + KV cache) | Variable |
+| **Compute Pattern** | Iterative, intensive | Single forward pass | Request-driven |
+| **Communication** | Frequent (gradients) | Minimal | API-level |
+| **Latency Requirement** | Hours to days | Milliseconds to seconds | Milliseconds |
+| **Throughput Focus** | Samples per second | Tokens per second | Requests per second |
 
 #### Training: The Learning Phase
 
@@ -351,16 +362,8 @@ Serving is about providing reliable, scalable access to models. It's not just ru
 
 The challenges include system reliability and uptime, multi-model routing and load balancing, cost optimization through GPU utilization and autoscaling, and observability for debugging. A production LLM serving platform might include multiple model variants (different sizes, fine-tuned versions), A/B testing infrastructure, canary deployment pipelines, and distributed tracing and monitoring.
 
-#### Comparison Table
 
-| Aspect | Training | Inference | Serving |
-|--------|----------|-----------|---------|
-| **Primary Goal** | Learn parameters | Generate predictions | Provide access |
-| **Memory Usage** | High (activations + gradients) | Medium (weights + KV cache) | Variable |
-| **Compute Pattern** | Iterative, intensive | Single forward pass | Request-driven |
-| **Communication** | Frequent (gradients) | Minimal | API-level |
-| **Latency Requirement** | Hours to days | Milliseconds to seconds | Milliseconds |
-| **Throughput Focus** | Samples per second | Tokens per second | Requests per second |
+
 
 ## 3. Decision Framework: When Do You Need Distributed Systems?
 
@@ -386,8 +389,11 @@ For inference or serving, the logic is similar. If the model exceeds single GPU 
 
 ## 4. Environment Setup
 
-In this book, we will use PyTorch as our main frame work, and the code is in git repo https://github.com/fuhengwu2021/coderepo.
+In this book, we will use PyTorch as our main frame work, and the code can be cloned from git repo.
 
+```bash
+git clone https://github.com/fuhengwu2021/coderepo.git
+```
 
 To run the code, it is the best if you have access to a multiple-GPU machine, such as A10, A100 or H100/200 or even B200. If you don't have access to multiple GPUs locally, Kaggle offers free multi-GPU environments. Log in to Kaggle.com, click Create, and select Notebook.
 
