@@ -395,13 +395,13 @@ In this book, we will use PyTorch as our main frame work, and the code can be cl
 git clone https://github.com/fuhengwu2021/coderepo.git
 ```
 
-To run the code, it is the best if you have access to a multiple-GPU machine, such as A10, A100 or H100/200 or even B200. If you don't have access to multiple GPUs locally, Kaggle offers free multi-GPU environments. Log in to Kaggle.com, click Create, and select Notebook.
+To run the code, it is the best if you have access to a multiple-GPU machine, such as A10, A100 or H100/200 or even B200. If you don't have access to multiple GPUs locally, Kaggle offers free multi-GPU environments. Log in to [https://www.kaggle.com](https://www.kaggle.com), click Create, and select Notebook.
 
-![](img/1.5.png)
+![Kaggle Notebook Creation](img/1.5.png)
 
 Once you've created a Jupyter notebook, go to Settings → Accelerator and select GPU T4x2.
 
-![](img/3.png)
+![Kaggle GPU Settings](img/3.png)
 
 You should now have 2 T4 GPUs available. To verify your GPU setup, run the code in `code/check_cuda.py`:
 
@@ -418,7 +418,7 @@ for i in range(torch.cuda.device_count()):
 
 Running this should show your available GPUs:
 
-![GPU setup](img/2.png)
+![GPU setup - 2 Tesla T4 GPUs](img/2.png)
 
 ## 5. Hands-On: Running Distributed Training and Inference
 
@@ -551,7 +551,7 @@ With 2 GPUs using the data-split pattern, we achieve **1.89× speedup**, nearly 
 
 Both patterns demonstrate the power of distributed inference: throughput scales almost linearly with the number of GPUs, making it ideal for production serving workloads that require high request rates. The inference patterns shown here use data parallelism, suitable for models that fit on a single GPU. For large language models that exceed single-GPU memory, later chapters will explore advanced techniques such as expert parallelism, sequence parallelism, tensor parallelism, and serving frameworks like vLLM and SGLang.
 
-## 6. PyTorch Distributed Fundamentals
+## 6. PyTorch Distributed Introduction
 
 Now that you've seen distributed training and inference in action, let's understand the fundamental concepts and APIs that make it work. The essential building blocks are process groups, ranks, and communication primitives. These form the foundation for all distributed operations, whether you're using DDP or FSDP for data-parallel training, implementing custom parallelism strategies, or building distributed inference systems.
 
@@ -559,9 +559,11 @@ Now that you've seen distributed training and inference in action, let's underst
 
 In distributed training, multiple processes work together. Each process runs on a different GPU or node. PyTorch organizes these processes into a process group. Within a process group, each process has a unique rank—an integer identifier starting from 0. The total number of processes is called the world size.
 
+The term "world" refers to the entire distributed job—all processes participating in the training or inference task. The world size is the total number of processes across all nodes and GPUs. For example, if you're training on 2 nodes with 4 GPUs each, your world size is 8.
+
 If you have 4 GPUs, you'll have 4 processes. Process 0 runs on GPU 0, process 1 on GPU 1, and so on. The rank tells each process which GPU it should use and which part of the data it should process.
 
-There are two types of ranks: global rank and local rank. The global rank is unique across all processes in the entire distributed job, ranging from 0 to world_size - 1. The local rank is unique only within a single node, starting from 0 on each node. For example, in a 2-node setup with 4 GPUs per node, node 0 has local ranks 0-3 (global ranks 0-3), and node 1 has local ranks 0-3 (global ranks 4-7). The local rank typically corresponds to the GPU index on that node, which is why you often see `torch.cuda.set_device(local_rank)` in distributed code.
+There are two types of ranks: global rank and local rank. The global rank is unique across all processes in the entire distributed job (the world), ranging from 0 to world_size - 1. The local rank is unique only within a single node, starting from 0 on each node. For example, in a 2-node setup with 4 GPUs per node, node 0 has local ranks 0-3 (global ranks 0-3), and node 1 has local ranks 0-3 (global ranks 4-7). The local rank typically corresponds to the GPU index on that node, which is why you often see `torch.cuda.set_device(local_rank)` in distributed code.
 
 ### Initializing the Process Group
 

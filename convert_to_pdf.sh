@@ -41,18 +41,18 @@ convert_md_to_pdf() {
     # Use basenames since we're now in the chapter directory
     # Capture output to filter warnings but show errors
     local pandoc_output=""
-    if pandoc_output=$(pandoc "$md_basename" -o "$pdf_basename" --pdf-engine=xelatex -V geometry:margin=1in --highlight-style=tango -H <(echo '\usepackage{microtype}'; echo '\sloppy'; echo '\setlength{\emergencystretch}{3em}'; echo '\setlength{\tolerance}{1000}'; echo '\allowdisplaybreaks') 2>&1); then
+    if pandoc_output=$(pandoc "$md_basename" -o "$pdf_basename" --pdf-engine=xelatex -V geometry:margin=1in --highlight-style=tango -H <(echo '\usepackage{microtype}'; echo '\sloppy'; echo '\setlength{\emergencystretch}{3em}'; echo '\setlength{\tolerance}{1000}'; echo '\allowdisplaybreaks'; echo '\usepackage{float}'; echo '\floatplacement{figure}{H}') 2>&1); then
         # Filter out font-related warnings but keep image warnings
         echo "$pandoc_output" | grep -E "\[WARNING\].*image|\[WARNING\].*resource" || true
         echo "✅ Successfully converted using xelatex"
         cd "$SCRIPT_DIR"
         return 0
-    elif pandoc_output=$(pandoc "$md_basename" -o "$pdf_basename" --pdf-engine=pdflatex -V geometry:margin=1in --highlight-style=tango -V 'tolerance=1000' -V 'emergencystretch=3em' 2>&1); then
+    elif pandoc_output=$(pandoc "$md_basename" -o "$pdf_basename" --pdf-engine=pdflatex -V geometry:margin=1in --highlight-style=tango -V 'tolerance=1000' -V 'emergencystretch=3em' -H <(echo '\usepackage{float}'; echo '\floatplacement{figure}{H}') 2>&1); then
         echo "$pandoc_output" | grep -E "\[WARNING\].*image|\[WARNING\].*resource" || true
         echo "✅ Successfully converted using pdflatex"
         cd "$SCRIPT_DIR"
         return 0
-    elif pandoc_output=$(pandoc "$md_basename" -o "$pdf_basename" -V geometry:margin=1in --highlight-style=tango -V 'tolerance=1000' -V 'emergencystretch=3em' 2>&1); then
+    elif pandoc_output=$(pandoc "$md_basename" -o "$pdf_basename" -V geometry:margin=1in --highlight-style=tango -V 'tolerance=1000' -V 'emergencystretch=3em' -H <(echo '\usepackage{float}'; echo '\floatplacement{figure}{H}') 2>&1); then
         echo "$pandoc_output" | grep -E "\[WARNING\].*image|\[WARNING\].*resource" || true
         echo "✅ Successfully converted using default engine"
         cd "$SCRIPT_DIR"
