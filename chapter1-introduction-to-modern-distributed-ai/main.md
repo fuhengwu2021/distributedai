@@ -96,19 +96,27 @@ Adam needs more. The formula shows it maintains two per-parameter tensors: $m_{t
 
 $\beta_1$ and $\beta_2$ are hyperparameters - scalar constants (typically $\beta_1=0.9$, $\beta_2=0.999$). You store them once as configuration, not per parameter. Same with $\eta$ (learning rate) and $\epsilon$ - they're scalars, negligible memory. Only tensors with the same shape as $w_t$ (one value per parameter) need significant memory: $w_t$, $g_t$, $m_{t-1}$, and $v_{t-1}$.
 
-That's why Adam needs 2× the model size for optimizer states compared to SGD's near-zero overhead.
-
-AdamW (Adam with decoupled weight decay) has the same memory requirements as Adam. The difference is how weight decay is applied - AdamW applies it directly to parameters, while Adam adds it to gradients. But both maintain the same optimizer states: $m_{t-1}$ (1× model size) and $v_{t-1}$ (1× model size), totaling 2× model size. So AdamW also needs 2× the model size for optimizer states.
+That's why Adam needs 2× the model size for optimizer states compared to SGD's near-zero overhead. AdamW (Adam with decoupled weight decay) has the same memory requirements as Adam—both maintain $m_{t-1}$ and $v_{t-1}$, totaling 2× model size. The only difference is how weight decay is applied (AdamW applies it directly to parameters, while Adam adds it to gradients).
 
 Here's a summary of optimizer state memory requirements for common optimizers:
 
 | Optimizer | Optimizer States | Memory (relative to model size) |
 |-----------|------------------|--------------------------------|
 | SGD | Learning rate $\eta$ (scalar) | ~0× |
-| RMSprop | $v_{t-1}$ (second moment) | 1× |
+| SGD with Momentum | $v_{t-1}$ (velocity/momentum) | 1× |
+| Nesterov | $v_{t-1}$ (velocity/momentum) | 1× |
 | Adagrad | Accumulated gradient squares | 1× |
+| RMSProp | $v_{t-1}$ (second moment) | 1× |
 | Adam | $m_{t-1}$ (first moment) + $v_{t-1}$ (second moment) | 2× |
 | AdamW | $m_{t-1}$ (first moment) + $v_{t-1}$ (second moment) | 2× |
+| Adafactor | Row and column statistics (factorized) | ~0.5× |
+| LAMB | $m_{t-1}$ (first moment) + $v_{t-1}$ (second moment) | 2× |
+| Lion | $m_{t-1}$ (first moment only) | 1× |
+| Nadam | $m_{t-1}$ (first moment) + $v_{t-1}$ (second moment) | 2× |
+| AMSGrad | $m_{t-1}$ (first moment) + $v_{t-1}$ (second moment) + $v_{\max}$ | 2× |
+| SparseAdam | $m_{t-1}$ (first moment) + $v_{t-1}$ (second moment, sparse) | 2× |
+| Shampoo | Left and right preconditioner matrices per parameter | >2× (varies) |
+| AdaBelief | $m_{t-1}$ (first moment) + $s_{t-1}$ (belief term) | 2× |
 
 The table shows optimizer states only. You still need to store model weights (1×) and gradients (1×) regardless of which optimizer you use.
 
@@ -168,13 +176,39 @@ $$
 \frac{\partial L}{\partial W_1} = (\hat{y} - y) \cdot W_2 \cdot h(1-h) \cdot x
 $$
 
-This gradient requires both $h$ (the activation output from the sigmoid layer) and $x$ (the input data read from the dataloader). Without storing $h$ (activation output) and $x$ (input data) during the forward pass, you can't compute these gradients during backpropagation. That's why activation outputs (activations) and input data must be kept in memory until their gradients are computed.
+This gradient requires both $h$ (the activation output from the sigmoid layer) and $x$ (the input data). That's why activation outputs and input data must be kept in memory during the forward pass until their gradients are computed during backpropagation.
 
 An interesting observation is that $z$ is not needed. Looking at the gradient computation, we need $\frac{\partial h}{\partial z} = \sigma'(z)$ to compute $\frac{\partial L}{\partial W_1}$. For sigmoid, the derivative is $\sigma'(z) = \sigma(z)(1-\sigma(z)) = h(1-h)$. Since we already have $h$ stored from the forward pass, we can compute the derivative directly from $h$ without needing the original $z$ value. This is a property of sigmoid and some other activation functions—their derivatives can be expressed in terms of their outputs, so you don't need to store the pre-activation values.
 
 However, this isn't true for all activation functions. Some activation functions have derivatives that explicitly depend on the input value $z$, not just the output $h$. This means you cannot compute the derivative from $h$ alone—you need to store the original $z$ value.
 
-For example, consider GELU (Gaussian Error Linear Unit). The exact form uses the cumulative distribution function:
+To understand which activation functions require storing the pre-activation value $z$ versus those that can compute derivatives from the post-activation value $h$ alone, let's examine the derivatives of common activation functions:
+
+| Activation | Formula | Derivative |
+|------------|---------------------------|-------------------------------------|
+| **Sigmoid** | $\sigma(z) = \frac{1}{1 + e^{-z}}$ | $\sigma'(z) = \sigma(z)(1 - \sigma(z))$ |
+| **Tanh** | $\tanh(z) = \frac{e^z - e^{-z}}{e^z + e^{-z}} = 2\sigma(2 \cdot z) - 1$ | $\tanh'(z) = 1 - \tanh^2(z) = \text{sech}^2(z)$ |
+| **ReLU** | $\text{ReLU}(z) = \max(0, z)$ | $\text{ReLU}'(z) = \begin{cases} 1 & \text{if } z > 0 \\ 0 & \text{if } z \leq 0 \end{cases}$ |
+| **Leaky ReLU** | $\text{LeakyReLU}(z) = \max(\alpha z, z)$ | $\text{LeakyReLU}'(z) = \begin{cases} 1 & \text{if } z > 0 \\ \alpha & \text{if } z \leq 0 \end{cases}$ |
+| **ELU** | $\text{ELU}(z) = \begin{cases} z & \text{if } z > 0 \\ \alpha(e^z - 1) & \text{if } z \leq 0 \end{cases}$ | $\text{ELU}'(z) = \begin{cases} 1 & \text{if } z > 0 \\ \alpha e^z & \text{if } z \leq 0 \end{cases}$ |
+| **GELU** | $\text{GELU}(z) = z \cdot \Phi(z)$ | $\text{GELU}'(z) = \Phi(z) + z \cdot \phi(z)$ |
+| **Swish** | $\text{Swish}(z) = z \cdot \sigma(z)$ | $\text{Swish}'(z) = \sigma(z) + z \cdot \sigma(z)(1 - \sigma(z))$ |
+| **Mish** | $\text{Mish}(z) = z \cdot \tanh(\text{Softplus}(z)) = z \cdot \tanh(\ln(1 + e^z))$ | $\text{Mish}'(z) = \frac{e^z (4(z+1) + 4e^{2z} + e^{3z} + e^z(4z+6))}{(1 + e^z)^2 (1 + e^{2z})}$ |
+| **GEGLU** | $\text{GEGLU}(z) = z \odot \text{GELU}(z)$ | $\text{GEGLU}'(z) = \text{GELU}(z) + z \cdot \text{GELU}'(z) = \text{GELU}(z) + z(\Phi(z) + z \cdot \phi(z))$ |
+| **ReGLU** | $\text{ReGLU}(z) = z \odot \text{ReLU}(z)$ | $\text{ReGLU}'(z) = \begin{cases} 2z & \text{if } z > 0 \\ 0 & \text{if } z \leq 0 \end{cases}$ |
+| **SwiGLU** | $\text{SwiGLU}(z) = z \odot \text{Swish}(z) = z^2 \cdot \sigma(z)$ | $\text{SwiGLU}'(z) = 2z \cdot \sigma(z) + z^2 \cdot \sigma(z)(1 - \sigma(z))$ |
+| **Softplus** | $\text{Softplus}(z) = \ln(1 + e^z)$ | $\text{Softplus}'(z) = \sigma(z) = \frac{1}{1 + e^{-z}}$ |
+| **Softmax** | $\text{Softmax}(\mathbf{z})_i = \frac{e^{z_i}}{\sum_{j=1}^{n} e^{z_j}}$ | $\nabla_{\mathbf{z}} \text{Softmax}(\mathbf{z})_{ij} = \begin{cases} \text{Softmax}(\mathbf{z})_i(1 - \text{Softmax}(\mathbf{z})_i) & \text{if } i = j \\ -\text{Softmax}(\mathbf{z})_i \cdot \text{Softmax}(\mathbf{z})_j & \text{if } i \neq j \end{cases}$ |
+
+*Note: All activations above are element-wise (each output depends only on its corresponding input), except Softmax which is vector-valued (takes a vector input and produces a probability distribution that sums to 1). The derivative of Softmax is a Jacobian matrix, denoted by $\nabla_{\mathbf{z}}$. The parameter $\alpha$ in Leaky ReLU and ELU is a constant hyperparameter (typically $\alpha = 0.01$ for Leaky ReLU and $\alpha = 1.0$ for ELU). The GLU (Gated Linear Unit) family (GEGLU, ReGLU, SwiGLU) are gated activations that use element-wise multiplication ($\odot$) to combine two branches: one branch passes through unchanged ($z$) and the other branch applies an activation function. In practice, GLU variants are often implemented with separate linear projections for the two branches, but the simplified form shown here uses the same input $z$ for both branches.*
+
+Looking at the derivatives, we can categorize activation functions based on whether their derivatives can be expressed purely in terms of the output $h$:
+
+- **Derivatives expressible in terms of output only**: Sigmoid, Tanh, and Softplus fall into this category. As we saw with sigmoid, $\sigma'(z) = h(1-h)$ depends only on $h$. Similarly, $\tanh'(z) = 1 - h^2$ and $\text{Softplus}'(z) = \sigma(z)$ can be computed from the output. For these functions, you only need to store $h$ during the forward pass.
+
+- **Derivatives requiring the input $z$**: ReLU, Leaky ReLU, ELU, GELU, Swish, Mish, and the GLU family (GEGLU, ReGLU, SwiGLU) require storing $z$ because their derivatives explicitly contain $z$ or depend on the sign of $z$. For ReLU, you need to know whether $z > 0$ or $z \leq 0$ to compute the derivative. For GELU, Swish, Mish, and GLU variants, the derivative formulas contain $z$ explicitly, making it impossible to recover $z$ from $h$ alone.
+
+Let's examine GELU and Swish in detail to illustrate why they require storing $z$. For GELU (Gaussian Error Linear Unit), the exact form uses the cumulative distribution function:
 
 $$
 h = z \cdot \Phi(z)
@@ -186,7 +220,7 @@ $$
 \frac{\partial h}{\partial z} = \Phi(z) + z \cdot \phi(z)
 $$
 
-where $\phi$ is the probability density function. This derivative explicitly contains $z$ in the term $z \cdot \phi(z)$.
+where $\phi$ is the probability density function (PDF) of standard normal. This derivative explicitly contains $z$ in the term $z \cdot \phi(z)$.
 
 In practice, GELU is often approximated using tanh for computational efficiency:
 
