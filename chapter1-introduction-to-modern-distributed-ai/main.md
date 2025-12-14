@@ -422,18 +422,27 @@ def setup(rank, world_size):
 
 The simplest test to verify your distributed setup works is in `code/distributed_basic_test.py`. It's a basic distributed test that verifies process group initialization and communication. It doesn't use DDP - it just tests that multiple processes can communicate.
 
-For multi-GPU testing:
+You can test this with multiple GPUs:
+
 ```bash
 torchrun --nproc_per_node=2 code/distributed_basic_test.py
 ```
 
-For single-GPU simulation (useful for testing without multiple GPUs), use `code/multi_gpu_simulation.py`:
+If you only have one GPU but want to test the distributed logic, you can simulate multiple processes on a single GPU:
+
 ```bash
-# Simulate 2 processes on GPU 0
 CUDA_VISIBLE_DEVICES=0 torchrun --nproc_per_node=2 code/multi_gpu_simulation.py
 ```
 
-When you run either script, you should see "Rank 0 says hello" and "Rank 1 says hello" printed from different processes. Single-GPU simulation mode is helpful for testing distributed code logic before running on actual multi-GPU setups.
+Either way, you'll see "Rank 0 says hello" and "Rank 1 says hello" printed from different processes, confirming that your distributed setup works.
+
+When you start running distributed training or inference with `torchrun`, you might notice a warning about `OMP_NUM_THREADS`. This happens because PyTorch wants to control CPU thread usage to avoid overloading your system. You can silence the warning by setting `OMP_NUM_THREADS=4` (or whatever value fits your system) right before the `torchrun` command:
+
+```bash
+OMP_NUM_THREADS=4 torchrun --nproc_per_node=2 code/distributed_basic_test.py
+```
+
+The key is setting it in your shell before `torchrun` starts—setting it inside your Python script won't work because `torchrun` checks the environment before launching your processes.
 
 ### DistributedDataParallel (DDP)
 
@@ -518,7 +527,7 @@ This gives us a reference point. The same model architecture is used in the dist
 Now let's run the distributed version. The script uses the same ResNet18 model on FashionMNIST, but splits the work across multiple GPUs. Run it with:
 
 ```bash
-OMP_NUM_THREADS=4 torchrun --nproc_per_node=2 code/multi_gpu_ddp.py
+torchrun --nproc_per_node=2 code/multi_gpu_ddp.py
 ```
 
 Or use the launch script: `bash code/launch_torchrun.sh`. With 2 GPUs, you'll see similar loss and accuracy values, but the training completes in 5.91 seconds instead of 8.78 seconds—a **1.48× speedup**.
@@ -544,10 +553,10 @@ For a more realistic workload, we tested ResNet18 on CIFAR-10 with 20 epochs. CI
 Run the single-GPU baseline with `python code/single_gpu_extended.py --epochs 20`, then test distributed training with:
 
 ```bash
-OMP_NUM_THREADS=4 torchrun --nproc_per_node=2 code/multi_gpu_ddp_extended.py --epochs 20
-OMP_NUM_THREADS=4 torchrun --nproc_per_node=4 code/multi_gpu_ddp_extended.py --epochs 20
-OMP_NUM_THREADS=4 torchrun --nproc_per_node=6 code/multi_gpu_ddp_extended.py --epochs 20
-OMP_NUM_THREADS=4 torchrun --nproc_per_node=8 code/multi_gpu_ddp_extended.py --epochs 20
+torchrun --nproc_per_node=2 code/multi_gpu_ddp_extended.py --epochs 20
+torchrun --nproc_per_node=4 code/multi_gpu_ddp_extended.py --epochs 20
+torchrun --nproc_per_node=6 code/multi_gpu_ddp_extended.py --epochs 20
+torchrun --nproc_per_node=8 code/multi_gpu_ddp_extended.py --epochs 20
 ```
 
 The results show even better scaling:
@@ -564,13 +573,19 @@ The results show even better scaling:
 
 Training time drops from 73 seconds to 18.2 seconds with 8 GPUs, achieving a **4.01× speedup**—better than the FashionMNIST results. The larger computation workload per epoch means gradient synchronization takes a smaller fraction of total time. With 20 epochs, communication overhead is amortized across more training steps. Each GPU has enough computation work between communication steps to maximize parallel efficiency.
 
-This demonstrates why distributed training is essential for large-scale model training. As computation per step increases, the relative cost of communication decreases, leading to better scaling efficiency. For models with billions of parameters, distributed training scales even more effectively, with speedups approaching linear scaling as computation dominates the training time.
+This demonstrates why distributed training is essential for large-scale model training. As computation per step increases, the relative cost of communication decreases, leading to better scaling efficiency. For models with billions of parameters, distributed training scales even more effectively, with speedups approaching linear scaling as computation dominates the training time. The DDP approach shown here uses data parallelism, where each GPU holds a complete copy of the model and processes different data. This is the simplest form of distributed training, suitable for models that fit on a single GPU. For larger models that exceed single-GPU memory, later chapters will explore advanced parallelism strategies such as tensor parallelism (splitting model layers across GPUs), pipeline parallelism (splitting model stages across GPUs), and hybrid approaches that combine multiple parallelism techniques.
 
 ### Distributed Inference: Throughput Scaling
 
 While training focuses on reducing time-to-convergence, inference focuses on throughput—how many requests you can process per second. Distributed inference allows multiple GPUs to process different requests simultaneously, dramatically increasing throughput.
 
-We benchmarked ResNet18 inference on FashionMNIST to measure throughput scaling. The single-GPU baseline processes requests sequentially, while distributed inference splits requests across multiple GPUs in parallel.
+We benchmarked ResNet18 inference on FashionMNIST to measure throughput scaling. Unlike training, inference has no gradient synchronization overhead—each GPU simply processes its assigned requests independently. This makes distributed inference highly efficient for serving scenarios.
+
+**Two Distribution Patterns:**
+
+There are two common approaches to distributing inference requests. The **data-split pattern** (`multi_gpu_inference.py`) pre-divides requests among GPUs using `DistributedSampler`, where each GPU processes a fixed subset of data. This approach is simple and efficient for batch processing. The **request-split pattern** (`multi_gpu_inference_queue.py`) assigns requests dynamically in round-robin fashion, where each GPU processes requests as they are assigned, simulating a real queue system. This pattern is better for production serving where requests arrive asynchronously.
+
+**Benchmarking Results:**
 
 Run the benchmarks with:
 
@@ -578,20 +593,26 @@ Run the benchmarks with:
 # Single-GPU inference baseline
 python code/single_gpu_inference.py --requests 1000
 
-# Multi-GPU distributed inference
-OMP_NUM_THREADS=4 torchrun --nproc_per_node=2 code/multi_gpu_inference.py --requests 1000
-OMP_NUM_THREADS=4 torchrun --nproc_per_node=4 code/multi_gpu_inference.py --requests 1000
-OMP_NUM_THREADS=4 torchrun --nproc_per_node=8 code/multi_gpu_inference.py --requests 1000
+# Multi-GPU distributed inference (data-split pattern)
+torchrun --nproc_per_node=2 code/multi_gpu_inference.py --requests 1000
+torchrun --nproc_per_node=4 code/multi_gpu_inference.py --requests 1000
+torchrun --nproc_per_node=8 code/multi_gpu_inference.py --requests 1000
+
+# Multi-GPU distributed inference (request-split pattern)
+torchrun --nproc_per_node=2 code/multi_gpu_inference_queue.py --requests 1000
 ```
 
 Example results from benchmarking:
 
-| GPUs | Throughput (req/s) | Speedup |
-|------|---------------------|---------|
-| 1    | 540.94 req/s        | 1.00×   |
-| 2    | 1043.84 req/s       | 1.93×   |
+| GPUs | Pattern | Time (s) | Throughput (req/s) | Speedup |
+|------|---------|----------|---------------------|---------|
+| 1    | Baseline| 1.85s    | 541.00 req/s        | 1.00×   |
+| 2    | Data-split | 0.98s  | 1025.45 req/s       | 1.89×   |
+| 2    | Request-split | 1.22s | 819.09 req/s       | 1.51×   |
 
-With 2 GPUs, we achieve **1.93× speedup**, nearly doubling the throughput. Distributed inference achieves near-linear scaling because each GPU processes independent requests. Unlike training, there's no gradient synchronization overhead—each GPU simply runs inference on its assigned requests. This makes distributed inference highly efficient for serving scenarios where you need to handle many concurrent requests. The throughput scales almost linearly with the number of GPUs, making it ideal for production serving workloads that require high request rates.
+With 2 GPUs using the data-split pattern, we achieve **1.89× speedup**, nearly doubling the throughput. The data-split pattern achieves near-linear scaling because each GPU processes independent requests with minimal coordination overhead. The request-split pattern shows slightly lower throughput (1.51×) due to the overhead of round-robin assignment and all GPUs needing to iterate through the dataset, but it's more flexible for dynamic request handling in production environments where requests arrive asynchronously.
+
+Both patterns demonstrate the power of distributed inference: throughput scales almost linearly with the number of GPUs, making it ideal for production serving workloads that require high request rates. The inference patterns shown here use data parallelism, suitable for models that fit on a single GPU. For large language models that exceed single-GPU memory, later chapters will explore advanced techniques such as expert parallelism, sequence parallelism, tensor parallelism, and serving frameworks like vLLM and SGLang.
 
 ---
 
