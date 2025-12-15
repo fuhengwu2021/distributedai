@@ -374,21 +374,18 @@ The following table summarizes the tensor shapes and operations during prefill a
 | Concat heads | $B \times 1 \times (H \cdot D_v)$ | |
 | Final output | $B \times 1 \times D$ | Single generated token |
 
-## vLLM's Core Innovation: PagedAttention
+## PagedAttention: Solving KV Cache Fragmentation
 
 While KV cache dramatically improves computational efficiency, it introduces a critical challenge in production serving systems: **memory fragmentation**. When serving multiple concurrent requests, each with different sequence lengths that grow dynamically, traditional memory allocation strategies lead to significant waste and limit throughput.
 
-vLLM's breakthrough innovation is **PagedAttention**, a memory management algorithm inspired by virtual memory paging in operating systems. This technique fundamentally solves the **KV cache fragmentation problem** that plagues traditional LLM serving systems.
+vLLM's breakthrough innovation is **PagedAttention**, a memory management algorithm inspired by virtual memory paging in operating systems. PagedAttention is primarily designed to solve KV cache fragmentation in large-scale LLM serving by allocating the cache in fixed-size blocks. A crucial consequence of this block-based design is that attention computation no longer iterates over padded sequence ranges. Instead, it traverses only the blocks that actually exist for each request, thereby eliminating padding-related attention FLOPs.
 
 ### The KV Cache Fragmentation Problem
 
-In production environments, serving systems must handle multiple concurrent requests simultaneously. Each request maintains its own KV cache, which:
+In production environments, serving systems must handle multiple concurrent requests simultaneously. Each request maintains its own KV cache that grows dynamically as tokens are generated during autoregressive decoding. Different prompts and generation lengths result in different cache sizes, creating a fundamental allocation challenge.
 
-- **Grows dynamically** as tokens are generated
-- **Varies in size**—different prompts and generation lengths result in different cache sizes
-- **Creates fragmentation**—traditional systems allocate contiguous memory blocks per request, leading to wasted space when sequences finish or have different lengths
+Traditional systems allocate contiguous memory blocks per request. When sequences finish or have different lengths, this approach leads to wasted space that cannot be efficiently reused. Consider a scenario where Request 1 finishes after 8 tokens, Request 2 is active with 4 tokens, and Request 3 is active with 10 tokens. The memory allocated for Request 1 sits unused but cannot be easily reclaimed for the other requests, leading to fragmentation.
 
-**Traditional Approach Problems**:
 ```
 Request 1: [========]  (8 tokens, finished)
 Request 2: [====]      (4 tokens, active)
@@ -396,18 +393,26 @@ Request 3: [==========] (10 tokens, active)
            ↑ Memory fragmentation - can't reuse Request 1's space efficiently
 ```
 
+Additionally, traditional batching introduces a less obvious but equally critical inefficiency: padding-induced attention computation waste. In batched decoding, different requests typically have different effective context lengths. Let the batch size be $B$, and let the cached context length for request $i$ be $(L_2^{(i)} + t^{(i)})$. To batch these requests together, conventional attention implementations must pad all sequences to a common maximum length:
+
+$$(L_2 + t)_{\max} = \max_i (L_2^{(i)} + t^{(i)})$$
+
+As a result, the cached keys and values used in attention have shape $K_{\text{cached}}, V_{\text{cached}} \in \mathbb{R}^{B \times (L_2 + t)_{\max} \times D_{qk/v}}$, and the attention scores for the decode step are computed as:
+
+$$A_t = \text{softmax}\left(Q_t K_{\text{cached}}^T + \text{mask}\right), \qquad A_t \in \mathbb{R}^{B \times 1 \times (L_2 + t)_{\max}}$$
+
+Although masking prevents padded positions from influencing the output, the dot products involving padded tokens are still fully computed. Consequently, a large fraction of attention FLOPs is spent on tokens that carry no semantic information, especially when the context lengths within a batch vary widely.
+
 ![PA](img/pa.svg)
 
 ### How PagedAttention Works
 
-PagedAttention divides the KV cache into **fixed-size blocks** (similar to memory pages in OS virtual memory):
+To solve the fragmentation problem, PagedAttention must use fixed-size blocks. Continuous memory allocation inevitably leads to fragmentation when sequences have different lengths and finish at different times. The only viable approach is to partition the KV cache into fixed-size blocks that can be allocated and freed independently.
 
-1. **Block-based storage**: KV cache is stored in fixed-size blocks (e.g., 16 tokens per block)
-2. **Block tables**: Each request maintains a "block table" that maps logical sequence positions to physical block addresses
-3. **Dynamic allocation**: Blocks are allocated and freed as sequences grow or complete
-4. **Memory reuse**: Freed blocks can be immediately reused by new requests
+PagedAttention divides the KV cache into fixed-size blocks, typically 16 tokens per block (denoted as $B_{\text{size}}$), similar to memory pages in OS virtual memory. Each block contains the Key and Value vectors for a contiguous segment of tokens. For request $i$, the cached KV is represented as $N_i = \lceil (L_2^{(i)} + t^{(i)}) / B_{\text{size}} \rceil$ blocks, each block storing keys and values with shape $\text{Block} \in \mathbb{R}^{B_{\text{size}} \times D_{qk/v}}$.
 
-**PagedAttention Approach**:
+Each request maintains a block table that maps logical sequence positions to physical block addresses, similar to page tables in OS virtual memory. This allows sequences to be logically continuous while physically stored in discrete blocks scattered across GPU memory. Blocks are allocated and freed as sequences grow or complete. When a request finishes, its blocks are immediately returned to a shared block pool. Freed blocks can be immediately reused by new requests, eliminating fragmentation and enabling near-100% memory utilization.
+
 ```
 Block Pool: [Block0][Block1][Block2][Block3][Block4][Block5]...
             ↓        ↓        ↓
@@ -417,27 +422,25 @@ Request 3:  [Block3][Block4]   (active)
             ↑ No fragmentation - blocks can be reused immediately
 ```
 
-### Key Benefits
+### Eliminating Padding FLOPs
 
-1. **Memory Efficiency**: 
-   - Eliminates fragmentation waste
-   - Enables near-100% memory utilization
-   - Can serve 2-4x more concurrent requests with the same GPU memory
+Once blocks exist, the iteration semantics of attention computation fundamentally change. This is a crucial consequence of the block-based design, not an additional optimization. With block-based storage, attention computation no longer assumes KV cache is a continuous sequence from position 1 to $(L_2 + t)_{\max}$. Instead, attention iterates over the block table, and tokens that do not exist simply do not have corresponding blocks.
 
-2. **Flexible Batching**:
-   - Requests with different sequence lengths can be batched efficiently
-   - No need to pad sequences to the same length
-   - Supports dynamic batching (continuous batching)
+During decoding, the attention computation for request $i$ iterates only over the blocks listed in its block table:
 
-3. **Long Context Support**:
-   - Efficiently handles variable-length contexts
-   - Supports very long sequences without pre-allocating maximum memory
-   - Enables serving models with long context windows (100K+ tokens)
+$$A_t^{(i)} = \text{softmax}\left(Q_t^{(i)} \cdot \bigcup_{b \in \mathcal{B}_i} K_b^T\right)$$
 
-4. **Performance**:
-   - Custom CUDA kernels optimized for paged access patterns
-   - Minimal overhead from block table lookups
-   - Efficient memory access patterns
+where $\mathcal{B}_i$ denotes the set of blocks owned by request $i$. Crucially, this computation depends only on $(L_2^{(i)} + t^{(i)})$, not on $(L_2 + t)_{\max}$. Tokens that do not exist for a given request are never visited by the attention kernel because the corresponding blocks do not exist in the block table.
+
+With PagedAttention, padding tokens are not masked after computation—they are never part of the computation. The attention kernel does not launch dot products for padded positions. As a result, the number of attention FLOPs for each request is proportional to its true context length rather than the maximum context length in the batch. This property eliminates padding-related FLOPs entirely and is a key enabler for efficient continuous batching in large-scale LLM serving systems.
+
+The performance improvement in vLLM comes from both effects working together. Fragmentation reduction allows more concurrent requests to be served simultaneously, while zero padding FLOPs increases the effective compute utilization of decode attention. These are two sides of the same block-based design decision.
+
+Unlike OS page management that focuses on address mapping and access correctness, PagedAttention is optimized for efficient attention computation. Custom CUDA kernels read KV cache from non-contiguous blocks while maintaining coalesced memory access patterns, ensuring high GPU utilization. This attention-aware design means the system understands how attention operations access memory and optimizes accordingly.
+
+The benefits are substantial. Memory efficiency improves dramatically because fragmentation waste from variable-length sequences is eliminated, enabling near-100% memory utilization. Production deployments can serve 2-4x more concurrent requests with the same GPU memory compared to traditional approaches. More importantly, padding overhead is completely eliminated, meaning zero FLOPs are wasted on padding. This dramatically improves throughput in real serving scenarios.
+
+Flexible batching becomes possible because requests with different sequence lengths can be batched efficiently without padding. The system supports dynamic batching where batch composition changes every step, enabling efficient serving of highly variable workloads. Long context support is also enhanced, as the system efficiently handles variable-length contexts without pre-allocating maximum memory. Very long sequences of 100K+ tokens can be served by allocating blocks on-demand. The design handles high concurrency naturally, built for high-churn workloads with frequent request arrivals and completions.
 
 ### vLLM Architecture Overview
 
