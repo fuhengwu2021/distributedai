@@ -6,11 +6,119 @@ This chapter explains how SGLang's lightweight runtime, operator fusion, and sch
 
 **Chapter Length:** 26 pages
 
----
+## SGLang vs. vLLM: Key Differences
+
+Understanding the differences between SGLang and vLLM helps in choosing the right inference engine for your use case. Both are high-performance inference systems, but they optimize for different aspects of distributed inference.
+
+### Architecture Philosophy
+
+**vLLM (Chapter 6):**
+- **Scheduler-Executor-Worker Pattern**: Multi-threaded architecture with separate scheduler, executor, and worker components
+- **PagedAttention**: Core innovation for efficient KV cache memory management using virtual memory paging concepts
+- **Continuous Batching**: Dynamically groups requests into batches with padding elimination
+- **Focus**: Memory efficiency and high throughput through sophisticated memory management
+
+**SGLang:**
+- **Graph-Based IR Runtime**: Compact intermediate representation with operator fusion at compile time
+- **Lightweight Scheduler**: Single-threaded event loop with minimal scheduling overhead
+- **Operator Fusion**: Aggressively fuses small operators into single kernels to reduce launch overhead
+- **Focus**: Low latency and minimal scheduling overhead through runtime optimization
+
+### Memory Management
+
+**vLLM:**
+- **PagedAttention**: Virtual memory-style paging for KV cache blocks
+- **Block-based Allocation**: Fixed-size blocks allocated on-demand
+- **Memory Efficiency**: Near-100% memory utilization, 2-4x more concurrent requests
+- **Handles**: Variable-length sequences without padding overhead
+
+**SGLang:**
+- **Memory-Paged Primitives**: Efficient cache management with streaming attention
+- **Chunked Prefill**: DeepSeek-style pattern for long contexts, streams prompts in chunks
+- **KV Cache Offloading**: Can offload older KV pages to CPU/NVMe
+- **Handles**: Long-context generation with reduced peak memory
+
+### Scheduling and Batching
+
+**vLLM:**
+- **Continuous Batching**: Dynamic batching where batch composition changes every step
+- **Multi-threaded**: Separate threads for scheduling, execution, and worker management
+- **High Concurrency**: Built for high-churn workloads with frequent request arrivals
+- **Throughput-Optimized**: Maximizes tokens per second
+
+**SGLang:**
+- **Single-threaded Event Loop**: Minimal overhead scheduler that batches small work items
+- **Operator-Level Batching**: Fuses operators to reduce kernel launches
+- **Low-Latency Optimized**: Minimizes time-to-first-token through reduced overhead
+- **QPS-Optimized**: Maximizes queries per second for high-QPS workloads
+
+### Distributed Inference
+
+**vLLM:**
+- **Tensor Parallelism (TP)**: Horizontal sharding of model weights across GPUs
+- **Data Parallelism (DP)**: Replicates model across multiple GPUs/nodes
+- **Pipeline Parallelism (PP)**: Vertical sharding across nodes for very large models
+- **Ray Backend**: Uses Ray for multi-node coordination
+- **Internal/External Load Balancing**: Supports both self-contained and external routing
+
+**SGLang:**
+- **Router-Based Architecture**: Central router with session affinity and cache-aware routing
+- **Prefill/Decode Disaggregation**: Specialized workers for prefill vs decode phases
+- **Multi-Node Coordination**: Central scheduler or decentralized broker
+- **Session Affinity**: Routes requests to workers with hot KV cache
+- **Hybrid CPU/GPU**: Can offload lightweight operators to CPU
+
+### Performance Characteristics
+
+**vLLM:**
+- **Strengths:**
+  - Excellent memory efficiency (PagedAttention)
+  - High throughput for large batches
+  - Strong support for very large models (TP/PP/DP)
+  - Production-proven at scale
+- **Best For:**
+  - High-throughput serving
+  - Large models requiring multi-GPU/node distribution
+  - Memory-constrained environments
+  - Variable-length sequence workloads
+
+**SGLang:**
+- **Strengths:**
+  - Lower latency (operator fusion, lightweight scheduler)
+  - Higher QPS for small-to-medium batches
+  - Better for high-churn, low-latency workloads
+  - Flexible CPU/GPU hybrid serving
+- **Best For:**
+  - Low-latency inference (chat applications)
+  - High-QPS production workloads
+  - Long-context generation with chunked prefill
+  - Cost-optimized hybrid CPU/GPU deployments
+
+### When to Choose Which
+
+**Choose vLLM when:**
+- You need maximum memory efficiency (PagedAttention)
+- Throughput is the primary concern
+- Serving very large models requiring TP/PP/DP
+- You have variable-length sequences and want to eliminate padding
+- You need proven production stability at scale
+
+**Choose SGLang when:**
+- Latency (especially TTFT) is critical
+- You need high QPS for interactive applications
+- You want to optimize for small-to-medium batch sizes
+- You need router-based distributed inference with session affinity
+- You want to explore hybrid CPU/GPU serving for cost optimization
+
+### Complementary Use Cases
+
+Both systems can coexist in the same infrastructure:
+- **vLLM**: For batch processing, large model serving, high-throughput workloads
+- **SGLang**: For interactive chat, low-latency APIs, high-QPS endpoints
 
 ## 1. SGLang Internals and Operator Fusion
 
-SGLang is built around a compact graph-based IR and a runtime that emphasizes operator fusion and minimal scheduling overhead. Understanding these internals is crucial for optimizing inference performance.
+SGLang is built around a compact graph-based Intermediate Representation (IR) and a runtime that emphasizes operator fusion and minimal scheduling overhead. Understanding these internals is crucial for optimizing inference performance.
 
 ### Runtime Architecture
 
@@ -100,8 +208,6 @@ print(prof.key_averages().table(sort_by="cuda_time_total"))
    - Verify numerical correctness
    - Check memory usage reduction
 
----
-
 ## 2. Multi-Node SGLang Inference
 
 Multi-node SGLang deployments coordinate execution across workers via a central scheduler or decentralized broker. This enables scaling beyond single-node capacity.
@@ -184,8 +290,6 @@ config = {
 - **Cache Locality:** Route requests to nodes with hot KV cache
 - **Load Balancing:** Distribute load evenly across nodes
 - **Fault Tolerance:** Handle node failures gracefully
-
----
 
 ## 3. Chunked Prefill and KV Cache Strategies
 
@@ -270,8 +374,6 @@ class KVCacheManager:
             return kv
         return None
 ```
-
----
 
 ## 4. Benchmarking with genai-bench
 
@@ -374,8 +476,6 @@ with profiler.profile(
 # Export to Chrome trace format
 prof.export_chrome_trace("trace.json")
 ```
-
----
 
 ## 5. Router-Based Distributed Inference
 
@@ -538,8 +638,6 @@ curl -X POST "http://localhost:8080/v1/responses" \
 
 Note: run the workers in separate terminals or background them; terminate with `kill` when done.
 
----
-
 ## 6. Hybrid CPU/GPU Serving Strategies
 
 To reduce cost, move low-priority or lightweight operators to CPU (or CPU with INT8) and reserve GPU for heavy attention matmuls.
@@ -634,8 +732,6 @@ def validate_cpu_gpu_outputs():
 - Monitor tail latency to ensure CPU path doesn't introduce spikes
 - Track accuracy metrics for quantized CPU kernels
 - Alert on quality regressions
-
----
 
 ## Hands-on Examples
 
@@ -830,8 +926,6 @@ if __name__ == "__main__":
     print(output)
 ```
 
----
-
 ## Best Practices
 
 1. **Profile at operator granularity before fusing**
@@ -858,8 +952,6 @@ if __name__ == "__main__":
    - Tune chunk size based on memory constraints
    - Implement efficient eviction policies
    - Overlap prefill with IO operations
-
----
 
 ## Use Cases
 
@@ -893,8 +985,6 @@ if __name__ == "__main__":
 - SLA compliance for different tenant tiers
 - Efficient resource utilization
 
----
-
 ## Skills Learned
 
 By the end of this chapter, readers will be able to:
@@ -924,8 +1014,6 @@ By the end of this chapter, readers will be able to:
    - Implement quantized CPU kernels
    - Monitor quality regressions
 
----
-
 ## Exercises
 
 1. **Operator Fusion Exercise:**
@@ -947,8 +1035,6 @@ By the end of this chapter, readers will be able to:
    - Build a simple router with session affinity
    - Implement adaptive batching
    - Test with realistic workload
-
----
 
 ## Further Reading
 
