@@ -41,18 +41,40 @@ convert_md_to_pdf() {
     # Use basenames since we're now in the chapter directory
     # Capture output to filter warnings but show errors
     local pandoc_output=""
-    if pandoc_output=$(pandoc "$md_basename" -o "$pdf_basename" --pdf-engine=xelatex -V geometry:margin=1in --highlight-style=tango -H <(echo '\usepackage{microtype}'; echo '\sloppy'; echo '\setlength{\emergencystretch}{3em}'; echo '\setlength{\tolerance}{1000}'; echo '\allowdisplaybreaks'; echo '\usepackage{float}'; echo '\floatplacement{figure}{H}') 2>&1); then
+    # Create LaTeX header with image size control
+    # Keep images at original size to prevent blurriness from over-scaling
+    # Only scale down if image exceeds page width
+    local latex_header=$(cat <<'EOF'
+\usepackage{microtype}
+\sloppy
+\setlength{\emergencystretch}{3em}
+\setlength{\tolerance}{1000}
+\allowdisplaybreaks
+\usepackage{float}
+\floatplacement{figure}{H}
+\usepackage{graphicx}
+% Control image scaling: keep images at original size unless they exceed page width
+% This prevents small images from being over-scaled and becoming blurry
+\makeatletter
+% Only scale down if image is larger than linewidth, otherwise keep original size
+\def\maxwidth{\ifdim\Gin@nat@width>\linewidth\linewidth\else\Gin@nat@width\fi}
+\def\maxheight{\ifdim\Gin@nat@height>\textheight\textheight\else\Gin@nat@height\fi}
+\makeatother
+\setkeys{Gin}{width=\maxwidth,height=\maxheight,keepaspectratio}
+EOF
+)
+    if pandoc_output=$(pandoc "$md_basename" -o "$pdf_basename" --pdf-engine=xelatex -V geometry:margin=1in --highlight-style=tango -H <(echo "$latex_header") 2>&1); then
         # Filter out font-related warnings but keep image warnings
         echo "$pandoc_output" | grep -E "\[WARNING\].*image|\[WARNING\].*resource" || true
         echo "✅ Successfully converted using xelatex"
         cd "$SCRIPT_DIR"
         return 0
-    elif pandoc_output=$(pandoc "$md_basename" -o "$pdf_basename" --pdf-engine=pdflatex -V geometry:margin=1in --highlight-style=tango -V 'tolerance=1000' -V 'emergencystretch=3em' -H <(echo '\usepackage{float}'; echo '\floatplacement{figure}{H}') 2>&1); then
+    elif pandoc_output=$(pandoc "$md_basename" -o "$pdf_basename" --pdf-engine=pdflatex -V geometry:margin=1in --highlight-style=tango -V 'tolerance=1000' -V 'emergencystretch=3em' -H <(echo "$latex_header") 2>&1); then
         echo "$pandoc_output" | grep -E "\[WARNING\].*image|\[WARNING\].*resource" || true
         echo "✅ Successfully converted using pdflatex"
         cd "$SCRIPT_DIR"
         return 0
-    elif pandoc_output=$(pandoc "$md_basename" -o "$pdf_basename" -V geometry:margin=1in --highlight-style=tango -V 'tolerance=1000' -V 'emergencystretch=3em' -H <(echo '\usepackage{float}'; echo '\floatplacement{figure}{H}') 2>&1); then
+    elif pandoc_output=$(pandoc "$md_basename" -o "$pdf_basename" -V geometry:margin=1in --highlight-style=tango -V 'tolerance=1000' -V 'emergencystretch=3em' -H <(echo "$latex_header") 2>&1); then
         echo "$pandoc_output" | grep -E "\[WARNING\].*image|\[WARNING\].*resource" || true
         echo "✅ Successfully converted using default engine"
         cd "$SCRIPT_DIR"

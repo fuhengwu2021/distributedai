@@ -269,33 +269,9 @@ curl http://localhost:8000/v1/completions \
 
 ## KV Cache
 
-### Transformer Generation Process
+### Decoder-Only Transformer Architecture
 
-In decoder-only transformer architectures (such as GPT, LLaMA, and most modern LLMs), the model processes sequences through multiple transformer decoder layers. Each layer contains a self-attention mechanism that computes attention scores between tokens.
-
-Let's take a look at how a token is generated.
-**Notation**
-
-We use the following notation throughout this section:
-
-- $B$: batch size
-- $L_1$: length of an attending sequence (query); $l_1$: index of a position in this sequence
-- $L_2$: length of a being attended sequence (key/value); $l_2$: index of a position in this sequence
-- $D_1$: dimension of a hidden state/token in an attending sequence (query)
-- $D_2$: dimension of a hidden state/token in a being attended sequence (key/value)
-- $H$: number of attention heads
-- $D_{qk}$: dimension of a query/key vector
-- $D_v$: dimension of a value vector
-- $D$: model hidden size
-- $L$: notation used when $L_1 = L_2$
-
-
-**Decoder-Only Architecture Overview**
-
-A decoder-only transformer consists of a stack of identical decoder layers. Each layer contains:
-- A self-attention sublayer with causal masking (ensuring tokens only attend to previous positions)
-- A feed-forward network (MLP)
-- Residual connections and layer normalization
+Modern large language models like GPT, LLaMA, and their variants use decoder-only transformer architectures. Decoder-only transformer is proved to be highly effective for autoregressive language modeling and text generation tasks. These models consist of a stack of identical decoder layers, each containing a self-attention sublayer with causal masking, a feed-forward network (MLP), and residual connections with layer normalization.
 
 The self-attention mechanism uses three learned linear projections: **Query (Q)**, **Key (K)**, and **Value (V)**. For each token at position $i$, the model computes:
 
@@ -303,60 +279,87 @@ The self-attention mechanism uses three learned linear projections: **Query (Q)*
 - $K_i = x_i \times W_K$ (Key vector)
 - $V_i = x_i \times W_V$ (Value vector)
 
-where $x_i$ is the token embedding (or hidden state) and $W_Q$, $W_K$, $W_V$ are learned weight matrices.
-
-**Attention Computation**
-
-The attention mechanism computes how much each token should attend to other tokens. In decoder-only models with causal masking, token at position $i$ can only attend to tokens at positions $\leq i$. The attention scores are computed as:
+where $x_i$ is the token embedding (or hidden state) and $W_Q$, $W_K$, $W_V$ are learned weight matrices. The attention scores are computed as:
 
 $$\text{Attention}(Q, K, V) = \text{softmax}\left(\frac{Q \times K^T}{\sqrt{d_k}}\right) \times V$$
 
-where $d_k$ is the dimension of the key vectors. The causal mask ensures that future tokens are masked out (set to $-\infty$ before softmax), preventing the model from "seeing" future tokens during training and inference.
+where $d_k$ is the dimension of the key vectors. The causal mask ensures that tokens only attend to previous positions (set to $-\infty$ before softmax), preventing the model from "seeing" future tokens.
 
+A typical architecutre is as follows:
 
-When serving generation requests(prompts), we normally batch multiple prompts. The input has shape $BLD$.
+![Decoder-only Transformer](img/decoder_only.png)
+
+Note: This decoder is from the original Transformer papaer, so the `Add&Norm` should be `Norm&Add` for today's LLM.
+
+**Notation**
+
+We use the following notation throughout this section:
+
+- $B$: batch size
+- $L_1$: length of an attending sequence (query); $l_1$: index of a position in this sequence
+- $L_2$: length of a being attended sequence (key/value); $l_2$: index of a position in this sequence
+- $D$: model hidden size (dimension of hidden states/tokens)
+- $H$: number of attention heads
+- $D_{qk}$: dimension of a query/key vector
+- $D_v$: dimension of a value vector
+- $L$: notation used when $L_1 = L_2$
+
+### Text Generation Process: Prefill and Decode
+
+When serving generation requests, we typically batch multiple prompts for higher throughput. The input has shape $B \times L_2 \times D$, where $L_2$ is the prompt length.
 
 ![Input shape](img/input.png)
 
-In text generation, users input a prompt and the model will generate new token one by one. The prefill process is as follows:
+Text generation occurs in two distinct phases. The first phase, called **prefill**, processes the entire prompt sequence in parallel to initialize the model's internal state. During prefill, the model processes all prompt tokens simultaneously:
 
 ![Prefill Stage](img/prefill.png)
 
-The input $X_0$ after transformer blocks generates $Y_0$, which is a single token. Then $Y_0$ is also part of the input in the next round of generation.
+The input $X_0$ (the prompt) after transformer blocks generates $Y_0$, which is the first output token. This token then becomes part of the input for the next generation step.
+
+### The Inefficiency Problem
+
+The second phase is called **Decode**. During the decode phase, the model generates tokens one at a time. Consider generating the first new token after the prompt. The input to the query layer is $X_1 = Y_0$ (the newly generated token), but the input to the Key and Value layers must be a concatenation of the previous prompt $X_0$ and the new token $X_1$, resulting in shape $B \times (L_2 + 1) \times D$.
 
 ![Decode without KV Cache](img/decode_without_kvcache.png)
 
-Please note: the input to query layer is $X_1=Y_0$, and the input to Key and Value layers should be a concatination of previous $X_0$ and the new $X_1$, which has a shape of $B(L_2+1)D$. This is because the query should ask for the attention for the entire context so far. For example, if $X_0$ is `time flies`, and $Y_0$($X_1$) is `like`, we should use `like` to query the context and predict the next token, probably `an`. The inefficient thing here is we need construct $\hat{X}$ and multiply it with $W_k$, while the $X_0$ part in $\hat{X}$ has been multiplied with $W_k$ before. This is an obvious duplication. The calculation for alue is the same way. The very natural way is to use cache to make it efficient.
+This is necessary because the query needs to attend to the entire context so far. For example, if our prompt $X_0$ is "Time flies" and $Y_0$ is "like", we use "like" to query the context "Time flies like" and predict the next token, probably "an". Then we use "an" to query "Time flies like an" and get "arrow". This process continues: each newly generated token must attend to all previous tokens (both the original prompt and all previously generated tokens) to maintain context and generate coherent text. However, at each step, we need to recompute the Key and Value vectors for the entire sequence history, even though most of these computations were already performed in previous steps.
 
-### What is KV Cache?
+From above figure, we can easily see the inefficiency arises because we need to construct $\hat{X} = [X_0, X_1]$ and multiply it with $W_K$ and $W_V$, even though __the $X_0$ part has already been multiplied with these weight matrices during the prefill phase__. This duplication occurs at every generation step, requiring recomputation of $Key$ and $Value$ vectors for all previous tokens through the entire transformer stack.
 
-KV Cache comes as a resucue. We can simply use $X_1$ as input for K and V calculation, as long as we cache the previous result of K and V.
+Without caching, this naive approach has time complexity $O(L_{\text{total}}^2)$ per step, where $L_{\text{total}}$ is the total sequence length $L_2 + L_t$ including prompt and generated tokens. For long sequences, this becomes computationally prohibitive.
+
+### KV Cache Solution
+
+KV cache solves this inefficiency by storing precomputed Key and Value vectors for all previously processed tokens. Instead of concatenating and recomputing, we can simply use $X_1$ as input for $K$ and $V$ calculation, as long as we cache the previous results. Take $Key$ vector as an example, we only calucate $K_{new}$ which has shape of $B1D_k$ and the time complexity reduced dramatically.
 
 ![Key Cache Grows](img/cache_grow.png)
 
-With KV Cache, the new decoding stage is as follows:
+With KV cache, the decoding stage becomes much more efficient.
 
-![Key Cache Grows](img/decode_with_kvcache.png)
+The input shape is $B \times 1 \times D$ and output shape is also $B \times 1 \times D$. The key insight is that only the new token needs attention computation, while all previous tokens reuse their cached $K$ and $V$ vectors.
 
-With KV Cache, the input shape is $B1D$ and output shape is also $B1D$.
+**Time Complexity Analysis:**
 
-**The Need for KV Cache**
+With KV cache, the computational complexity changes dramatically:
 
-During autoregressive text generation, the model generates tokens one at a time. When generating token at position $L_2 + t$ (where $L_2$ is the prompt length and $t$ is the generation step), the model needs to compute attention over all previous tokens. Without caching, at each generation step, the model would need to:
+- **Prefill phase**: Processes all $L_2$ prompt tokens in parallel. The attention computation has complexity $O(L_2^2 \cdot D)$ for the self-attention over the prompt sequence. This is a one-time cost.
 
-1. Recompute $K$ and $V$ vectors for all previous tokens by running them through all decoder layers
-2. Compute attention scores for the new token against all previous tokens
-3. Generate the next token
+- **Decode phase (per token)**: 
+  - **Without KV cache**: $O(L_{\text{total}}^2 \cdot D)$ per step, where $L_{\text{total}} = L_2 + L_t$ grows with each generated token. For $T$ generated tokens, total complexity is $O(T \cdot L_{\text{total}}^2 \cdot D)$, which becomes $O(T^3 \cdot D)$ when $L_t \gg L_2$.
+  
+  - **With KV cache**: Only compute $K$ and $V$ for the new token (shape $B \times 1 \times D_k$), then perform attention with cached keys/values. The complexity per step is $O(L_{\text{total}} \cdot D)$ for the attention computation, where $L_{\text{total}}$ is the current sequence length. For $T$ generated tokens, total complexity is $O(T \cdot L_{\text{total}} \cdot D) \approx O(T^2 \cdot D)$ when $L_t \gg L_2$.
 
-This naive approach has time complexity $O(L_{\text{total}}^2)$ per step, where $L_{\text{total}}$ is the total sequence length including prompt and generated tokens. Recomputing $K$ and $V$ for all previous tokens requires forward passes through the entire transformer stack for each token, making it computationally prohibitive.
+The key improvement is reducing the quadratic dependency on sequence length in the decode phase to linear, making long-sequence generation feasible. However, this comes at the cost of memory: KV cache requires $O(L_{\text{total}} \cdot D)$ memory to store all cached Key and Value vectors.
 
-**How KV Cache Works**
+![Decode with KV Cache](img/decode_with_kvcache.png)
 
-The KV cache stores the precomputed Key and Value vectors for all previously processed tokens. Inference consists of two distinct phases with different computational characteristics.
+**Detailed Mechanism:**
+
+The KV cache stores precomputed Key and Value vectors for all previously processed tokens. Inference consists of two distinct phases:
 
 **Prefill Phase (Processing the Prompt):**
 
-During prefill, the model processes the entire prompt sequence in parallel, similar to training. The input prompt has shape $B \times L_2 \times D_1$, where $B$ is the batch size, $L_2$ is the prompt length, and $D_1$ is the hidden dimension.
+During prefill, the model processes the entire prompt sequence in parallel, similar to training. The input prompt has shape $B \times L_2 \times D$, where $B$ is the batch size, $L_2$ is the prompt length, and $D$ is the hidden dimension.
 
 The model:
 1. Computes $Q$, $K$, $V$ for all prompt tokens through all decoder layers
@@ -364,23 +367,24 @@ The model:
 3. Computes attention and generates the first output token
 4. Caches all $K$ and $V$ vectors for the prompt tokens
 
-The cached key-value pairs have shape $B \times L_2 \times D_{qk/v}$ per layer and head, where $D_{qk}$ is the query/key dimension and $D_v$ is the value dimension. The prefill phase has time complexity $O(L_2^2)$, which is a one-time cost.
+The cached key-value pairs have shape $B \times L_2 \times D_{qk/v}$ per layer and head, where $D_{qk}$ is the query/key dimension and $D_v$ is the value dimension.
 
 **Decode Phase (Generating New Tokens):**
 
 During decoding, the model generates one token at a time. At step $t$:
 
-- **Input**: Only the newly generated token at position $L_2 + t - 1$, with shape $B \times 1 \times D_1$
+- **Input**: Only the newly generated token at position $L_2 + t - 1$, with shape $B \times 1 \times D$
 - **Query computation**: $Q_t = x_t W^Q$ for the new token only, shape $B \times 1 \times D_{qk}$
+- **Key/Value computation**: $K_t = x_t W^K$ and $V_t = x_t W^V$ for the new token only, shapes $B \times 1 \times D_{qk}$ and $B \times 1 \times D_v$ respectively
 - **Cached attention**: Retrieve all cached $K$ and $V$ vectors from previous steps
   - $K_{\text{cached}}$: $B \times (L_2 + t) \times D_{qk}$ (all previous keys including prompt)
   - $V_{\text{cached}}$: $B \times (L_2 + t) \times D_v$ (all previous values including prompt)
 - **Attention computation**: The new token's $Q_t$ attends to all cached $K$ vectors
   - Attention scores: $B \times 1 \times (L_2 + t)$
   - Output: $B \times 1 \times D_v$ per head
-- **Cache update**: Append the new token's $K$ and $V$ vectors to the cache
+- **Cache update**: Append the new token's $K_t$ and $V_t$ vectors to the cache
 
-The key insight is that only the new token needs attention computation. All previous tokens reuse their cached $K$ and $V$ vectors, reducing time complexity from $O(L_{\text{total}}^2)$ per step (naive approach) to $O(L_{\text{total}})$ per step (with caching), where $L_{\text{total}} = L_2 + t$ is the total sequence length.
+This approach reduces time complexity from $O(L_{\text{total}}^2)$ per step (naive approach) to $O(L_{\text{total}})$ per step (with caching), where $L_{\text{total}} = L_2 + t$ is the total sequence length.
 
 **Summary of Inference Stages**
 
@@ -389,11 +393,11 @@ The following table summarizes the tensor shapes and operations during prefill a
 | Stage | Shape | Notes |
 |-------|-------|-------|
 | **Prefill Phase** | | |
-| Input $X_{\text{prompt}}$ | $B \times L_2 \times D_1$ | Prompt sequence |
+| Input $X_{\text{prompt}}$ | $B \times L_2 \times D$ | Prompt sequence |
 | Process all tokens | Parallel | Same as training |
 | Cache $K$, $V$ | $B \times L_2 \times D_{qk/v}$ | For reuse |
 | **Decoding Phase** | | |
-| Input $x_t$ | $B \times 1 \times D_1$ | Single new token |
+| Input $x_t$ | $B \times 1 \times D$ | Single new token |
 | $Q_t = x_t W^Q$ | $B \times 1 \times D_{qk}$ | Query for new token |
 | $K_{\text{cached}}$ | $B \times (L_2 + t) \times D_{qk}$ | All previous keys |
 | $V_{\text{cached}}$ | $B \times (L_2 + t) \times D_v$ | All previous values |
@@ -401,7 +405,7 @@ The following table summarizes the tensor shapes and operations during prefill a
 | Attention $A_t$ | $B \times 1 \times (L_2 + t)$ | Upper triangular |
 | Output $Z_t$ | $B \times 1 \times D_v$ | |
 | Concat heads | $B \times 1 \times (H \cdot D_v)$ | |
-| Final output | $B \times 1 \times D_1$ | Single generated token |
+| Final output | $B \times 1 \times D$ | Single generated token |
 
 **Memory Characteristics**
 
