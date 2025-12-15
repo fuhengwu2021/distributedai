@@ -58,16 +58,26 @@ docker run --runtime nvidia --gpus all \
   facebook/opt-125m
 ```
 
-For a chat model, replace the model name:
+Here are some small models suitable for learning purposes:
+
+| Model Name | Type | Parameter Size |
+|------------|------|----------------|
+| `facebook/opt-125m` | Base | 125M |
+| `Qwen/Qwen2.5-0.5B-Instruct` | Chat/Instruct | 0.5B |
+| `meta-llama/Llama-3.2-1B-Instruct` | Chat/Instruct | 1B |
+| `meta-llama/Llama-3.2-1B` | Base | 1B |
+| `microsoft/Phi-tiny-MoE-instruct` | MoE/Instruct | ~500M (active) |
+| `sentence-transformers/all-MiniLM-L6-v2` | Embedding | 22M |
+
+To use any of these models, replace the model name in the Docker command:
 
 ```bash
-... vllm/vllm-openai:latest Qwen/Qwen2.5-0.5B-Instruct
+... vllm/vllm-openai:latest <MODEL_NAME>
 ```
 
-For an embedding model:
-
+For example:
 ```bash
-... vllm/vllm-openai:latest sentence-transformers/all-MiniLM-L6-v2
+... vllm/vllm-openai:latest meta-llama/Llama-3.2-1B-Instruct
 ```
 
 The `--runtime nvidia --gpus all` flag enables GPU access. To use specific GPUs, replace `--gpus all` with `--gpus '"device=0"'` for a single GPU or `--gpus '"device=0,1"'` for multiple GPUs. You can also set `--env "CUDA_VISIBLE_DEVICES=0,1"` to limit visible GPUs.
@@ -112,6 +122,22 @@ curl http://localhost:8000/v1/chat/completions \
     ]
   }'
 ```
+
+For deterministic output (same result every time), add `"temperature": 0`:
+
+```bash
+curl http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "Qwen/Qwen2.5-0.5B-Instruct",
+    "messages": [
+      {"role": "user", "content": "Hello, how are you?"}
+    ],
+    "temperature": 0
+  }'
+```
+
+**Note**: Setting `temperature=0` enables greedy sampling (always selects the highest probability token), which should produce the same output for the same input. However, vLLM does not guarantee complete reproducibility by default due to scheduling and batching optimizations. For fully deterministic results, you may need to set `VLLM_ENABLE_V1_MULTIPROCESSING=0` or enable batch invariance (see vLLM's reproducibility documentation).
 
 Test an embedding model:
 
@@ -442,15 +468,6 @@ The benefits are substantial. Memory efficiency improves dramatically because fr
 
 Flexible batching becomes possible because requests with different sequence lengths can be batched efficiently without padding. The system supports dynamic batching where batch composition changes every step, enabling efficient serving of highly variable workloads. Long context support is also enhanced, as the system efficiently handles variable-length contexts without pre-allocating maximum memory. Very long sequences of 100K+ tokens can be served by allocating blocks on-demand. The design handles high concurrency naturally, built for high-churn workloads with frequent request arrivals and completions.
 
-### vLLM Architecture Overview
-
-vLLM's architecture is built around efficient memory management and distributed execution:
-
-- **PagedAttention**: Core memory management for KV cache
-- **Continuous Batching**: Dynamically groups requests into batches
-- **Distributed Execution**: Supports tensor parallelism, data parallelism, and pipeline parallelism
-- **Optimized Kernels**: Custom CUDA kernels for attention computation
-
 ### Connection to Distributed Inference
 
 While PagedAttention solves memory efficiency within a single GPU, **distributed inference techniques** (tensor parallelism, data parallelism, pipeline parallelism) are needed when:
@@ -676,7 +693,9 @@ For **Mixture-of-Experts (MoE)** models (e.g., DeepSeek R1), vLLM employs **Expe
 
 ### Status
 
-Expert parallelism is **planned** for vLLM but not yet implemented. This is especially important for large MoE models like DeepSeek R1.
+Expert parallelism is **implemented and available** in vLLM. It can be enabled with the `--enable-expert-parallel` flag, which is especially important for large MoE models like DeepSeek R1 and DeepSeek V3.
+
+**Note**: EP requires additional dependencies (DeepEP, pplx-kernels, DeepGEMM) and may not be fully stable for all model/quantization/hardware combinations. Some models may require specific configurations or have limitations. See the [vLLM Expert Parallel Deployment documentation](https://docs.vllm.ai/en/latest/serving/expert_parallel_deployment/) for details.
 
 ## Trade-offs of Tensor Parallelism
 

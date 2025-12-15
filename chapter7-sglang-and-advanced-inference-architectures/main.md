@@ -1,143 +1,114 @@
 # Chapter 7: SGLang and Advanced Inference Architectures
 
-## Overview
+This chapter introduces SGLang's distributed inference architecture, focusing on router-based request routing, prefill/decode disaggregation, and multi-node coordination. Unlike vLLM's model parallelism (TP/PP/DP), SGLang emphasizes request-level routing and workload disaggregation for high-QPS, low-latency distributed inference.
 
-This chapter explains how SGLang's lightweight runtime, operator fusion, and scheduling mechanisms enable high-performance distributed inference. Readers learn about DeepSeek-style chunked prefill strategies, genai-bench integration for benchmarking, router-based distributed inference architectures, and hybrid CPU/GPU serving patterns. By the end of this chapter, readers will be able to deploy SGLang across multiple nodes, optimize operator fusion, and build router-based inference systems for high-QPS production workloads.
+## Introduction to SGLang and Setup
 
-**Chapter Length:** 26 pages
+**SGLang** (Structured Generation Language) is a high-performance inference engine optimized for low-latency, high-QPS workloads. It uses a router-based distributed architecture that emphasizes request routing, session affinity, and workload disaggregation rather than model weight sharding.
 
-## SGLang vs. vLLM: Key Differences
+### Prerequisites
 
-Understanding the differences between SGLang and vLLM helps in choosing the right inference engine for your use case. Both are high-performance inference systems, but they optimize for different aspects of distributed inference.
+Before installing SGLang, ensure you have:
 
-### Architecture Philosophy
+- **OS**: Linux (required for GPU support)
+- **Python**: 3.10+
+- **NVIDIA GPU**: With CUDA support
+- **CUDA**: Compatible CUDA version installed
 
-**vLLM (Chapter 6):**
-- **Scheduler-Executor-Worker Pattern**: Multi-threaded architecture with separate scheduler, executor, and worker components
-- **PagedAttention**: Core innovation for efficient KV cache memory management using virtual memory paging concepts
-- **Continuous Batching**: Dynamically groups requests into batches with padding elimination
-- **Focus**: Memory efficiency and high throughput through sophisticated memory management
+### Installation
 
-**SGLang:**
-- **Graph-Based IR Runtime**: Compact intermediate representation with operator fusion at compile time
-- **Lightweight Scheduler**: Single-threaded event loop with minimal scheduling overhead
-- **Operator Fusion**: Aggressively fuses small operators into single kernels to reduce launch overhead
-- **Focus**: Low latency and minimal scheduling overhead through runtime optimization
+SGLang can be installed using multiple methods. It is recommended to use `uv` for faster installation.
 
-### Memory Management
+#### Method 1: Install with uv (Recommended)
 
-**vLLM:**
-- **PagedAttention**: Virtual memory-style paging for KV cache blocks
-- **Block-based Allocation**: Fixed-size blocks allocated on-demand
-- **Memory Efficiency**: Near-100% memory utilization, 2-4x more concurrent requests
-- **Handles**: Variable-length sequences without padding overhead
+```bash
+pip install --upgrade pip
+pip install uv
+uv pip install "sglang" --prerelease=allow
+```
 
-**SGLang:**
-- **Memory-Paged Primitives**: Efficient cache management with streaming attention
-- **Chunked Prefill**: DeepSeek-style pattern for long contexts, streams prompts in chunks
-- **KV Cache Offloading**: Can offload older KV pages to CPU/NVMe
-- **Handles**: Long-context generation with reduced peak memory
+#### Method 2: Install with pip
 
-### Scheduling and Batching
+```bash
+pip install --upgrade pip
+pip install "sglang[all]"
+```
 
-**vLLM:**
-- **Continuous Batching**: Dynamic batching where batch composition changes every step
-- **Multi-threaded**: Separate threads for scheduling, execution, and worker management
-- **High Concurrency**: Built for high-churn workloads with frequent request arrivals
-- **Throughput-Optimized**: Maximizes tokens per second
+#### Method 3: Install from Source
 
-**SGLang:**
-- **Single-threaded Event Loop**: Minimal overhead scheduler that batches small work items
-- **Operator-Level Batching**: Fuses operators to reduce kernel launches
-- **Low-Latency Optimized**: Minimizes time-to-first-token through reduced overhead
-- **QPS-Optimized**: Maximizes queries per second for high-QPS workloads
+```bash
+# Clone the repository
+git clone -b v0.5.6 https://github.com/sgl-project/sglang.git
+cd sglang
 
-### Distributed Inference
+# Install from source
+pip install --upgrade pip
+pip install -e "python"
+```
 
-**vLLM:**
-- **Tensor Parallelism (TP)**: Horizontal sharding of model weights across GPUs
-- **Data Parallelism (DP)**: Replicates model across multiple GPUs/nodes
-- **Pipeline Parallelism (PP)**: Vertical sharding across nodes for very large models
-- **Ray Backend**: Uses Ray for multi-node coordination
-- **Internal/External Load Balancing**: Supports both self-contained and external routing
+#### Method 4: Using Docker
 
-**SGLang:**
-- **Router-Based Architecture**: Central router with session affinity and cache-aware routing
-- **Prefill/Decode Disaggregation**: Specialized workers for prefill vs decode phases
-- **Multi-Node Coordination**: Central scheduler or decentralized broker
-- **Session Affinity**: Routes requests to workers with hot KV cache
-- **Hybrid CPU/GPU**: Can offload lightweight operators to CPU
+```bash
+docker run --gpus all \
+    --shm-size 32g \
+    -p 30000:30000 \
+    -v ~/.cache/huggingface:/root/.cache/huggingface \
+    --env "HF_TOKEN=<your-token>" \
+    --ipc=host \
+    lmsysorg/sglang:latest \
+    python3 -m sglang.launch_server \
+        --model-path meta-llama/Llama-3.1-8B-Instruct \
+        --host 0.0.0.0 \
+        --port 30000
+```
 
-### Performance Characteristics
+**Note:** If you encounter `OSError: CUDA_HOME environment variable is not set`, set it with:
+```bash
+export CUDA_HOME=/usr/local/cuda-<your-cuda-version>
+```
 
-**vLLM:**
-- **Strengths:**
-  - Excellent memory efficiency (PagedAttention)
-  - High throughput for large batches
-  - Strong support for very large models (TP/PP/DP)
-  - Production-proven at scale
-- **Best For:**
-  - High-throughput serving
-  - Large models requiring multi-GPU/node distribution
-  - Memory-constrained environments
-  - Variable-length sequence workloads
+#### Verify Installation
 
-**SGLang:**
-- **Strengths:**
-  - Lower latency (operator fusion, lightweight scheduler)
-  - Higher QPS for small-to-medium batches
-  - Better for high-churn, low-latency workloads
-  - Flexible CPU/GPU hybrid serving
-- **Best For:**
-  - Low-latency inference (chat applications)
-  - High-QPS production workloads
-  - Long-context generation with chunked prefill
-  - Cost-optimized hybrid CPU/GPU deployments
+```bash
+# Check SGLang version
+python -c "import sglang; print(sglang.__version__)"
 
-### When to Choose Which
+# Test basic functionality
+python -m sglang.launch_server --help
+```
 
-**Choose vLLM when:**
-- You need maximum memory efficiency (PagedAttention)
-- Throughput is the primary concern
-- Serving very large models requiring TP/PP/DP
-- You have variable-length sequences and want to eliminate padding
-- You need proven production stability at scale
+### Basic Usage
 
-**Choose SGLang when:**
-- Latency (especially TTFT) is critical
-- You need high QPS for interactive applications
-- You want to optimize for small-to-medium batch sizes
-- You need router-based distributed inference with session affinity
-- You want to explore hybrid CPU/GPU serving for cost optimization
+**Start SGLang Server:**
 
-### Complementary Use Cases
+```bash
+python -m sglang.launch_server \
+    --model-path meta-llama/Llama-3.1-8B-Instruct \
+    --port 8000
+```
 
-Both systems can coexist in the same infrastructure:
-- **vLLM**: For batch processing, large model serving, high-throughput workloads
-- **SGLang**: For interactive chat, low-latency APIs, high-QPS endpoints
+**Test with curl:**
 
-## 1. SGLang Internals and Operator Fusion
+```bash
+curl http://localhost:8000/v1/chat/completions \
+    -H "Content-Type: application/json" \
+    -d '{
+        "model": "meta-llama/Llama-3.1-8B-Instruct",
+        "messages": [{"role": "user", "content": "Hello!"}]
+    }'
+```
 
-SGLang is built around a compact graph-based Intermediate Representation (IR) and a runtime that emphasizes operator fusion and minimal scheduling overhead. Understanding these internals is crucial for optimizing inference performance.
+## SGLang Core Theory
 
-### Runtime Architecture
+SGLang's architecture is built around three core concepts: graph-based Intermediate Representation (IR), operator fusion, and a lightweight scheduler. These enable low-latency inference by minimizing overhead.
 
-**Key Components:**
+### Graph-Based Intermediate Representation (IR)
 
-1. **Graph-Based IR**
-   - Compact intermediate representation
-   - Compiles operator sequences into fused kernels
-   - Reduces kernel launch latency significantly
+SGLang uses a compact graph-based IR that:
 
-2. **Lightweight Scheduler**
-   - Single-threaded event loop
-   - Batches small work items efficiently
-   - Dispatches fused kernels with minimal overhead
-
-3. **Memory-Friendly Operators**
-   - Quantized kernels for reduced memory footprint
-   - Streaming attention operators for long contexts
-   - Memory-paged primitives for efficient cache management
+- Compiles operator sequences into fused kernels at compile time
+- Reduces kernel launch latency significantly
+- Enables aggressive operator fusion optimizations
 
 ### Operator Fusion
 
@@ -147,164 +118,403 @@ SGLang is built around a compact graph-based Intermediate Representation (IR) an
 - **Lowers Memory Traffic:** Intermediate buffers are combined, reducing read/write operations
 - **Enables Custom Optimizations:** Fused kernels (e.g., layernorm + linear + activation) outperform generic compositions
 
-**Fusion Strategy:**
+**Example:**
 
 ```python
-# Example: Fused layernorm + linear + activation (runnable example)
-import torch
-import torch.nn as nn
-
+# Fused layernorm + linear + activation
 class FusedLayerNormLinearActivation(nn.Module):
-    def __init__(self, hidden_size, intermediate_size):
-        super().__init__()
-        self.layernorm = nn.LayerNorm(hidden_size)
-        self.linear = nn.Linear(hidden_size, intermediate_size)
-        self.activation = nn.GELU()
-
     def forward(self, x):
-        # Fused operation reduces memory traffic
+        # All operations fused into single kernel
         x = self.layernorm(x)
         x = self.linear(x)
         x = self.activation(x)
         return x
 ```
 
-**Profiling Operator Fusion:**
+### Lightweight Scheduler
 
-1. Use microbenchmarks to measure per-operator latency
-2. Identify hot small operators (embeddings, layernorms, pointwise ops)
-3. Implement fusion for top-3 hot operators
-4. Re-measure and validate improvements
+SGLang uses a single-threaded event loop scheduler that:
 
-### Practical Exercise: Operator Fusion Profiling
+- Batches small work items efficiently
+- Dispatches fused kernels with minimal overhead
+- Optimizes for low latency rather than maximum throughput
 
-**Steps:**
+## Router-Based Distributed Architecture
 
-1. **Profile Baseline:**
-```python
-import torch
-import torch.profiler as profiler
+Unlike vLLM's model parallelism (TP/PP/DP) which focuses on splitting model weights, SGLang uses a **router-based architecture** that emphasizes request-level routing, session affinity, and workload disaggregation. This approach is optimized for high-QPS, low-latency workloads where request routing matters more than model sharding.
 
-with profiler.profile(
-    activities=[profiler.ProfilerActivity.CPU, profiler.ProfilerActivity.CUDA],
-    record_shapes=True
-) as prof:
-    output = model(input)
+### Key Architectural Differences from vLLM
 
-# Analyze operator-level timing
-print(prof.key_averages().table(sort_by="cuda_time_total"))
+**vLLM (Chapter 6) focuses on:**
+- **Model-level parallelism**: How to split model weights (TP/PP/DP/EP)
+- **Memory efficiency**: PagedAttention for KV cache
+- **Throughput optimization**: Continuous batching for large batches
+
+**SGLang (This chapter) focuses on:**
+- **Request-level routing**: How to route requests to optimize latency and cache locality
+- **Workload disaggregation**: Separating prefill and decode workloads
+- **Session management**: Maintaining KV cache locality through routing
+
+### Router Architecture Components
+
+**1. Central Router**
+- Routes requests based on session affinity and cache locality
+- Implements dynamic routing policies (cache-aware, load-based, priority-based)
+- Manages session-to-worker mappings
+- Supports A/B testing and canary deployments
+
+**2. Session Affinity / Cache Locality**
+- Routes requests from the same session to the same worker
+- Keeps KV cache "hot" on specific workers
+- Minimizes KV cache transfers between nodes
+- Improves cache hit rates significantly (2-3x latency reduction)
+
+**3. Prefill/Decode (PD) Disaggregation**
+- Specialized prefill workers for heavy initial computation
+- Dedicated decode workers for token generation
+- Prevents decode workers from being blocked by long prefill requests
+- Enables independent scaling of prefill vs decode capacity
+
+### Why Router-Based Architecture?
+
+**Advantages over Model Parallelism:**
+
+1. **Cache Locality**: Session affinity keeps KV cache on the same worker, avoiding expensive transfers
+2. **Independent Scaling**: Scale prefill and decode workers independently based on workload
+3. **Fault Tolerance**: Router can route around failed workers without model re-sharding
+4. **Flexible Routing**: Implement custom routing policies (priority, SLA, A/B testing)
+5. **Lower Latency**: Avoids synchronization overhead of model parallelism for small-to-medium models
+
+**When Router-Based Works Best:**
+- Models fit on single GPU or small TP group (2-4 GPUs)
+- High QPS with many concurrent sessions
+- Latency-sensitive workloads (chat, interactive applications)
+- Need for session persistence and cache locality
+
+**When Model Parallelism (vLLM) is Better:**
+- Very large models requiring TP/PP across many GPUs
+- Throughput-optimized workloads with large batches
+- Memory-constrained environments needing PagedAttention
+
+## Prefill/Decode Disaggregation
+
+Prefill/Decode (PD) disaggregation is a key distributed architecture pattern in SGLang that separates the computationally intensive prefill phase from the decode phase, enabling independent scaling and better resource utilization.
+
+### Motivation for PD Disaggregation
+
+**The Problem:**
+- Prefill (initial prompt processing) is compute-intensive and can block decode workers
+- Decode (token generation) requires low latency and high throughput
+- In unified scheduling, prefill batches frequently interrupt ongoing decode batches, causing substantial delays
+- In data-parallel attention, one DP worker may process prefill while another handles decode, leading to increased decode latency
+
+**The Solution:**
+- Separate prefill workers handle initial prompt processing
+- Dedicated decode workers handle token generation
+- Router intelligently routes requests to appropriate workers
+- KV cache is transferred from prefill workers to decode workers using high-performance transfer engines
+
+### PD Disaggregation Architecture
+
+```
+┌─────────────┐
+│   Router    │
+└──────┬──────┘
+       │
+       ├──────────────┬──────────────┐
+       │              │              │
+       ↓              ↓              ↓
+┌─────────────┐  ┌─────────────┐  ┌─────────────┐
+│ Prefill W1  │  │ Prefill W2  │  │ Decode W1   │
+│ (Heavy)     │  │ (Heavy)     │  │ (Light)     │
+└─────────────┘  └─────────────┘  └─────────────┘
+                                       │
+                                       ↓
+                                ┌─────────────┐
+                                │ Decode W2   │
+                                │ (Light)     │
+                                └─────────────┘
 ```
 
-2. **Identify Fusion Candidates:**
-   - Look for sequences of small ops with high cumulative time
-   - Focus on ops with high memory traffic
+### Benefits
 
-3. **Implement Fused Kernel:**
-   - Write CUDA kernel or use Triton
-   - Register in SGLang's kernel registry
+1. **Independent Scaling**: Scale prefill and decode workers separately based on workload
+2. **Better Resource Utilization**: Prefill workers can use more compute, decode workers optimize for latency
+3. **Fault Isolation**: Failure in prefill workers doesn't affect decode workers
+4. **Cost Optimization**: Use different hardware types for different workloads
 
-4. **Validate Improvement:**
-   - Measure latency reduction
-   - Verify numerical correctness
-   - Check memory usage reduction
+### Transfer Engines
 
-## 2. Multi-Node SGLang Inference
+SGLang supports multiple transfer engines for KV cache transfer between prefill and decode workers:
 
-Multi-node SGLang deployments coordinate execution across workers via a central scheduler or decentralized broker. This enables scaling beyond single-node capacity.
+- **Mooncake**: High-performance transfer engine using RDMA for efficient data transfers
+- **NIXL**: UCX-based transfer engine for flexible deployment
+- **ASCEND**: For Ascend NPU deployments
 
-### Deployment Architecture
+### PD Disaggregation Setup
+
+**Prerequisites:**
+
+For Mooncake backend:
+```bash
+uv pip install mooncake-transfer-engine
+```
+
+For NIXL backend:
+```bash
+pip install nixl
+```
+
+**1. Start Prefill Workers (Mooncake):**
+
+```bash
+# Prefill worker
+python -m sglang.launch_server \
+    --model-path meta-llama/Llama-3.1-8B-Instruct \
+    --disaggregation-mode prefill \
+    --port 30000 \
+    --disaggregation-ib-device mlx5_roce0
+```
+
+**2. Start Decode Workers:**
+
+```bash
+# Decode worker
+python -m sglang.launch_server \
+    --model-path meta-llama/Llama-3.1-8B-Instruct \
+    --disaggregation-mode decode \
+    --port 30001 \
+    --base-gpu-id 1 \
+    --disaggregation-ib-device mlx5_roce0
+```
+
+**3. Start Router with PD Disaggregation:**
+
+```bash
+python -m sglang_router.launch_router \
+    --pd-disaggregation \
+    --prefill http://127.0.0.1:30000 \
+    --decode http://127.0.0.1:30001 \
+    --host 0.0.0.0 \
+    --port 8000
+```
+
+**For NIXL backend**, replace `--disaggregation-ib-device` with `--disaggregation-transfer-backend nixl`.
+
+## Multi-Node SGLang Deployment
+
+SGLang supports multi-node deployment using tensor parallelism (TP) and expert parallelism (EP) for large models, similar to vLLM. For smaller models, router-based architecture with replicated workers provides an alternative approach.
+
+### Multi-Node Architecture with Tensor Parallelism
+
+For large models that don't fit on a single node, SGLang uses tensor parallelism across multiple nodes:
 
 **Components:**
 
-1. **Central Scheduler**
-   - Coordinates request distribution
-   - Manages worker health and capacity
-   - Implements load balancing policies
+1. **Distributed Initialization**
+   - Uses `--dist-init-addr` to specify master node address
+   - `--nnodes` specifies total number of nodes
+   - `--node-rank` identifies each node (0 for master, 1, 2, ... for workers)
 
-2. **Model Sharding**
-   - Partition model across nodes
-   - Route requests by model shard
-   - Co-locate hot shards to reduce cross-node communication
+2. **Tensor Parallelism**
+   - `--tp` or `--tensor-parallel-size` splits model weights across GPUs
+   - Works across nodes using NCCL for communication
 
-3. **KV Cache Management**
-   - Distribute KV cache across nodes
-   - Implement cache coherence protocols
-   - Minimize cross-node KV transfers
+3. **Expert Parallelism (for MoE models)**
+   - `--ep` or `--expert-parallel-size` distributes experts across devices
+   - Supports DeepEP and Mooncake backends for efficient all-to-all communication
 
-### Multi-Node Setup
+### Multi-Node Setup with Tensor Parallelism
 
-**Configuration:**
+**Example: Llama 3.1 405B on Two Nodes**
 
-```python
-# Multi-node SGLang configuration
-config = {
-    "num_nodes": 4,
-    "nodes_per_shard": 2,
-    "scheduler_url": "http://scheduler:8000",
-    "worker_urls": [
-        "http://worker1:8000",
-        "http://worker2:8000",
-        "http://worker3:8000",
-        "http://worker4:8000"
-    ],
-    "routing_policy": "cache_aware"
-}
+```bash
+# Node 0 (master node, replace 172.16.4.52:20000 with your master node IP:port)
+python3 -m sglang.launch_server \
+    --model-path meta-llama/Meta-Llama-3.1-405B-Instruct \
+    --tp 16 \
+    --dist-init-addr 172.16.4.52:20000 \
+    --nnodes 2 \
+    --node-rank 0
+
+# Node 1 (worker node)
+python3 -m sglang.launch_server \
+    --model-path meta-llama/Meta-Llama-3.1-405B-Instruct \
+    --tp 16 \
+    --dist-init-addr 172.16.4.52:20000 \
+    --nnodes 2 \
+    --node-rank 1
 ```
 
-**Deployment Steps:**
+**Key Parameters:**
+- `--dist-init-addr`: Master node IP address and port for NCCL initialization
+- `--nnodes`: Total number of nodes
+- `--node-rank`: Rank of this node (0 for master, 1, 2, ... for workers)
+- `--tp`: Tensor parallel size (total GPUs = nnodes × tp)
 
-1. **Launch Workers:**
-   ```bash
-   # Node 1
-   python -m sglang.launch_server --model meta-llama/Llama-3.1-8B-Instruct \
-       --port 8000 --tensor-parallel-size 2
-   
-   # Node 2
-   python -m sglang.launch_server --model meta-llama/Llama-3.1-8B-Instruct \
-       --port 8000 --tensor-parallel-size 2
-   ```
+### Router-Based Multi-Node Deployment
 
-2. **Configure Router:**
-   ```bash
-   python -m sglang_router.launch_router \
-       --worker-urls http://worker1:8000 http://worker2:8000 \
-       --policy cache_aware
-   ```
+For smaller models, you can use router-based architecture with replicated workers:
 
-3. **Test Multi-Node Routing:**
-   ```python
-   import requests
-   
-   response = requests.post(
-       "http://router:8000/v1/chat/completions",
-       json={
-           "model": "llama-3.1-8b",
-           "messages": [{"role": "user", "content": "Hello!"}]
-       }
-   )
-   ```
+**1. Launch Workers on Each Node:**
+
+```bash
+# Each node runs full model copy
+# Node 1
+python -m sglang.launch_server \
+    --model-path meta-llama/Llama-3.1-8B-Instruct \
+    --port 8000
+
+# Node 2
+python -m sglang.launch_server \
+    --model-path meta-llama/Llama-3.1-8B-Instruct \
+    --port 8000
+```
+
+**2. Configure Router (SGLang Model Gateway):**
+
+```bash
+python -m sglang_router.launch_router \
+    --worker-urls \
+        http://node1:8000 \
+        http://node2:8000 \
+        http://node3:8000 \
+        http://node4:8000 \
+    --policy cache_aware
+```
+
+**3. Test Multi-Node Routing:**
+
+```python
+import requests
+
+# First request creates session
+response1 = requests.post(
+    "http://router:8080/v1/chat/completions",
+    json={
+        "model": "llama-3.1-8b",
+        "messages": [{"role": "user", "content": "Hello!"}],
+        "session_id": "user-123"
+    }
+)
+
+# Second request routes to same node (cache hit)
+response2 = requests.post(
+    "http://router:8080/v1/chat/completions",
+    json={
+        "model": "llama-3.1-8b",
+        "messages": [{"role": "user", "content": "Continue"}],
+        "session_id": "user-123"  # Same session ID
+    }
+)
+```
 
 ### Performance Considerations
 
-- **Network Latency:** Minimize cross-node communication
-- **Cache Locality:** Route requests to nodes with hot KV cache
-- **Load Balancing:** Distribute load evenly across nodes
-- **Fault Tolerance:** Handle node failures gracefully
+- **Session Affinity Benefits**: 2-3x latency reduction for follow-up requests in same session
+- **Cache Locality**: Route requests to nodes with hot KV cache to minimize cache misses
+- **Load Balancing**: Distribute load evenly while maintaining session affinity
+- **Fault Tolerance**: Router automatically routes around failed nodes
+- **Network Overhead**: Minimal compared to model parallelism (only request routing, no weight synchronization)
 
-## 3. Chunked Prefill and KV Cache Strategies
+## Expert Parallelism for MoE Models
 
-Long-context generation can exhaust KV cache memory on GPU. Chunked prefill (a DeepSeek-style pattern) streams the initial prompt in chunks so the full attention state need not be materialized at once.
+SGLang supports Expert Parallelism (EP) for Mixture-of-Experts (MoE) models, distributing expert weights across multiple devices. This is particularly important for large-scale MoE models like DeepSeek-V3 and DeepSeek-R1.
 
-### Chunked Prefill Pattern
+### Expert Parallelism Overview
 
-**High-Level Approach:**
+**Key Features:**
+- Distributes expert weights across multiple GPUs
+- Optimized all-to-all communication for token routing
+- Supports multiple backends: DeepEP, Mooncake, and native implementations
+- Enables efficient scaling for high-performance MoE inference
 
-1. Split initial context into chunks (e.g., 512 tokens)
-2. For each chunk: run forward to build partial KV entries
-3. Optionally offload older KVs to CPU/NVMe
-4. Keep sliding window of hot KVs on GPU for decoding
+### EP Backends
 
-**Implementation:**
+**All-to-All Communication Backends:**
+- **`deepep`**: DeepEP library for efficient token shuffling in MoE models
+- **`mooncake`**: Extension of DeepEP for elastic inference, leveraging RDMA
+- **`none`**: Uses All-Reduce or All-Gather (for hybrid EP and TP setups)
+
+**MoE Computation Backends:**
+- **`auto`**: Automatically selects optimal backend based on hardware and model
+- **`triton`**: Triton-based implementation for grouped GEMMs
+- **`deep_gemm`**: DeepGEMM backend optimized for MoE matrix multiplications
+- **`cutlass`**: CUTLASS-based backend for efficient GEMMs
+
+### Expert Parallelism Setup
+
+**Example: DeepSeek-V3 with EP**
+
+```bash
+python -m sglang.launch_server \
+    --model-path deepseek-ai/DeepSeek-V3 \
+    --moe-a2a-backend deepep \
+    --moe-runner-backend deep_gemm \
+    --tp 8 \
+    --ep 8
+```
+
+**Key Parameters:**
+- `--ep` or `--expert-parallel-size`: Number of GPUs for expert parallelism
+- `--moe-a2a-backend`: Backend for all-to-all communication
+- `--moe-runner-backend`: Backend for MoE computation
+- `--enable-dp-attention`: Enable data-parallel attention (often used with EP)
+
+### Computation and Communication Overlap
+
+SGLang employs advanced overlap techniques to hide communication latency:
+
+- **Two-Batch Overlap (TBO)**: Splits requests into micro-batches, interleaving attention computation with dispatch/combine operations. Enable with `--enable-two-batch-overlap` for up to 2x throughput improvement.
+- **Single-Batch Overlap (SBO)**: Overlaps operations within a single batch. Enable with `--enable-single-batch-overlap`.
+
+## Distributed KV Cache Management
+
+In router-based distributed inference, KV cache is distributed across worker nodes. Each worker maintains its own KV cache, and the router ensures session affinity to maximize cache hit rates.
+
+### KV Cache Distribution Strategy
+
+**Per-Worker KV Cache:**
+- Each worker node maintains independent KV cache
+- No cross-node KV cache synchronization needed
+- Session affinity ensures requests hit cached data
+
+**Cache Locality Optimization:**
+- Router routes requests to workers with matching session KV cache
+- Minimizes cache misses and expensive recomputation
+- Improves latency for conversational workloads
+
+### KV Cache Offloading
+
+For long-context workloads, SGLang supports KV cache offloading:
+
+```python
+class DistributedKVCacheManager:
+    def __init__(self, workers):
+        self.workers = workers
+        self.session_cache_map = {}  # session_id -> worker_id
+    
+    def get_cache_location(self, session_id):
+        """Get worker that has KV cache for this session"""
+        if session_id in self.session_cache_map:
+            return self.session_cache_map[session_id]
+        return None
+    
+    def route_request(self, request):
+        session_id = request.get("session_id")
+        cache_location = self.get_cache_location(session_id)
+        
+        if cache_location:
+            # Route to worker with cache
+            return self.workers[cache_location]
+        else:
+            # Route to least loaded worker
+            return self.select_least_loaded_worker()
+```
+
+### Chunked Prefill for Long Contexts
+
+For very long contexts, SGLang uses chunked prefill to manage memory:
 
 ```python
 def chunked_prefill(model, tokenizer, prompt, chunk_size=512):
@@ -315,197 +525,111 @@ def chunked_prefill(model, tokenizer, prompt, chunk_size=512):
     kv_cache = []
     for chunk in chunks:
         tokens = tokenizer(chunk).to(device)
-        # Forward with streaming/paged attention
         kv_chunk = model.forward_prefill(tokens)
         kv_cache.append(kv_chunk)
         
-        # Optionally offload older KV pages to CPU/NVMe
+        # Optionally offload older KV pages
         if len(kv_cache) > max_gpu_chunks:
             offload_to_cpu(kv_cache[0])
             kv_cache = kv_cache[1:]
     
-    # Now decode with hot KV cache
     return kv_cache
 ```
 
-### Tradeoffs and Tuning
+## Hands-on Examples
 
-**Chunk Size:**
-- **Larger chunks:** Reduce total kernel overhead but increase peak memory
-- **Smaller chunks:** Lower memory but more kernel launches
+### Example 1: Basic Multi-Node SGLang Deployment
 
-**Eviction Policy:**
-- **LRU:** Evict least recently used KV pages
-- **Size-based:** Evict largest KV pages first
-- **Hybrid:** Combine both strategies
+**Deploy SGLang across 4 nodes with router:**
 
-**Prefill Parallelism:**
-- Overlap chunk prefill with IO when offloading to NVMe
-- Use async operations for non-blocking transfers
+```bash
+# Node 1-4: Start workers
+for i in {1..4}; do
+    ssh node$i "python -m sglang.launch_server \
+        --model meta-llama/Llama-3.1-8B-Instruct \
+        --port 8000"
+done
 
-### Memory Management
+# Router node: Start router
+python -m sglang_router.launch_router \
+    --worker-urls \
+        http://node1:8000 \
+        http://node2:8000 \
+        http://node3:8000 \
+        http://node4:8000 \
+    --policy cache_aware \
+    --port 8080
+```
 
-**KV Cache Offloading:**
+### Example 2: PD Disaggregation Setup with Mooncake
+
+**Separate prefill and decode workers:**
+
+```bash
+# Install Mooncake transfer engine
+uv pip install mooncake-transfer-engine
+
+# Prefill worker
+python -m sglang.launch_server \
+    --model-path meta-llama/Llama-3.1-8B-Instruct \
+    --disaggregation-mode prefill \
+    --port 30000 \
+    --disaggregation-ib-device mlx5_roce0
+
+# Decode worker (in another terminal)
+python -m sglang.launch_server \
+    --model-path meta-llama/Llama-3.1-8B-Instruct \
+    --disaggregation-mode decode \
+    --port 30001 \
+    --base-gpu-id 1 \
+    --disaggregation-ib-device mlx5_roce0
+
+# Router with PD disaggregation
+python -m sglang_router.launch_router \
+    --pd-disaggregation \
+    --prefill http://127.0.0.1:30000 \
+    --decode http://127.0.0.1:30001 \
+    --host 0.0.0.0 \
+    --port 8000
+```
+
+### Example 3: Session Affinity Testing
 
 ```python
-class KVCacheManager:
-    def __init__(self, gpu_capacity, cpu_capacity):
-        self.gpu_cache = {}
-        self.cpu_cache = {}
-        self.gpu_capacity = gpu_capacity
-        self.cpu_capacity = cpu_capacity
-    
-    def store(self, session_id, kv_data):
-        if len(self.gpu_cache) >= self.gpu_capacity:
-            # Evict to CPU
-            oldest = min(self.gpu_cache.keys(), 
-                        key=lambda k: self.gpu_cache[k].last_access)
-            self.cpu_cache[oldest] = self.gpu_cache.pop(oldest)
-        
-        self.gpu_cache[session_id] = kv_data
-    
-    def retrieve(self, session_id):
-        if session_id in self.gpu_cache:
-            return self.gpu_cache[session_id]
-        elif session_id in self.cpu_cache:
-            # Promote to GPU
-            kv = self.cpu_cache.pop(session_id)
-            self.store(session_id, kv)
-            return kv
-        return None
+import requests
+import time
+
+router_url = "http://router:8080/v1/chat/completions"
+session_id = "test-session-123"
+
+# First request (creates session)
+response1 = requests.post(
+    router_url,
+    json={
+        "model": "llama-3.1-8b",
+        "messages": [{"role": "user", "content": "Hello!"}],
+        "session_id": session_id
+    }
+)
+print(f"First request latency: {response1.elapsed.total_seconds()}s")
+
+# Second request (should hit cache)
+response2 = requests.post(
+    router_url,
+    json={
+        "model": "llama-3.1-8b",
+        "messages": [{"role": "user", "content": "What did I say?"}],
+        "session_id": session_id
+    }
+)
+print(f"Second request latency: {response2.elapsed.total_seconds()}s")
+print(f"Cache hit improvement: {response1.elapsed / response2.elapsed:.2f}x")
 ```
 
-## 4. Benchmarking with genai-bench
-
-Integrate SGLang with genai-bench to generate realistic, reproducible workloads. Benchmark scenarios should include cold-start, warm cache, and long-context streaming.
-
-### genai-bench Setup
-
-**Installation:**
-
-```bash
-pip install genai-bench
-```
-
-**Basic Benchmark:**
-
-```bash
-genai-bench benchmark \
-    --api-backend sglang \
-    --api-base "http://localhost:8000" \
-    --api-key "your-api-key" \
-    --api-model-name "meta-llama/Llama-3.1-8B-Instruct" \
-    --model-tokenizer "/path/to/tokenizer" \
-    --task text-to-text \
-    --max-time-per-run 15 \
-    --max-requests-per-run 1000 \
-    --num-concurrency 100 \
-    --traffic-scenario "D(100,100)" \
-    --server-engine "SGLang" \
-    --server-gpu-type "H100" \
-    --server-version "v0.5.5"
-```
-
-### Benchmark Scenarios
-
-**1. Cold-Start Benchmark:**
-- Restart server between runs
-- Measure first-request latency
-- Capture initialization overhead
-
-**2. Warm-Cache Benchmark:**
-- Pre-warm KV cache
-- Measure steady-state performance
-- Compare with cold-start
-
-**3. Long-Context Streaming:**
-- Use traffic scenarios with large input tokens
-- Measure chunked prefill performance
-- Validate memory usage
-
-### Analyzing Results
-
-**Generate Excel Report:**
-
-```bash
-genai-bench excel \
-    --experiment-folder ./experiments/your_experiment \
-    --excel-name sglang_benchmark \
-    --metric-percentile mean
-```
-
-**Generate Plots:**
-
-```bash
-genai-bench plot \
-    --experiments-folder ./experiments \
-    --group-key traffic_scenario \
-    --preset 2x4_default
-```
-
-**Key Metrics:**
-
-- **TTFT (Time to First Token):** Latency until first token generation
-- **E2E Latency:** End-to-end request latency
-- **TPOT (Time Per Output Token):** Average time per generated token
-- **Throughput:** Tokens per second
-- **GPU Utilization:** GPU usage percentage
-
-### Kernel-Level Profiling
-
-**Using Nsight Systems:**
-
-```bash
-nsys profile --trace=cuda,nvtx \
-    python -m sglang.launch_server --model your-model
-```
-
-**Using torch.profiler:**
+### Example 4: Custom Router Implementation
 
 ```python
-import torch
-import torch.profiler as profiler
-
-with profiler.profile(
-    activities=[profiler.ProfilerActivity.CUDA],
-    record_shapes=True,
-    profile_memory=True
-) as prof:
-    output = model.generate(input)
-
-# Export to Chrome trace format
-prof.export_chrome_trace("trace.json")
-```
-
-## 5. Router-Based Distributed Inference
-
-Routers sit in front of model runners and implement session affinity, dynamic routing rules, and prefill routing to optimize distributed inference.
-
-### Router Architecture
-
-**Key Features:**
-
-1. **Session Affinity / Stickiness**
-   - Keep request sessions routed to runner with hot KV cache
-   - Minimize KV cache transfers between nodes
-   - Improve cache hit rates
-
-2. **Dynamic Routing Rules**
-   - Route by model size, user SLA, or experimental flags
-   - Implement priority queues for different request types
-   - Support A/B testing and canary deployments
-
-3. **Prefill Routing**
-   - Route heavy prefill work to specialized prefill workers
-   - Avoid stalling decode workers with long prefill requests
-   - Implement PD (Prefill/Decode) disaggregation
-
-### Router Implementation
-
-**Basic Router:**
-
-```python
-class InferenceRouter:
+class CustomInferenceRouter:
     def __init__(self, workers):
         self.workers = workers
         self.session_map = {}  # session_id -> worker_id
@@ -528,7 +652,6 @@ class InferenceRouter:
         return worker_id
     
     def select_best_worker(self, request):
-        # Select worker with lowest load and available capacity
         available = [w for w in self.workers if w.is_available()]
         if not available:
             raise Exception("No available workers")
@@ -536,511 +659,43 @@ class InferenceRouter:
         return min(available, key=lambda w: self.worker_load[w.id])
 ```
 
-### Advanced Router Features
+## Summary
 
-**1. Adaptive Batching:**
+### Key Takeaways
 
-```python
-class AdaptiveBatchingRouter:
-    def __init__(self, min_batch_size=1, max_batch_size=32):
-        self.min_batch_size = min_batch_size
-        self.max_batch_size = max_batch_size
-        self.current_latency = 0.0
-        self.target_latency = 0.1  # 100ms
-    
-    def adjust_batch_size(self):
-        if self.current_latency < self.target_latency:
-            # Increase batch size
-            return min(self.max_batch_size, self.current_batch_size * 2)
-        else:
-            # Decrease batch size
-            return max(self.min_batch_size, self.current_batch_size // 2)
-```
+1. **Router-based architecture** enables distributed inference without model sharding
+2. **Session affinity** provides 2-3x latency improvement for conversational workloads
+3. **PD disaggregation** allows independent scaling of prefill and decode workloads
+4. **Multi-node deployment** scales horizontally by adding worker nodes
+5. **Cache locality** is critical for performance in distributed settings
 
-**2. Pre-warming:**
+### When to Use SGLang vs vLLM
 
-```python
-def prewarm_workers(expected_traffic):
-    """Pre-warm workers for expected traffic bursts"""
-    for worker in workers:
-        # Pre-load models
-        worker.load_model()
-        
-        # Pre-allocate KV cache
-        worker.allocate_kv_cache(capacity=expected_traffic)
-        
-        # Warm up with dummy requests
-        for _ in range(10):
-            worker.process_dummy_request()
-```
+**Use SGLang when:**
+- Latency (especially TTFT) is critical
+- High QPS with many concurrent sessions
+- Models fit on single GPU or small TP group
+- Need for session persistence and cache locality
+- Want router-based distributed inference
 
-**3. Multi-Model Routing:**
+**Use vLLM when:**
+- Very large models requiring TP/PP across many GPUs
+- Throughput-optimized workloads with large batches
+- Memory-constrained environments needing PagedAttention
+- Model parallelism is the primary concern
 
-```python
-class MultiModelRouter:
-    def route(self, request):
-        model_name = request.get("model")
-        
-        if model_name == "reranker":
-            return self.reranker_workers[0]
-        elif model_name == "tool-caller":
-            return self.tool_workers[0]
-        else:
-            return self.main_model_workers[0]
-```
+### Complementary Approaches
 
-### SGLang Router Configuration
+Both systems can coexist:
+- **vLLM**: For batch processing, large model serving, high-throughput workloads
+- **SGLang**: For interactive chat, low-latency APIs, high-QPS endpoints with session management
 
-**Using sgl-router:**
+## References
 
-```bash
-# Rust binary with PD disaggregation
-./target/release/sglang-router \
-    --pd-disaggregation \
-    --prefill http://prefill1:30001 \
-    --decode http://decode1:30011 \
-    --policy cache_aware \
-    --prefill-policy cache_aware \
-    --decode-policy power_of_two
-```
-
-**Python launcher:**
-
-```bash
-python3 -m sglang_router.launch_router \
-    --worker-urls http://worker1:8000 http://worker2:8000 \
-    --policy cache_aware
-```
-
-### PD Quick Demo (3 commands)
-
-The following minimal commands start a prefill worker, a decode worker, and a router locally so you can observe PD behavior. Adjust model names and ports as needed.
-
-```bash
-# 1) Start a prefill worker (HTTP) on port 30001
-python3 -m sglang.launch_server --model meta-llama/Llama-3.1-8B-Instruct --port 30001 &
-
-# 2) Start a decode worker (HTTP) on port 30011
-python3 -m sglang.launch_server --model meta-llama/Llama-3.1-8B-Instruct --port 30011 &
-
-# 3) Start the router in PD mode pointing to the workers (router listens on 8080)
-python3 -m sglang_router.launch_router --pd-disaggregation \
-    --prefill http://localhost:30001 --decode http://localhost:30011 --port 8080
-```
-
-Validate with a single request (curl):
-
-```bash
-curl -X POST "http://localhost:8080/v1/responses" \
-    -H "Content-Type: application/json" \
-    -d '{"model": "meta-llama/Llama-3.1-8B-Instruct", "input": "Hello world"}'
-```
-
-Note: run the workers in separate terminals or background them; terminate with `kill` when done.
-
-## 6. Hybrid CPU/GPU Serving Strategies
-
-To reduce cost, move low-priority or lightweight operators to CPU (or CPU with INT8) and reserve GPU for heavy attention matmuls.
-
-### Operator Placement Strategy
-
-**Profile Operators:**
-
-```python
-import time
-import torch
-import torch.nn as nn
-
-def profile_operators(model, input):
-    """Profile each operator to determine CPU vs GPU placement"""
-    operator_times = {}
-
-    for name, module in model.named_modules():
-        if isinstance(module, (nn.Linear, nn.Embedding, nn.LayerNorm)):
-            start = time.time()
-            _ = module(input)
-            torch.cuda.synchronize()
-            operator_times[name] = time.time() - start
-
-    # Sort by execution time
-    sorted_ops = sorted(operator_times.items(), key=lambda x: x[1], reverse=True)
-
-    # Place top N on GPU, rest on CPU
-    gpu_ops = [op[0] for op in sorted_ops[:10]]
-    cpu_ops = [op[0] for op in sorted_ops[10:]]
-
-    return gpu_ops, cpu_ops
-```
-
-### CPU/GPU Split
-
-**Strategies:**
-
-1. **Operator-Level Placement:**
-   - Profile operators individually
-   - Assign CPU vs GPU per-operator
-   - Use quantized CPU kernels (INT8/FP16) where accuracy drop is acceptable
-
-2. **Edge-of-GPU Pattern:**
-   - Keep attention matmuls on GPU
-   - Offload tokenization, logits post-processing, and simple fusions to CPU
-   - Reduce GPU memory pressure
-
-3. **Request-Level Routing:**
-   - Route low-priority requests to CPU-only workers
-   - Reserve GPU for high-priority, latency-sensitive requests
-   - Implement quality-of-service (QoS) tiers
-
-### Implementation Example
-
-```python
-class HybridCPUGPUServing:
-    def __init__(self):
-        self.gpu_model = load_model_on_gpu()
-        self.cpu_model = load_model_on_cpu(quantized=True)
-    
-    def serve(self, request, priority="high"):
-        if priority == "high":
-            # Use GPU for low-latency
-            return self.gpu_model.generate(request)
-        else:
-            # Use CPU for cost savings
-            return self.cpu_model.generate(request)
-```
-
-### Monitoring and Correctness
-
-**Validation:**
-
-```python
-def validate_cpu_gpu_outputs():
-    """Compare CPU vs GPU path outputs"""
-    test_prompts = load_golden_prompts()
-    
-    for prompt in test_prompts:
-        gpu_output = gpu_model.generate(prompt)
-        cpu_output = cpu_model.generate(prompt)
-        
-        # Check similarity
-        similarity = compute_similarity(gpu_output, cpu_output)
-        assert similarity > 0.95, "CPU/GPU outputs differ significantly"
-```
-
-**Monitoring:**
-
-- Compare CPU vs GPU path outputs with unit tests
-- Monitor tail latency to ensure CPU path doesn't introduce spikes
-- Track accuracy metrics for quantized CPU kernels
-- Alert on quality regressions
-
-## Hands-on Examples
-
-### Example 1: SGLang Multi-Node Deployment
-
-**File:** `examples/ch07_sglang_multinode.py`
-
-```python
-"""
-Multi-node SGLang deployment with router-based routing.
-"""
-import subprocess
-import time
-import requests
-
-def deploy_multinode_sglang():
-    """Deploy SGLang across multiple nodes"""
-    
-    # Launch workers
-    workers = []
-    for i in range(4):
-        cmd = [
-            "python", "-m", "sglang.launch_server",
-            "--model", "meta-llama/Llama-3.1-8B-Instruct",
-            "--port", str(8000 + i),
-            "--tensor-parallel-size", "2"
-        ]
-        workers.append(subprocess.Popen(cmd))
-    
-    time.sleep(30)  # Wait for workers to start
-    
-    # Launch router
-    router_cmd = [
-        "python", "-m", "sglang_router.launch_router",
-        "--worker-urls",
-        "http://localhost:8000",
-        "http://localhost:8001",
-        "http://localhost:8002",
-        "http://localhost:8003",
-        "--policy", "cache_aware"
-    ]
-    router = subprocess.Popen(router_cmd)
-    
-    time.sleep(10)  # Wait for router to start
-    
-    # Test routing
-    response = requests.post(
-        "http://localhost:8080/v1/chat/completions",
-        json={
-            "model": "llama-3.1-8b",
-            "messages": [{"role": "user", "content": "Hello!"}]
-        }
-    )
-    
-    print(f"Response: {response.json()}")
-    
-    return workers, router
-
-if __name__ == "__main__":
-    workers, router = deploy_multinode_sglang()
-```
-
-### Example 2: Operator Fusion Profiling
-
-**File:** `examples/ch07_operator_fusion.py`
-
-```python
-"""
-Profile and optimize operator fusion in SGLang.
-"""
-import torch
-import torch.profiler as profiler
-import time
-
-def profile_baseline(model, input):
-    """Profile baseline model without fusion"""
-    with profiler.profile(
-        activities=[profiler.ProfilerActivity.CUDA],
-        record_shapes=True
-    ) as prof:
-        output = model(input)
-    
-    return prof.key_averages().table(sort_by="cuda_time_total")
-
-def profile_fused(model, input):
-    """Profile model with fused operators"""
-    with profiler.profile(
-        activities=[profiler.ProfilerActivity.CUDA],
-        record_shapes=True
-    ) as prof:
-        output = model(input)
-    
-    return prof.key_averages().table(sort_by="cuda_time_total")
-
-def compare_fusion():
-    """Compare baseline vs fused performance"""
-    model_baseline = load_baseline_model()
-    model_fused = load_fused_model()
-    input = torch.randn(1, 512, 4096).cuda()
-    
-    # Warmup
-    for _ in range(10):
-        _ = model_baseline(input)
-        _ = model_fused(input)
-    
-    torch.cuda.synchronize()
-    
-    # Benchmark baseline
-    start = time.time()
-    for _ in range(100):
-        _ = model_baseline(input)
-    torch.cuda.synchronize()
-    baseline_time = (time.time() - start) / 100
-    
-    # Benchmark fused
-    start = time.time()
-    for _ in range(100):
-        _ = model_fused(input)
-    torch.cuda.synchronize()
-    fused_time = (time.time() - start) / 100
-    
-    print(f"Baseline: {baseline_time*1000:.2f}ms")
-    print(f"Fused: {fused_time*1000:.2f}ms")
-    print(f"Speedup: {baseline_time/fused_time:.2f}x")
-
-if __name__ == "__main__":
-    compare_fusion()
-```
-
-### Example 3: Chunked Prefill Implementation
-
-**File:** `examples/ch07_chunked_prefill.py`
-
-```python
-"""
-Chunked prefill implementation for long-context generation.
-"""
-import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM
-
-class ChunkedPrefillModel:
-    def __init__(self, model_name, chunk_size=512):
-        self.model = AutoModelForCausalLM.from_pretrained(model_name)
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        self.chunk_size = chunk_size
-        self.kv_cache = []
-    
-    def prefill_chunked(self, prompt):
-        """Prefill prompt in chunks"""
-        tokens = self.tokenizer(prompt, return_tensors="pt")
-        input_ids = tokens["input_ids"]
-        
-        # Split into chunks
-        chunks = [input_ids[:, i:i+self.chunk_size] 
-                  for i in range(0, input_ids.size(1), self.chunk_size)]
-        
-        kv_cache = []
-        for chunk in chunks:
-            with torch.no_grad():
-                outputs = self.model(chunk, use_cache=True)
-                kv_cache.append(outputs.past_key_values)
-        
-        self.kv_cache = kv_cache
-        return kv_cache
-    
-    def generate(self, max_new_tokens=100):
-        """Generate using chunked KV cache"""
-        # Use last token from prefill as starting point
-        input_ids = self.kv_cache[-1][0][0][:, -1:].unsqueeze(0)
-        
-        generated = []
-        for _ in range(max_new_tokens):
-            outputs = self.model(
-                input_ids,
-                past_key_values=self.kv_cache[-1] if self.kv_cache else None
-            )
-            
-            next_token = outputs.logits[:, -1, :].argmax(dim=-1)
-            generated.append(next_token.item())
-            
-            input_ids = next_token.unsqueeze(0)
-            self.kv_cache = outputs.past_key_values
-        
-        return self.tokenizer.decode(generated)
-
-if __name__ == "__main__":
-    model = ChunkedPrefillModel("meta-llama/Llama-3.1-8B-Instruct")
-    
-    long_prompt = "Your long prompt here..." * 100
-    model.prefill_chunked(long_prompt)
-    output = model.generate()
-    print(output)
-```
-
-## Best Practices
-
-1. **Profile at operator granularity before fusing**
-   - Focus on kernels that reduce overall latency
-   - Use `torch.profiler` or Nsight Systems for detailed analysis
-   - Measure memory traffic reduction, not just compute time
-
-2. **Use genai-bench with real prompt distributions**
-   - Avoid microbenchmark bias
-   - Test with production-like workloads
-   - Include cold-start and warm-cache scenarios
-
-3. **Design routers to prefer KV locality**
-   - Moving KV across nodes is expensive
-   - Implement session affinity
-   - Use cache-aware routing policies
-
-4. **Implement graceful degradation**
-   - Allow CPU fallback on overload
-   - Monitor for quality regressions
-   - Set up alerts for accuracy drops
-
-5. **Optimize chunked prefill parameters**
-   - Tune chunk size based on memory constraints
-   - Implement efficient eviction policies
-   - Overlap prefill with IO operations
-
-## Use Cases
-
-### Use Case 1: High-QPS AI Chat Services
-
-**Scenario:** Deploy a chat service handling thousands of requests per second
-
-**Approach:**
-1. Use SGLang's lightweight runtime for low latency
-2. Implement router-based load balancing
-3. Use chunked prefill for long conversations
-4. Monitor with genai-bench
-
-**Results:**
-- Low P95 latency (<200ms)
-- High throughput (>1000 QPS per node)
-- Efficient memory usage
-
-### Use Case 2: Enterprise Inference Gateways
-
-**Scenario:** Multi-tenant inference gateway with different SLAs
-
-**Approach:**
-1. Implement router with priority queues
-2. Route high-priority requests to GPU
-3. Use CPU for low-priority batch jobs
-4. Implement session affinity for better cache utilization
-
-**Results:**
-- Cost reduction through CPU/GPU hybrid serving
-- SLA compliance for different tenant tiers
-- Efficient resource utilization
-
-## Skills Learned
-
-By the end of this chapter, readers will be able to:
-
-1. **Understand SGLang runtime optimizations**
-   - Explain operator fusion benefits
-   - Identify fusion opportunities
-   - Implement custom fused kernels
-
-2. **Deploy SGLang across multiple nodes**
-   - Configure multi-node deployments
-   - Implement model sharding
-   - Manage distributed KV cache
-
-3. **Benchmark inference workloads**
-   - Use genai-bench for realistic workloads
-   - Analyze performance metrics
-   - Identify bottlenecks
-
-4. **Build router-based inference systems**
-   - Implement session affinity
-   - Design routing policies
-   - Handle prefill/decode disaggregation
-
-5. **Use hybrid inference for cost/performance**
-   - Profile operators for CPU/GPU placement
-   - Implement quantized CPU kernels
-   - Monitor quality regressions
-
-## Exercises
-
-1. **Operator Fusion Exercise:**
-   - Profile a SGLang model and identify top-3 hot operators
-   - Implement fused kernel for one operator
-   - Measure latency and memory improvement
-
-2. **Multi-Node Deployment:**
-   - Deploy SGLang across 2 nodes
-   - Configure router with cache-aware policy
-   - Benchmark with genai-bench and compare with single-node
-
-3. **Chunked Prefill:**
-   - Implement chunked prefill for a long-context model
-   - Measure memory usage vs latency tradeoffs
-   - Compare with standard prefill
-
-4. **Router Implementation:**
-   - Build a simple router with session affinity
-   - Implement adaptive batching
-   - Test with realistic workload
-
-## Further Reading
-
-- SGLang Documentation: https://docs.sglang.ai/
+- SGLang Documentation: https://docs.sglang.io/
 - SGLang GitHub: https://github.com/sgl-project/sglang
-- genai-bench Documentation: https://docs.sglang.ai/genai-bench/
-- DeepSeek Chunked Prefill: Research papers on long-context generation
+- SGLang Model Gateway (Router): https://docs.sglang.io/advanced_features/router.html
+- PD Disaggregation: https://docs.sglang.io/advanced_features/pd_disaggregation.html
+- Expert Parallelism: https://docs.sglang.io/advanced_features/expert_parallelism.html
+- Multi-Node Deployment: https://docs.sglang.io/references/multi_node_deployment/multi_node.html
 - Router Architecture Patterns: Load balancing and routing strategies
-- Operator Fusion Techniques: CUDA and Triton kernel optimization
