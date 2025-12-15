@@ -651,40 +651,159 @@ To use more GPUs, simply shard each matrix into more sections. For N GPUs:
 
 **Mitigation**: Good communication hardware (e.g., NVLink within a node) reduces this overhead.
 
+
+
+
+
+
 ## Expert Parallelism for Mixture-of-Experts (MoE) Models
 
-For **Mixture-of-Experts (MoE)** models (e.g., DeepSeek R1, Phi-tiny-MoE-instruct), vLLM employs **Expert Parallelism**:
+For **Mixture-of-Experts (MoE)** models such as DeepSeek R1 and Phi-tiny-MoE-instruct, vLLM employs **Expert Parallelism** to distribute different experts across multiple GPUs. This section uses Phi-tiny-MoE-instruct (referred to as Phi-tiny) to illustrate how MoE architectures work and how Expert Parallelism enables efficient distributed inference.
 
-### MoE Layer Structure
+### Understanding MoE Architecture
 
-Each expert in an MoE layer is **not just a linear layer**, but rather a **full MLP (Multi-Layer Perceptron)** structure. Each expert typically consists of:
+In MoE models, the standard feed-forward network (FFN) is replaced with a **Mixture-of-Experts** layer that contains multiple expert networks. Each token is routed to a subset of experts (typically top-2) based on a learned routing mechanism.
 
-1. **Gate projection** (`w1`): Projects input to intermediate dimension
-2. **Up projection** (`w3`): Another projection to intermediate dimension  
-3. **Activation function**: Usually SiLU (Swish) applied to gate output
-4. **Down projection** (`w2`): Projects back to hidden dimension
+![MOE Architecture](img/moe_arch.svg)
 
-The gate and up projections are often merged into a single `gate_up_proj` weight matrix for efficiency. This MLP structure is similar to the feed-forward network (FFN) in standard Transformer layers, but with multiple experts that can be routed to based on the input token.
+#### Decoder Layer Structure
 
-You can view the implementation in vLLM's source code:
-- **vLLM implementation**: `vllm/model_executor/models/phimoe.py` (see `PhiMoE` class)
-- **Expert structure**: `vllm/model_executor/layers/fused_moe/layer.py` (see `FusedMoE` class)
-- **Transformers library**: The model code is available in Microsoft's [MoE-compression](https://github.com/microsoft/MoE-compression) repository, though it may not be fully integrated into the main transformers library yet.
+In Phi-tiny, each decoder layer follows the standard Transformer architecture with attention and MoE components:
 
-### How It Works
+```python
+class PhiMoEDecoderLayer(nn.Module):
+    def __init__(self, config: PhiMoEConfig, layer_idx: int):
+        super().__init__()
+        self.self_attn = PHIMOE_ATTENTION_CLASSES[config._attn_implementation](config, layer_idx)
+        self.block_sparse_moe = PhiMoESparseMoeBlock(config)
+        self.input_layernorm = nn.LayerNorm(config.hidden_size, eps=config.rms_norm_eps)
+        self.post_attention_layernorm = nn.LayerNorm(config.hidden_size, eps=config.rms_norm_eps)
 
-- Each GPU holds different experts
-- Different tokens may need different experts
-- Use **all-to-all** operations to:
-  1. Send tokens to the correct expert GPU
-  2. Compute expert outputs
-  3. Send results back to original GPUs (another all-to-all)
+    def forward(self, hidden_states, attention_mask=None, position_ids=None, 
+                past_key_value=None, output_attentions=False, 
+                output_router_logits=False, use_cache=False, **kwargs):
+        residual = hidden_states
+        hidden_states = self.input_layernorm(hidden_states)
+        hidden_states, self_attn_weights, present_key_value = self.self_attn(
+            hidden_states=hidden_states, attention_mask=attention_mask,
+            position_ids=position_ids, past_key_value=past_key_value,
+            output_attentions=output_attentions, use_cache=use_cache)
+        hidden_states = residual + hidden_states
+        
+        residual = hidden_states
+        hidden_states = self.post_attention_layernorm(hidden_states)
+        hidden_states, router_logits = self.block_sparse_moe(hidden_states)
+        hidden_states = residual + hidden_states
+        
+        return (hidden_states, self_attn_weights if output_attentions else None,
+                present_key_value if use_cache else None, router_logits if output_router_logits else None)
+```
 
-### Status
+The MoE layer (`block_sparse_moe`) is invoked after the post-attention layer normalization, replacing the standard FFN with a routing mechanism that selects and combines outputs from multiple experts.
 
-Expert parallelism is **implemented and available** in vLLM. It can be enabled with the `--enable-expert-parallel` flag, which is especially important for large MoE models like DeepSeek R1 and DeepSeek V3.
+#### Expert Structure
 
-**Note**: EP requires additional dependencies (DeepEP, pplx-kernels, DeepGEMM) and may not be fully stable for all model/quantization/hardware combinations. Some models may require specific configurations or have limitations. See the [vLLM Expert Parallel Deployment documentation](https://docs.vllm.ai/en/latest/serving/expert_parallel_deployment/) for details.
+Each expert in Phi-tiny is a complete MLP with three linear projections:
+
+```python
+class PhiMoEBlockSparseTop2MLP(nn.Module):
+    def __init__(self, config: PhiMoEConfig):
+        super().__init__()
+        self.ffn_dim = config.intermediate_size
+        self.hidden_dim = config.hidden_size
+        self.w1 = nn.Linear(self.hidden_dim, self.ffn_dim, bias=False)
+        self.w2 = nn.Linear(self.ffn_dim, self.hidden_dim, bias=False)
+        self.w3 = nn.Linear(self.hidden_dim, self.ffn_dim, bias=False)
+        self.act_fn = ACT2FN[config.hidden_act]
+
+    def forward(self, hidden_states):
+        current_hidden_states = self.act_fn(self.w1(hidden_states)) * self.w3(hidden_states)
+        current_hidden_states = self.w2(current_hidden_states)
+        return current_hidden_states
+```
+
+The expert uses a gated activation pattern: `w1` projects to the intermediate dimension and is activated, `w3` provides a gating signal, and `w2` projects back to the hidden dimension. This structure is similar to standard Transformer FFNs but with multiple specialized experts.
+
+#### Routing Mechanism
+
+The `PhiMoESparseMoeBlock` implements the routing logic that selects which experts process each token:
+
+```python
+class PhiMoESparseMoeBlock(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.hidden_dim = config.hidden_size
+        self.num_experts = config.num_local_experts
+        self.top_k = config.num_experts_per_tok
+        self.gate = nn.Linear(self.hidden_dim, self.num_experts, bias=False)
+        self.experts = nn.ModuleList([
+            PhiMoEBlockSparseTop2MLP(config) for _ in range(self.num_experts)
+        ])
+
+    def forward(self, hidden_states):
+        batch_size, sequence_length, hidden_dim = hidden_states.shape
+        hidden_states = hidden_states.view(-1, hidden_dim)
+        
+        router_logits = self.gate(hidden_states)
+        routing_weights, selected_experts = sparsemixer(
+            router_logits, top_k=2, jitter_eps=self.router_jitter_noise, 
+            training=self.training)
+        
+        final_hidden_states = torch.zeros(
+            (batch_size * sequence_length, hidden_dim), 
+            dtype=hidden_states.dtype, device=hidden_states.device)
+        
+        expert_mask = torch.nn.functional.one_hot(
+            selected_experts, num_classes=self.num_experts).permute(2, 1, 0)
+        
+        for expert_idx in range(self.num_experts):
+            expert_layer = self.experts[expert_idx]
+            idx, top_x = torch.where(expert_mask[expert_idx])
+            if top_x.shape[0] == 0:
+                continue
+            
+            current_state = hidden_states[None, top_x.tolist()].reshape(-1, hidden_dim)
+            current_hidden_states = expert_layer(current_state) * \
+                routing_weights[top_x.tolist(), idx.tolist(), None]
+            final_hidden_states.index_add_(0, top_x, current_hidden_states.to(hidden_states.dtype))
+        
+        return final_hidden_states.reshape(batch_size, sequence_length, hidden_dim), router_logits
+```
+
+The routing process works as follows:
+1. **Gate computation**: A linear layer (`gate`) computes routing logits for each token over all experts.
+2. **Expert selection**: The `sparsemixer` function selects the top-2 experts for each token and computes routing weights.
+3. **Expert processing**: Each selected expert processes its assigned tokens, with outputs weighted by routing weights.
+4. **Aggregation**: Expert outputs are aggregated using `index_add_` to combine contributions from multiple experts per token.
+
+### Expert Parallelism in vLLM
+
+Expert Parallelism distributes experts across multiple GPUs to handle the computational load of MoE models efficiently.
+
+#### How It Works
+
+1. **Expert distribution**: Each GPU holds a subset of experts from the MoE layers.
+2. **Token routing**: Different tokens may require different experts, which may reside on different GPUs.
+3. **All-to-all communication**: 
+   - **First all-to-all**: Tokens are sent to the GPUs hosting their required experts.
+   - **Expert computation**: Each GPU processes tokens assigned to its local experts.
+   - **Second all-to-all**: Expert outputs are sent back to the original GPUs where tokens originated.
+4. **Output aggregation**: Each GPU aggregates expert outputs for its tokens.
+
+This approach allows vLLM to scale MoE models efficiently by parallelizing expert computation across GPUs while maintaining the routing flexibility of MoE architectures.
+
+#### Implementation Status
+
+Expert Parallelism is implemented and available in vLLM. It can be enabled with the `--enable-expert-parallel` flag, which is essential for large MoE models like DeepSeek R1 and DeepSeek V3.
+
+**Note**: Expert Parallelism requires additional dependencies (DeepEP, pplx-kernels, DeepGEMM) and may not be fully stable for all model/quantization/hardware combinations. Some models may require specific configurations or have limitations. See the [vLLM Expert Parallel Deployment documentation](https://docs.vllm.ai/en/latest/serving/expert_parallel_deployment/) for details.
+
+**Implementation references**:
+- vLLM MoE implementation: `vllm/model_executor/models/phimoe.py` (see `PhiMoE` class)
+- Expert structure: `vllm/model_executor/layers/fused_moe/layer.py` (see `FusedMoE` class)
+- Transformers library: Microsoft's [MoE-compression](https://github.com/microsoft/MoE-compression) repository
+
+
 
 ## Trade-offs of Tensor Parallelism
 
