@@ -374,18 +374,18 @@ The following table summarizes the tensor shapes and operations during prefill a
 | Concat heads | $B \times 1 \times (H \cdot D_v)$ | |
 | Final output | $B \times 1 \times D$ | Single generated token |
 
-## The Core Innovation: PagedAttention
+## vLLM's Core Innovation: PagedAttention
+
+While KV cache dramatically improves computational efficiency, it introduces a critical challenge in production serving systems: **memory fragmentation**. When serving multiple concurrent requests, each with different sequence lengths that grow dynamically, traditional memory allocation strategies lead to significant waste and limit throughput.
 
 vLLM's breakthrough innovation is **PagedAttention**, a memory management algorithm inspired by virtual memory paging in operating systems. This technique fundamentally solves the **KV cache fragmentation problem** that plagues traditional LLM serving systems.
 
+### The KV Cache Fragmentation Problem
 
+In production environments, serving systems must handle multiple concurrent requests simultaneously. Each request maintains its own KV cache, which:
 
-### The KV Cache Problem
-
-During autoregressive generation, LLMs maintain a **Key-Value (KV) cache** that stores the computed key and value tensors for all previous tokens in a sequence. This cache:
-
-- **Grows linearly** with sequence length
-- **Varies per request**—different prompts have different lengths
+- **Grows dynamically** as tokens are generated
+- **Varies in size**—different prompts and generation lengths result in different cache sizes
 - **Creates fragmentation**—traditional systems allocate contiguous memory blocks per request, leading to wasted space when sequences finish or have different lengths
 
 **Traditional Approach Problems**:
@@ -395,6 +395,8 @@ Request 2: [====]      (4 tokens, active)
 Request 3: [==========] (10 tokens, active)
            ↑ Memory fragmentation - can't reuse Request 1's space efficiently
 ```
+
+![PA](img/pa.svg)
 
 ### How PagedAttention Works
 
