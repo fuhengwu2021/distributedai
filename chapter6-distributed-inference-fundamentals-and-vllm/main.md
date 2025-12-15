@@ -267,14 +267,13 @@ curl http://localhost:8000/v1/completions \
     }'
 ```
 
-## The Core Innovation: PagedAttention
+## KV Cache
 
-vLLM's breakthrough innovation is **PagedAttention**, a memory management algorithm inspired by virtual memory paging in operating systems. This technique fundamentally solves the **KV cache fragmentation problem** that plagues traditional LLM serving systems.
-
-### What is KV Cache?
+### Transformer Generation Process
 
 In decoder-only transformer architectures (such as GPT, LLaMA, and most modern LLMs), the model processes sequences through multiple transformer decoder layers. Each layer contains a self-attention mechanism that computes attention scores between tokens.
 
+Let's take a look at how a token is generated.
 **Notation**
 
 We use the following notation throughout this section:
@@ -289,6 +288,7 @@ We use the following notation throughout this section:
 - $D_v$: dimension of a value vector
 - $D$: model hidden size
 - $L$: notation used when $L_1 = L_2$
+
 
 **Decoder-Only Architecture Overview**
 
@@ -312,6 +312,33 @@ The attention mechanism computes how much each token should attend to other toke
 $$\text{Attention}(Q, K, V) = \text{softmax}\left(\frac{Q \times K^T}{\sqrt{d_k}}\right) \times V$$
 
 where $d_k$ is the dimension of the key vectors. The causal mask ensures that future tokens are masked out (set to $-\infty$ before softmax), preventing the model from "seeing" future tokens during training and inference.
+
+
+When serving generation requests(prompts), we normally batch multiple prompts. The input has shape $BLD$.
+
+![Input shape](img/input.png)
+
+In text generation, users input a prompt and the model will generate new token one by one. The prefill process is as follows:
+
+![Prefill Stage](img/prefill.png)
+
+The input $X_0$ after transformer blocks generates $Y_0$, which is a single token. Then $Y_0$ is also part of the input in the next round of generation.
+
+![Decode without KV Cache](img/decode_without_kvcache.png)
+
+Please note: the input to query layer is $X_1=Y_0$, and the input to Key and Value layers should be a concatination of previous $X_0$ and the new $X_1$, which has a shape of $B(L_2+1)D$. This is because the query should ask for the attention for the entire context so far. For example, if $X_0$ is `time flies`, and $Y_0$($X_1$) is `like`, we should use `like` to query the context and predict the next token, probably `an`. The inefficient thing here is we need construct $\hat{X}$ and multiply it with $W_k$, while the $X_0$ part in $\hat{X}$ has been multiplied with $W_k$ before. This is an obvious duplication. The calculation for alue is the same way. The very natural way is to use cache to make it efficient.
+
+### What is KV Cache?
+
+KV Cache comes as a resucue. We can simply use $X_1$ as input for K and V calculation, as long as we cache the previous result of K and V.
+
+![Key Cache Grows](img/cache_grow.png)
+
+With KV Cache, the new decoding stage is as follows:
+
+![Key Cache Grows](img/decode_with_kvcache.png)
+
+With KV Cache, the input shape is $B1D$ and output shape is also $B1D$.
 
 **The Need for KV Cache**
 
@@ -385,6 +412,12 @@ The KV cache grows linearly with sequence length. For a model with:
 - Sequence length: $N$
 
 The cache stores approximately $2 \times L \times H \times N \times d_{\text{head}}$ floating-point values (K and V for each layer, head, and token), where $d_{\text{head}} = d_{\text{model}} / H$. For large models with long sequences, this can consume gigabytes of GPU memory, making efficient memory management crucial for production serving systems.
+
+## The Core Innovation: PagedAttention
+
+vLLM's breakthrough innovation is **PagedAttention**, a memory management algorithm inspired by virtual memory paging in operating systems. This technique fundamentally solves the **KV cache fragmentation problem** that plagues traditional LLM serving systems.
+
+
 
 ### The KV Cache Problem
 
