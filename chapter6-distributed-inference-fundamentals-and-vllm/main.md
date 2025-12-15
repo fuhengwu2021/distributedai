@@ -301,7 +301,7 @@ We use the following notation throughout this section:
 - $D$: model hidden size (dimension of hidden states/tokens)
 - $H$: number of attention heads
 - $D_{qk}$: dimension of a query/key vector
-- $D_v$: dimension of a value vector
+- $D_v$: dimension of a value vector, and $D = D_v \times H$
 - $L$: notation used when $L_1 = L_2$
 
 ### Text Generation Process: Prefill and Decode
@@ -353,39 +353,6 @@ The key improvement is reducing the quadratic dependency on sequence length in t
 
 ![Decode with KV Cache](img/decode_with_kvcache.png)
 
-**Detailed Mechanism:**
-
-The KV cache stores precomputed Key and Value vectors for all previously processed tokens. Inference consists of two distinct phases:
-
-**Prefill Phase (Processing the Prompt):**
-
-During prefill, the model processes the entire prompt sequence in parallel, similar to training. The input prompt has shape $B \times L_2 \times D$, where $B$ is the batch size, $L_2$ is the prompt length, and $D$ is the hidden dimension.
-
-The model:
-1. Computes $Q$, $K$, $V$ for all prompt tokens through all decoder layers
-2. Applies causal masking to ensure tokens only attend to previous positions
-3. Computes attention and generates the first output token
-4. Caches all $K$ and $V$ vectors for the prompt tokens
-
-The cached key-value pairs have shape $B \times L_2 \times D_{qk/v}$ per layer and head, where $D_{qk}$ is the query/key dimension and $D_v$ is the value dimension.
-
-**Decode Phase (Generating New Tokens):**
-
-During decoding, the model generates one token at a time. At step $t$:
-
-- **Input**: Only the newly generated token at position $L_2 + t - 1$, with shape $B \times 1 \times D$
-- **Query computation**: $Q_t = x_t W^Q$ for the new token only, shape $B \times 1 \times D_{qk}$
-- **Key/Value computation**: $K_t = x_t W^K$ and $V_t = x_t W^V$ for the new token only, shapes $B \times 1 \times D_{qk}$ and $B \times 1 \times D_v$ respectively
-- **Cached attention**: Retrieve all cached $K$ and $V$ vectors from previous steps
-  - $K_{\text{cached}}$: $B \times (L_2 + t) \times D_{qk}$ (all previous keys including prompt)
-  - $V_{\text{cached}}$: $B \times (L_2 + t) \times D_v$ (all previous values including prompt)
-- **Attention computation**: The new token's $Q_t$ attends to all cached $K$ vectors
-  - Attention scores: $B \times 1 \times (L_2 + t)$
-  - Output: $B \times 1 \times D_v$ per head
-- **Cache update**: Append the new token's $K_t$ and $V_t$ vectors to the cache
-
-This approach reduces time complexity from $O(L_{\text{total}}^2)$ per step (naive approach) to $O(L_{\text{total}})$ per step (with caching), where $L_{\text{total}} = L_2 + t$ is the total sequence length.
-
 **Summary of Inference Stages**
 
 The following table summarizes the tensor shapes and operations during prefill and decoding phases:
@@ -406,16 +373,6 @@ The following table summarizes the tensor shapes and operations during prefill a
 | Output $Z_t$ | $B \times 1 \times D_v$ | |
 | Concat heads | $B \times 1 \times (H \cdot D_v)$ | |
 | Final output | $B \times 1 \times D$ | Single generated token |
-
-**Memory Characteristics**
-
-The KV cache grows linearly with sequence length. For a model with:
-- Hidden dimension: $d_{\text{model}}$
-- Number of layers: $L$
-- Number of attention heads: $H$
-- Sequence length: $N$
-
-The cache stores approximately $2 \times L \times H \times N \times d_{\text{head}}$ floating-point values (K and V for each layer, head, and token), where $d_{\text{head}} = d_{\text{model}} / H$. For large models with long sequences, this can consume gigabytes of GPU memory, making efficient memory management crucial for production serving systems.
 
 ## The Core Innovation: PagedAttention
 
