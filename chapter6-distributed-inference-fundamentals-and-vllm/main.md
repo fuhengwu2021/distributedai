@@ -2,7 +2,7 @@ title: "Distributed Inference Fundamentals and vLLM"
 
 # Chapter 6 — Distributed Inference Fundamentals and vLLM
 
-This chapter introduces distributed inference concepts and vLLM internals, focusing on tensor parallelism, pipeline parallelism, and optimization techniques for serving large language models efficiently in production environments.
+This chapter introduces distributed inference concepts and vLLM internals, focusing on tensor parallelism, data parallelism, pipeline parallelism, and optimization techniques for serving large language models efficiently in production environments.
 
 ## Introduction to vLLM and Setup
 
@@ -448,12 +448,12 @@ vLLM's architecture is built around efficient memory management and distributed 
 
 - **PagedAttention**: Core memory management for KV cache
 - **Continuous Batching**: Dynamically groups requests into batches
-- **Distributed Execution**: Supports tensor parallelism and pipeline parallelism
+- **Distributed Execution**: Supports tensor parallelism, data parallelism, and pipeline parallelism
 - **Optimized Kernels**: Custom CUDA kernels for attention computation
 
 ### Connection to Distributed Inference
 
-While PagedAttention solves memory efficiency within a single GPU, **distributed inference techniques** (tensor parallelism, pipeline parallelism) are needed when:
+While PagedAttention solves memory efficiency within a single GPU, **distributed inference techniques** (tensor parallelism, data parallelism, pipeline parallelism) are needed when:
 
 - Models exceed single GPU memory capacity
 - Throughput requirements exceed single GPU capabilities
@@ -705,6 +705,168 @@ Expert parallelism is **planned** for vLLM but not yet implemented. This is espe
 - **Caution**: Prefill-heavy workloads with poor interconnect
 - **Best practice**: Profile your workload to understand communication vs. computation ratio
 
+## Introduction to Data Parallelism (DP) for Throughput Scaling
+
+**Data Parallelism (DP)** is a technique that replicates model weights across separate instances or GPUs to process independent batches of requests. Unlike tensor parallelism (which splits a model across GPUs) or pipeline parallelism (which splits layers across GPUs), data parallelism creates multiple complete copies of the model, each handling different requests.
+
+### Why Data Parallelism?
+
+When a model fits on a single GPU (or a small TP group), but you need to serve more concurrent requests than a single replica can handle, data parallelism allows you to scale throughput horizontally by adding more model replicas.
+
+**Key Use Cases**:
+- **Throughput scaling**: Serve more requests simultaneously by adding replicas
+- **Load balancing**: Distribute requests across multiple independent model instances
+- **MoE models**: Combine DP attention layers with EP/TP expert layers for optimal MoE performance
+
+### How Data Parallelism Works
+
+In data parallelism:
+- Each DP rank maintains a **complete copy** of the model weights
+- Each rank processes **independent batches** of requests
+- Each rank has its **own independent KV cache**
+- Requests are distributed across ranks (load balancing)
+
+```
+DP Rank 0: [Complete Model] → Processes Batch 1
+DP Rank 1: [Complete Model] → Processes Batch 2
+DP Rank 2: [Complete Model] → Processes Batch 3
+DP Rank 3: [Complete Model] → Processes Batch 4
+```
+
+### Data Parallelism vs. Other Parallelism Strategies
+
+| Strategy | Model Replication | Communication | Use Case |
+|----------|-------------------|---------------|----------|
+| **Data Parallel (DP)** | Full model on each rank | None (independent) | Throughput scaling, load balancing |
+| **Tensor Parallel (TP)** | Split weights horizontally | All-reduce per layer | Model too large for single GPU |
+| **Pipeline Parallel (PP)** | Split layers vertically | Sequential data transfer | Model too large for single node |
+| **Expert Parallel (EP)** | Split experts | All-to-all for routing | MoE models |
+
+### Combining Data Parallelism with Other Strategies
+
+Data parallelism can be combined with tensor parallelism and expert parallelism:
+
+#### DP + TP
+
+When using both DP and TP:
+- Each DP rank contains a TP group
+- Total GPUs = `DP_size × TP_size`
+- Example: `DP=4, TP=2` requires 8 GPUs (4 replicas, each with 2-GPU TP)
+
+```bash
+vllm serve $MODEL --data-parallel-size 4 --tensor-parallel-size 2
+```
+
+#### DP + EP (for MoE Models)
+
+For MoE models, data parallelism is particularly powerful:
+- **Attention layers**: Use data parallel (each rank has full attention)
+- **Expert layers**: Use expert parallel or tensor parallel
+- Expert layers form a `(DP × TP)` sized group for synchronization
+
+**Important**: For MoE models with DP, forward passes must be aligned across all ranks. Even if a rank has no requests, it must perform "dummy" forward passes to maintain synchronization with expert layers.
+
+### Deployment Modes
+
+vLLM supports two deployment modes for data parallelism:
+
+#### 1. Internal Load Balancing (Self-Contained)
+
+A single API endpoint with internal load balancing:
+
+```bash
+# Single node: DP=4, TP=2 (8 GPUs total)
+vllm serve $MODEL --data-parallel-size 4 --tensor-parallel-size 2
+```
+
+**Multi-node example**:
+```bash
+# Node 0 (head node with API server)
+vllm serve $MODEL --data-parallel-size 4 --data-parallel-size-local 2 \
+                  --data-parallel-address 10.99.48.128 --data-parallel-rpc-port 13345
+
+# Node 1 (worker node)
+vllm serve $MODEL --headless --data-parallel-size 4 --data-parallel-size-local 2 \
+                  --data-parallel-start-rank 2 \
+                  --data-parallel-address 10.99.48.128 --data-parallel-rpc-port 13345
+```
+
+**Benefits**:
+- Single HTTP endpoint
+- Automatic load balancing based on queue lengths
+- Simpler deployment
+
+**Limitations**:
+- API server can become a bottleneck at large DP sizes
+- Use `--api-server-count` to scale out API servers
+
+#### 2. External Load Balancing
+
+Each DP rank is deployed as a separate vLLM instance with its own endpoint:
+
+```bash
+# Rank 0
+CUDA_VISIBLE_DEVICES=0 vllm serve $MODEL --data-parallel-size 2 --data-parallel-rank 0 --port 8000
+
+# Rank 1
+CUDA_VISIBLE_DEVICES=1 vllm serve $MODEL --data-parallel-size 2 --data-parallel-rank 1 --port 8001
+```
+
+An external load balancer (e.g., nginx, HAProxy) routes requests to different ranks based on:
+- Real-time telemetry (queue lengths, KV cache usage)
+- Request characteristics (prefix caching opportunities)
+- Health status
+
+**Benefits**:
+- Better scalability for large DP deployments
+- More sophisticated load balancing (KV cache aware)
+- Independent scaling of each rank
+
+### Benefits of Data Parallelism
+
+1. **Linear throughput scaling**: Adding more replicas increases throughput proportionally
+2. **Independent KV caches**: Each rank maintains its own KV cache, maximizing total cache capacity
+3. **Fault tolerance**: If one rank fails, others continue serving
+4. **Prefix caching optimization**: Load balancer can route requests with common prefixes to the same rank
+5. **No communication overhead**: Unlike TP/PP, DP ranks operate independently
+
+### Trade-offs of Data Parallelism
+
+#### Advantages
+
+1. **Simple and effective**: Easy to understand and deploy
+2. **No communication overhead**: Ranks operate independently
+3. **Linear scaling**: Throughput scales with number of replicas
+4. **Flexible load balancing**: Can optimize routing based on cache state
+
+#### Disadvantages
+
+1. **Memory overhead**: Each rank stores full model weights (or TP-sharded weights)
+2. **MoE synchronization**: For MoE models, ranks must synchronize even when idle
+3. **Load balancing complexity**: External mode requires additional infrastructure
+4. **Not for large models**: If model doesn't fit on a single GPU/TP group, DP alone won't help
+
+### When to Use Data Parallelism
+
+- **Good**: 
+  - Model fits on single GPU (or small TP group)
+  - Need to serve more concurrent requests
+  - Throughput is the primary concern
+  - MoE models (combine DP attention with EP experts)
+
+- **Not suitable**:
+  - Model too large for single GPU/TP group (use TP/PP first)
+  - Latency-sensitive workloads (TP may be better)
+  - Limited GPU memory (DP replicates weights)
+
+### Best Practices
+
+1. **Start with TP/PP**: Use TP/PP to fit the model, then add DP for throughput
+2. **Profile load balancing**: For external mode, monitor and optimize routing
+3. **Consider prefix caching**: Route requests with common prefixes to same rank
+4. **Monitor KV cache**: Balance requests based on available KV cache per rank
+5. **Use Ray backend**: For multi-node DP, Ray simplifies deployment
+
 ## Introduction to Pipeline Parallelism (PP) for Multi-Node Inference
 
 When models are too large for a single node (e.g., DeepSeek R1, LLaMA 405B), **Pipeline Parallelism (PP)** shards the model across multiple nodes.
@@ -936,11 +1098,13 @@ nsys-ui profile.qdrep
 ### Key Takeaways
 
 1. **Use TP and PP together** when applicable, but experiment to find what works best for your hardware and workload
-2. **Enable chunked prefill** for pipeline parallelism, but tune the chunk size carefully
-3. **Don't set parameters arbitrarily**: Profile and optimize based on your specific deployment
-4. **Consider trade-offs**:
+2. **Add DP for throughput**: Once model fits (with TP/PP), use DP to scale concurrent requests
+3. **Enable chunked prefill** for pipeline parallelism, but tune the chunk size carefully
+4. **Don't set parameters arbitrarily**: Profile and optimize based on your specific deployment
+5. **Consider trade-offs**:
    - TP: Lower latency, higher communication overhead
    - PP: Lower communication, doesn't improve latency, more complex
+   - DP: Linear throughput scaling, no communication overhead, but replicates weights
 
 ### When to Use What
 
@@ -948,6 +1112,12 @@ nsys-ui profile.qdrep
   - Model doesn't fit on single GPU
   - Good interconnect (NVLink) available
   - Latency-sensitive workloads
+  
+- **Data Parallelism**:
+  - Model fits on single GPU (or small TP group)
+  - Need to serve more concurrent requests
+  - Throughput is primary concern
+  - MoE models (combine with EP for experts)
   
 - **Pipeline Parallelism**:
   - Model doesn't fit on single node
@@ -958,6 +1128,11 @@ nsys-ui profile.qdrep
   - Very large models (400B+ parameters)
   - Multi-node deployments
   - Need to balance latency and communication
+
+- **Combined DP+TP/EP**:
+  - Throughput scaling with large models
+  - MoE models (DP attention + EP experts)
+  - Need both model sharding and request scaling
 
 ### Future Developments
 
@@ -972,6 +1147,7 @@ nsys-ui profile.qdrep
 - [Efficient Memory Management for Large Language Model Serving with PagedAttention](https://arxiv.org/abs/2309.06180) - Kwon et al., SOSP 2023 (Original vLLM paper)
 - [When to Reason: Semantic Router for vLLM](https://arxiv.org/abs/2510.08731) - Wang et al., NeurIPS 2025 Workshop on ML for Systems
 - [vLLM Documentation - Parallelism and Scaling](https://docs.vllm.ai/en/stable/serving/parallelism_scaling/)
+- [vLLM Documentation - Data Parallel Deployment](https://docs.vllm.ai/en/stable/serving/data_parallel_deployment.html)
 - [vLLM Documentation - Distributed Serving](https://docs.vllm.ai/en/v0.8.1/serving/distributed_serving.html)
 - [NVIDIA Dynamo KV Cache Manager](https://docs.nvidia.com/dynamo/archive/0.2.0/architecture/kv_cache_manager.html)
 - [Red Hat: Distributed Inference with vLLM](https://developers.redhat.com/articles/2025/02/06/distributed-inference-with-vllm#gpu_parallelism_techniques_in_vllm)
