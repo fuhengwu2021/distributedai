@@ -489,33 +489,6 @@ One approach to address this is **quantization**—reducing precision from FP16 
 
 The solution is to **distribute the model across multiple GPUs** using parallelism techniques. This provides much better scalability than quantization alone.
 
-## Contrasting Inference with Training
-
-Understanding the differences between training and inference is crucial for designing effective distributed inference systems:
-
-### Training Characteristics
-- **Scale**: Very large scale, often using mega-clusters with many GPUs
-- **Parallelism**: Employs data parallelism, pipeline parallelism, tensor parallelism, and FSDP
-- **Objective**: Maximize **throughput** (tokens per second)
-- **Workload**: Static—each training step is similar
-- **Complexity**: Comes from parallelism algorithms and the forward/backward pass
-
-### Inference Characteristics
-- **Scale**: Typically smaller—allocate a small number of machines per model, scale horizontally based on load
-- **Objective**: Balance **throughput** and **latency** (especially time-to-first-token)
-- **Workload**: Dynamic—user requests arrive at varying rates
-- **Complexity**: Comes from:
-  - KV cache management
-  - Speculative decoding (draft models)
-  - Dynamic request scheduling
-  - Multiple moving parts
-
-### Key Problems in Large Language Model Inference
-
-1. **Model cannot fit into a single GPU**: Requires tensor parallelism within a node
-2. **Model cannot fit into a single node**: Requires pipeline parallelism across nodes
-3. **Increased CPU overhead**: Requires optimized control plane (vLLM addresses this)
-
 ## Overview of the vLLM Architecture
 
 vLLM's architecture centers around a **scheduler-executor-worker** pattern:
@@ -680,7 +653,23 @@ To use more GPUs, simply shard each matrix into more sections. For N GPUs:
 
 ## Expert Parallelism for Mixture-of-Experts (MoE) Models
 
-For **Mixture-of-Experts (MoE)** models (e.g., DeepSeek R1), vLLM employs **Expert Parallelism**:
+For **Mixture-of-Experts (MoE)** models (e.g., DeepSeek R1, Phi-tiny-MoE-instruct), vLLM employs **Expert Parallelism**:
+
+### MoE Layer Structure
+
+Each expert in an MoE layer is **not just a linear layer**, but rather a **full MLP (Multi-Layer Perceptron)** structure. Each expert typically consists of:
+
+1. **Gate projection** (`w1`): Projects input to intermediate dimension
+2. **Up projection** (`w3`): Another projection to intermediate dimension  
+3. **Activation function**: Usually SiLU (Swish) applied to gate output
+4. **Down projection** (`w2`): Projects back to hidden dimension
+
+The gate and up projections are often merged into a single `gate_up_proj` weight matrix for efficiency. This MLP structure is similar to the feed-forward network (FFN) in standard Transformer layers, but with multiple experts that can be routed to based on the input token.
+
+You can view the implementation in vLLM's source code:
+- **vLLM implementation**: `vllm/model_executor/models/phimoe.py` (see `PhiMoE` class)
+- **Expert structure**: `vllm/model_executor/layers/fused_moe/layer.py` (see `FusedMoE` class)
+- **Transformers library**: The model code is available in Microsoft's [MoE-compression](https://github.com/microsoft/MoE-compression) repository, though it may not be fully integrated into the main transformers library yet.
 
 ### How It Works
 
