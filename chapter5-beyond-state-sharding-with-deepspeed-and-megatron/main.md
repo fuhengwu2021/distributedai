@@ -646,19 +646,57 @@ Megatron's core contribution is **Tensor Parallelism (TP)**. Instead of replicat
 
 Consider a Transformer MLP layer with a weight matrix $W \in \mathbb{R}^{d \times 4d}$. For modern large language models, $d$ may be 16,384 or larger. The resulting matrix multiplication is both memory-intensive and compute-heavy.
 
-With tensor parallelism:
+**How Tensor Parallelism Works:**
 
-* The weight matrix is partitioned along one dimension (row-wise or column-wise).
-* Each GPU computes only a slice of the matrix multiplication.
-* Collective communication (e.g., all-reduce or all-gather) is used to assemble the final result.
+1. **Column Parallel Linear**: Splits weight matrix column-wise
+   * Input: Full input tensor (replicated)
+   * Weight: Each GPU holds 1/TP of columns
+   * Output: Partial output (split along last dimension)
+   * Communication: None (output stays split)
 
-This allows:
+2. **Row Parallel Linear**: Splits weight matrix row-wise
+   * Input: Already split (from column parallel)
+   * Weight: Each GPU holds 1/TP of rows
+   * Output: Partial output that needs gathering
+   * Communication: All-reduce to gather full output
 
-* Larger hidden dimensions
+**Attention with Tensor Parallelism:**
+
+For self-attention, Megatron splits Q, K, V projections:
+* Q, K, V are computed in parallel across TP ranks
+* Attention scores are computed locally
+* Output projection uses row-parallel linear
+* All-reduce gathers final attention output
+
+**Sequence Parallelism with TP:**
+
+When TP is enabled, sequence parallelism further reduces activation memory:
+* Splits activations along sequence dimension
+* Reduces activation memory by TP times
+* Essential for long-context training
+
+**Configuration:**
+
+```bash
+--tensor-model-parallel-size 4    # 4-way tensor parallelism
+--sequence-parallel                # Enable sequence parallelism (recommended)
+--tp-comm-overlap                 # Overlap TP communication with computation
+```
+
+**Benefits:**
+
+* Larger hidden dimensions (16K, 32K+)
 * Better utilization of GPU compute resources
 * Scaling beyond what single-GPU kernels can efficiently handle
+* Reduced activation memory with sequence parallelism
 
-Importantly, **tensor parallelism increases communication frequency**—communication now happens at every layer. This is fundamentally different from state sharding, where communication is amortized across layers.
+**Trade-offs:**
+
+* **Increased communication**: Communication happens at every layer (all-reduce/all-gather)
+* **Communication overhead**: Must overlap communication with computation for efficiency
+* **Topology sensitivity**: Best performance when TP groups are within NVLink domain
+
+Importantly, **tensor parallelism increases communication frequency**—communication now happens at every layer. This is fundamentally different from state sharding, where communication is amortized across layers. However, with proper overlap (`--tp-comm-overlap`), this overhead can be largely hidden.
 
 ### Pipeline Parallelism: Sharding the Depth
 
@@ -670,11 +708,43 @@ Pipeline parallelism:
 * Executes micro-batches in a pipeline fashion to keep all stages busy
 * Reduces per-device memory footprint by limiting the number of active layers
 
-Pipeline parallelism is particularly useful when:
+**Pipeline Schedules:**
 
-* The model depth is very large
+Megatron supports multiple pipeline schedules:
+
+1. **1F1B (One Forward One Backward)**: Standard pipeline schedule
+2. **Interleaved Pipeline**: Virtual pipeline parallelism that interleaves micro-batches across stages to reduce pipeline bubbles
+3. **Gpipe**: Original pipeline parallelism with forward-only then backward-only phases
+
+**Virtual Pipeline Parallelism (VPP):**
+
+Virtual pipeline parallelism reduces pipeline bubbles by splitting each pipeline stage into multiple virtual stages:
+
+* Each physical GPU runs multiple virtual stages
+* Micro-batches are interleaved across virtual stages
+* Reduces idle time and improves GPU utilization
+* Particularly effective when `PP_size >= 2`
+
+**Configuration:**
+
+```bash
+--pipeline-model-parallel-size 8
+--num-layers-per-virtual-pipeline-stage 4  # VPP configuration
+```
+
+**When to Use Pipeline Parallelism:**
+
+* The model depth is very large (many layers)
 * Inter-node scaling is required
 * Tensor parallelism alone does not provide sufficient scalability
+* You need to scale across multiple nodes with slower inter-node interconnects
+
+**Best Practices:**
+
+* Keep TP and EP within NVLink domain (intra-node)
+* Use PP for inter-node scaling
+* Enable virtual pipeline parallelism when PP >= 2
+* Tune micro-batch count to maintain pipeline utilization
 
 In practice, pipeline parallelism is almost always combined with tensor parallelism, forming a **2D parallelism scheme**.
 
@@ -689,6 +759,80 @@ Instead of replicating activations across GPUs, sequence parallelism:
 * Improves scalability for long-context training
 
 This is increasingly important for models trained with long context windows, where activation memory can dominate total memory usage.
+
+### Context Parallelism: Advanced Long-Context Training
+
+**Context Parallelism (CP)** is Megatron's advanced solution for extremely long sequences. Unlike sequence parallelism which only splits Dropout and LayerNorm activations, CP partitions all network inputs and activations along the sequence dimension.
+
+**How Context Parallelism Works:**
+
+* Each GPU processes only a chunk of the sequence (e.g., 8K sequence split across 2 GPUs = 4K tokens per GPU)
+* For attention computation, each token's Q (query) needs to compute with KV (key and value) of all tokens
+* CP uses all-gather across GPUs to collect full KV sequences, then reduce-scatter for gradients
+* Communication is optimized using point-to-point ring topology under the hood
+* Leverages MQA/GQA (Multi-Query/Grouped-Query Attention) to reduce communication volume
+
+**Benefits:**
+
+* **Eliminates OOM**: Activation memory per GPU is reduced by CP times
+* **No recompute overhead**: Avoids the ~30% overhead of full activation recomputation
+* **Better than TP scaling**: Unlike increasing TP which can make compute too short to overlap communication, CP reduces both computation and communication proportionally
+* **Optimal performance**: TP+CP combinations achieve optimal performance by eliminating recompute overheads
+
+**When to Use Context Parallelism:**
+
+* Sequence length >= 8K tokens
+* Activation memory dominates total memory usage
+* Training with very long context windows (32K, 128K+)
+* When full recompute causes significant overhead
+
+**Example Configuration:**
+
+```bash
+# Enable context parallelism with TP
+--tensor-model-parallel-size 4
+--context-parallel-size 2        # Split 8K sequence across 2 GPUs
+--sequence-parallel              # Also enable sequence parallelism
+```
+
+### Expert Parallelism: Scaling MoE Models
+
+**Expert Parallelism (EP)** is Megatron's specialized parallelism for Mixture-of-Experts (MoE) models. In MoE architectures, different experts handle different tokens, making expert parallelism a natural fit.
+
+**How Expert Parallelism Works:**
+
+* Experts are partitioned across multiple GPUs
+* Each GPU processes one or more experts for each MoE layer
+* Tokens are routed to appropriate experts via all-to-all communication
+* Combines seamlessly with TP, PP, CP, and DP
+
+**Key Features:**
+
+* **Token Routing**: Efficient all-to-all communication to dispatch tokens to experts
+* **Load Balancing**: Multiple strategies (auxiliary loss, Sinkhorn, aux-loss-free)
+* **GroupedGEMM**: Optimized computation when multiple experts per GPU
+* **DeepEP/HybridEP**: High-performance token dispatching backends for large-scale training
+
+**MoE Training Configuration Example:**
+
+```bash
+# Mixtral 8x7B training with expert parallelism
+--num-experts 8
+--expert-model-parallel-size 8   # 8-way expert parallelism
+--moe-router-topk 2              # Top-2 routing
+--moe-router-load-balancing-type aux_loss
+--moe-grouped-gemm               # Optimize expert computation
+--moe-permute-fusion             # Fuse token rearrangement
+--tensor-model-parallel-size 1   # No TP for MoE layer
+--pipeline-model-parallel-size 4 # 4 pipeline stages
+--sequence-parallel               # Required when EP + TP
+```
+
+**Performance Highlights:**
+
+* Megatron-Core MoE achieves **468 TFLOPS** for Mixtral 8X7B bf16 training
+* Supports state-of-the-art MoE architectures: DeepSeek-V3, Qwen-MoE, Mixtral
+* Distributed checkpointing with full resharding support across TP/CP/EP/PP
 
 ### Why FSDP2 Cannot Replace Megatron
 
@@ -725,131 +869,324 @@ This combination allows:
 
 DeepSpeed ZeRO-3 can also be combined with Megatron, and this remains common in legacy codebases. However, for new projects, **FSDP2 + Megatron** is increasingly preferred due to tighter PyTorch integration and better compiler support.
 
+### Megatron Core: Production-Ready Library
+
+**Megatron Core** is the production-ready library extracted from Megatron-LM, providing GPU-optimized building blocks for custom training frameworks. It offers:
+
+**Key Components:**
+
+* **Composable Transformer Blocks**: Attention mechanisms, MLP layers, embeddings
+* **Advanced Parallelism**: TP, PP, CP, EP with seamless composition
+* **Memory Management**: Activation recomputation, distributed checkpointing
+* **FP8 Precision**: Optimized for NVIDIA Hopper, Ada, and Blackwell GPUs
+* **Distributed Optimizer**: Shards optimizer states across data-parallel ranks
+* **High-Performance Data Loaders**: Optimized dataset utilities
+
+**Installation:**
+
+```bash
+# Install Megatron Core
+pip install --no-build-isolation megatron-core[mlm,dev]
+
+# Or use Docker (recommended)
+docker run --gpus all -it nvcr.io/nvidia/pytorch:25.04-py3
+```
+
+### Megatron-FSDP: Optimized State Sharding
+
+**Megatron-FSDP** is NVIDIA's high-performance implementation of Fully Sharded Data Parallelism, providing **15-25% speedup and 23% memory savings** compared to PyTorch FSDP2.
+
+**Key Advantages:**
+
+* **Better Performance**: Optimized bucketing, buffer management, and communication overlap
+* **SM Usage Reduction**: Uses NCCL userbuffer to reduce Streaming Multiprocessor consumption
+* **FP8 Support**: Native FP8 mixed precision with Transformer Engine
+* **Compatibility**: Works with TP, CP, EP, and native PyTorch DTensor
+
+**Usage:**
+
+```bash
+# Enable Megatron-FSDP
+--use-megatron-fsdp
+--data-parallel-sharding-strategy optim_grads_params  # ZeRO-3 equivalent
+--use-distributed-optimizer
+--overlap-grad-reduce
+--overlap-param-gather
+```
+
+**When to Use Megatron-FSDP vs PyTorch FSDP2:**
+
+* **Use Megatron-FSDP** when: You need maximum performance, are using Megatron TP/CP/EP, or require FP8 training
+* **Use PyTorch FSDP2** when: You want pure PyTorch without external dependencies, or need torch.compile support
+
+### Distributed Optimizer: Memory-Efficient Optimization
+
+Megatron's **distributed optimizer** shards optimizer states across data-parallel ranks, similar to ZeRO-1 but with additional optimizations.
+
+**Memory Savings:**
+
+| Configuration | Non-distributed | Distributed |
+|--------------|-----------------|-------------|
+| fp16 params, fp16 grads | 20 bytes/param | 4 + 16/d bytes/param |
+| bf16 params, fp32 grads | 18 bytes/param | 6 + 12/d bytes/param |
+| fp32 params, fp32 grads | 16 bytes/param | 8 + 8/d bytes/param |
+
+Where `d` is the data-parallel size.
+
+**Key Features:**
+
+* Contiguous buffers for parameters and main gradients
+* Immediate gradient copying to main gradients as they're computed
+* Efficient reduce-scatter for gradient synchronization
+* All-gather for parameter updates
+
+**Usage:**
+
+```bash
+--use-distributed-optimizer
+--overlap-grad-reduce      # Overlap gradient reduction with computation
+--overlap-param-gather     # Overlap parameter gathering
+```
+
+### FP8 Training: Next-Generation Precision
+
+Megatron supports **FP8 mixed precision training**, optimized for NVIDIA Hopper, Ada, and Blackwell GPUs.
+
+**Benefits:**
+
+* **Faster Training**: FP8 kernels provide significant speedups
+* **Memory Savings**: Reduced memory footprint for weights and activations
+* **Better Scaling**: Enables training of even larger models
+
+**Configuration:**
+
+```bash
+# FP8 training configuration
+--fp8-format hybrid
+--fp8-amax-history-len 1024
+--fp8-amax-compute-algo max
+--fp8-param-gather          # Gather parameters in FP8
+```
+
+**Requirements:**
+
+* NVIDIA Hopper (H100), Ada (RTX 4090), or Blackwell GPUs
+* Transformer Engine >= 1.1
+* Megatron Core >= 0.5.0
+
 ### When Do You Need Megatron?
 
 Megatron becomes necessary when one or more of the following conditions hold:
 
 * Transformer layers with extremely large hidden dimensions (e.g., 16K+)
-* Large MoE expert layers
+* Large MoE expert layers requiring expert parallelism
 * FP8 or other low-precision regimes with massive GEMMs
 * Scaling to hundreds of GPUs where per-layer computation dominates
-* Long-context training requiring sequence parallelism
+* Long-context training (>=8K tokens) requiring context parallelism
+* Models where individual layers exceed single-GPU computation capacity
+* Production training requiring maximum performance and scalability
 
 If none of these apply, state sharding alone is usually sufficient.
 
+### Real-World Training Configurations
+
+Here are production-ready configurations based on actual Megatron training scripts:
+
+**LLaMA-3 8B with FP8 Training (8 GPUs):**
+
+```bash
+torchrun --nproc_per_node=8 pretrain_gpt.py \
+    --use-mcore-models \
+    --num-layers 32 \
+    --hidden-size 4096 \
+    --ffn-hidden-size 14336 \
+    --num-attention-heads 32 \
+    --group-query-attention \
+    --num-query-groups 8 \
+    --seq-length 8192 \
+    --tensor-model-parallel-size 1 \
+    --context-parallel-size 2 \
+    --sequence-parallel \
+    --fp8-format hybrid \
+    --fp8-param-gather \
+    --use-distributed-optimizer \
+    --overlap-grad-reduce \
+    --overlap-param-gather \
+    --micro-batch-size 1 \
+    --global-batch-size 128 \
+    --bf16
+```
+
+**GPT-3 175B Scale (128 GPUs):**
+
+```bash
+torchrun --nproc_per_node=8 --nnodes=16 pretrain_gpt.py \
+    --num-layers 96 \
+    --hidden-size 12288 \
+    --num-attention-heads 96 \
+    --seq-length 2048 \
+    --tensor-model-parallel-size 8 \
+    --pipeline-model-parallel-size 16 \
+    --micro-batch-size 1 \
+    --global-batch-size 1536 \
+    --use-distributed-optimizer \
+    --fp16
+```
+
+**Mixtral 8x7B MoE (64 GPUs):**
+
+```bash
+torchrun --nproc_per_node=8 --nnodes=8 pretrain_gpt.py \
+    --use-mcore-models \
+    --num-layers 32 \
+    --hidden-size 4096 \
+    --num-experts 8 \
+    --expert-model-parallel-size 8 \
+    --tensor-model-parallel-size 1 \
+    --pipeline-model-parallel-size 4 \
+    --moe-router-topk 2 \
+    --moe-grouped-gemm \
+    --moe-permute-fusion \
+    --sequence-parallel \
+    --use-distributed-optimizer \
+    --overlap-grad-reduce \
+    --overlap-param-gather \
+    --micro-batch-size 1 \
+    --global-batch-size 256 \
+    --bf16
+```
+
 ### Complete Training Example with Megatron
 
-Here's a complete example training a large model with Megatron Tensor Parallelism:
+Here's a complete example training a large model with Megatron Tensor Parallelism using Megatron Core:
 
 ```python
-# code/train_megatron_tp.py
+# code/train_megatron_mcore.py
 import os
 import torch
-import torch.nn as nn
-from torch.distributed import init_process_group, destroy_process_group
-from megatron.core import tensor_parallel
+from torch.optim import Adam
+from megatron.core import parallel_state
+from megatron.core.pipeline_parallel.schedules import get_forward_backward_func
+from megatron.core.tensor_parallel.random import model_parallel_cuda_manual_seed
+from megatron.core.transformer.transformer_config import TransformerConfig
+from megatron.core.models.gpt.gpt_model import GPTModel
+from megatron.core.models.gpt.gpt_layer_specs import get_gpt_layer_local_spec
+from megatron.core.distributed import DistributedDataParallel
+from megatron.core.distributed import DistributedDataParallelConfig
+from megatron.core.distributed.finalize_model_grads import finalize_model_grads
 
-class MegatronTransformerLayer(nn.Module):
-    """Transformer layer with tensor parallelism support."""
-    def __init__(self, hidden_size=4096, num_heads=32, tensor_model_parallel_size=4):
-        super().__init__()
-        self.hidden_size = hidden_size
-        self.num_heads = num_heads
-        self.tp_size = tensor_model_parallel_size
-        
-        # Attention with tensor parallelism
-        self.attention = tensor_parallel.ColumnParallelLinear(
-            hidden_size, hidden_size * 3,  # Q, K, V projections
-            gather_output=False
-        )
-        
-        # MLP with tensor parallelism
-        self.mlp_up = tensor_parallel.ColumnParallelLinear(
-            hidden_size, hidden_size * 4,
-            gather_output=False
-        )
-        self.mlp_down = tensor_parallel.RowParallelLinear(
-            hidden_size * 4, hidden_size,
-            input_is_parallel=True
-        )
-        
-        self.layer_norm1 = nn.LayerNorm(hidden_size)
-        self.layer_norm2 = nn.LayerNorm(hidden_size)
-        
-    def forward(self, x):
-        # Self-attention with tensor parallelism
-        residual = x
-        x = self.layer_norm1(x)
-        qkv = self.attention(x)  # Already split across TP group
-        # ... attention computation ...
-        x = residual + x
-        
-        # MLP with tensor parallelism
-        residual = x
-        x = self.layer_norm2(x)
-        x = self.mlp_up(x)  # Column parallel
-        x = torch.nn.functional.gelu(x)
-        x = self.mlp_down(x)  # Row parallel, gathers output
-        x = residual + x
-        
-        return x
-
-def train_megatron_tp():
-    # Initialize distributed training
-    init_process_group(backend="nccl")
+def initialize_distributed(tensor_model_parallel_size=4, pipeline_model_parallel_size=1):
+    """Initialize torch.distributed and Megatron-Core model parallel groups."""
+    parallel_state.destroy_model_parallel()
+    
+    rank = int(os.environ["RANK"])
+    world_size = int(os.environ["WORLD_SIZE"])
     local_rank = int(os.environ["LOCAL_RANK"])
+    
     torch.cuda.set_device(local_rank)
-    device = torch.device(f"cuda:{local_rank}")
+    torch.distributed.init_process_group(backend="nccl", rank=rank, world_size=world_size)
     
-    # Model configuration
-    hidden_size = 8192
-    num_layers = 32
-    num_heads = 64
-    tensor_model_parallel_size = 4  # Split each layer across 4 GPUs
+    # Initialize Megatron model parallelism
+    parallel_state.initialize_model_parallel(
+        tensor_model_parallel_size, pipeline_model_parallel_size
+    )
+
+def model_provider():
+    """Build and return a GPT model using Megatron Core."""
+    transformer_config = TransformerConfig(
+        num_layers=32,
+        hidden_size=4096,
+        num_attention_heads=32,
+        use_cpu_initialization=True,
+        pipeline_dtype=torch.bfloat16,
+    )
     
-    # Create model with tensor parallelism
-    model = nn.Sequential(*[
-        MegatronTransformerLayer(
-            hidden_size=hidden_size,
-            num_heads=num_heads,
-            tensor_model_parallel_size=tensor_model_parallel_size
-        )
-        for _ in range(num_layers)
-    ]).to(device)
+    gpt_model = GPTModel(
+        config=transformer_config,
+        transformer_layer_spec=get_gpt_layer_local_spec(),
+        vocab_size=50257,
+        max_sequence_length=2048,
+    )
     
-    # Optimizer
-    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
+    return gpt_model
+
+def forward_step_func(data_iterator, model):
+    """Forward step function for training."""
+    def loss_func(loss_mask, output_tensor):
+        losses = output_tensor.float()
+        loss_mask = loss_mask.view(-1).float()
+        loss = torch.sum(losses.view(-1) * loss_mask) / loss_mask.sum()
+        return loss, {"lm loss": loss}
     
-    # Training loop
-    model.train()
-    for epoch in range(3):
-        for step in range(100):  # Dummy training steps
-            # Dummy input (batch_size=4, seq_len=2048, hidden_size=8192)
-            inputs = torch.randn(4, 2048, hidden_size).to(device)
-            
-            # Forward pass
-            outputs = model(inputs)
-            loss = outputs.mean()  # Dummy loss
-            
-            # Backward pass
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-            
-            if step % 10 == 0 and local_rank == 0:
-                print(f"Epoch {epoch}, Step {step}, Loss: {loss.item():.4f}")
+    data = next(data_iterator)
+    tokens = data["tokens"].cuda()
+    attention_mask = data["attention_mask"].cuda()
+    position_ids = data["position_ids"].cuda()
+    labels = data["labels"].cuda()
+    loss_mask = data["loss_mask"].cuda()
     
-    destroy_process_group()
+    output_tensor = model(tokens, position_ids, attention_mask, labels=labels)
+    
+    return output_tensor, lambda: loss_func(loss_mask, output_tensor)
 
 if __name__ == "__main__":
-    train_megatron_tp()
+    # Initialize distributed training
+    initialize_distributed(tensor_model_parallel_size=4, pipeline_model_parallel_size=1)
+    model_parallel_cuda_manual_seed(123)
+    
+    # Create model
+    gpt_model = model_provider()
+    gpt_model.cuda()
+    
+    # Wrap with DistributedDataParallel
+    config = gpt_model.config
+    ddp_config = DistributedDataParallelConfig(
+        grad_reduce_in_fp32=False,
+        overlap_grad_reduce=True,
+        use_distributed_optimizer=True,
+    )
+    gpt_model = DistributedDataParallel(
+        config=config,
+        ddp_config=ddp_config,
+        module=gpt_model,
+    )
+    
+    # Optimizer
+    optim = Adam(gpt_model.parameters(), lr=1e-4)
+    
+    # Get forward/backward function
+    forward_backward_func = get_forward_backward_func()
+    
+    # Training loop
+    for iteration in range(100):
+        optim.zero_grad()
+        
+        # Forward and backward pass
+        losses_reduced = forward_backward_func(
+            forward_step_func=forward_step_func,
+            data_iterator=train_iterator,
+            model=gpt_model,
+            num_microbatches=1,
+            seq_length=2048,
+            micro_batch_size=8,
+            decoder_seq_length=2048,
+            forward_only=False,
+        )
+        
+        # Finalize gradients
+        finalize_model_grads([gpt_model])
+        
+        optim.step()
+        
+        if iteration % 10 == 0 and parallel_state.get_tensor_model_parallel_rank() == 0:
+            print(f"Iteration {iteration}: Losses: {losses_reduced}")
 ```
 
 **Running the Megatron training script:**
 
 ```bash
 # Single node, 4 GPUs with tensor parallelism
-torchrun --nproc_per_node=4 code/train_megatron_tp.py
+torchrun --nproc_per_node=4 code/train_megatron_mcore.py
 
 # Multi-node (2 nodes, 4 GPUs each, TP=4 per node)
 torchrun --nproc_per_node=4 \
@@ -857,35 +1194,55 @@ torchrun --nproc_per_node=4 \
   --node_rank=0 \
   --master_addr=node0 \
   --master_port=29500 \
-  code/train_megatron_tp.py
+  code/train_megatron_mcore.py
 ```
 
 **Key points in this example:**
 
-1. **Tensor Parallel Linear Layers**: Uses `ColumnParallelLinear` and `RowParallelLinear` from Megatron Core to split matrix operations across GPUs
-2. **Communication**: Each layer performs all-reduce operations to gather results from tensor-parallel groups
-3. **Memory Efficiency**: Each GPU only stores a fraction of each layer's parameters
-4. **Scalability**: Can handle models with very large hidden dimensions (e.g., 16K+) that wouldn't fit on a single GPU
+1. **Megatron Core Models**: Uses `GPTModel` from Megatron Core with built-in tensor parallelism
+2. **DistributedDataParallel**: Megatron's DDP wrapper with optimized communication overlap
+3. **Distributed Optimizer**: Shards optimizer states across data-parallel ranks
+4. **Pipeline Schedule**: Uses Megatron's forward-backward function for efficient pipeline execution
+5. **Memory Efficiency**: Each GPU only stores a fraction of each layer's parameters and optimizer states
 
-**Combining with FSDP2:**
+**Using Megatron-FSDP for State Sharding:**
 
-For even larger models, combine Megatron TP with FSDP2:
+For even larger models, combine Megatron TP with Megatron-FSDP:
 
-```python
-from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
-
-# Wrap model with FSDP for state sharding
-model = FSDP(
-    model,
-    auto_wrap_policy=transformer_auto_wrap_policy,
-    mixed_precision=torch.distributed.fsdp.MixedPrecision(
-        param_dtype=torch.bfloat16
-    )
-)
+```bash
+# Enable Megatron-FSDP with tensor parallelism
+--use-megatron-fsdp
+--data-parallel-sharding-strategy optim_grads_params
+--tensor-model-parallel-size 4
+--use-distributed-optimizer
+--overlap-grad-reduce
+--overlap-param-gather
 ```
 
-This gives you both computation sharding (Megatron TP) and state sharding (FSDP2) for maximum scalability.
+This gives you:
+* **Computation sharding**: Megatron TP for large per-layer computation
+* **State sharding**: Megatron-FSDP for parameters, gradients, and optimizer states
+* **Performance**: 15-25% faster than PyTorch FSDP2 + Megatron TP
+* **Memory**: 23% memory savings compared to PyTorch FSDP2
+
+**Performance Optimizations:**
+
+```bash
+# Enable all performance optimizations
+--overlap-grad-reduce              # Overlap gradient reduction
+--overlap-param-gather             # Overlap parameter gathering
+--tp-comm-overlap                  # Overlap TP communication
+--sequence-parallel                # Reduce activation memory
+--use-distributed-optimizer        # Shard optimizer states
+--calculate-per-token-loss        # Optimize gradient scaling
+```
+
+**Advanced Features:**
+
+* **Virtual Pipeline Parallelism**: Reduces pipeline bubbles by interleaving micro-batches
+* **Distributed Checkpointing**: Up to 50x faster than native PyTorch, supports resharding
+* **CUDA Graphs**: Capture and replay training iterations for reduced overhead
+* **Activation Recomputation**: Selective recompute for memory-constrained scenarios
 
 ## Hybrid Parallelism in Practice
 
@@ -994,6 +1351,56 @@ Hybrid parallelism combines state sharding and computation sharding to overcome 
 
 Large-scale training is no longer about choosing a single parallelism strategy, but about composing multiple strategies along orthogonal axes.
 
+### Performance Optimization Best Practices
+
+**Communication Overlap:**
+
+Enable all available communication overlap options:
+
+```bash
+--overlap-grad-reduce          # Overlap gradient reduction (DP/FSDP)
+--overlap-param-gather        # Overlap parameter gathering (FSDP)
+--tp-comm-overlap             # Overlap tensor parallel communication
+```
+
+**Memory Optimizations:**
+
+```bash
+--sequence-parallel            # Reduce activation memory (required with TP+EP)
+--use-distributed-optimizer   # Shard optimizer states
+--calculate-per-token-loss   # Optimize gradient scaling
+--recompute-activations       # Activation checkpointing when needed
+```
+
+**Parallelism Topology Guidelines:**
+
+1. **Keep TP and EP within NVLink domain**: Both are communication-intensive
+2. **Use PP for inter-node scaling**: Pipeline stages can span nodes
+3. **CP for long sequences**: Enable when sequence length >= 8K
+4. **Minimize model parallelism**: Prefer DP with distributed optimizer when possible
+
+**Reference Configurations:**
+
+Based on NVIDIA NeMo production configurations:
+
+| Model | Size | GPUs | TP | PP | CP | EP | Notes |
+|-------|------|------|----|----|----|----|-------|
+| LLaMA-3 | 8B | 8 | 1 | 1 | 2 | 1 | CP for long seqlen (8K) |
+| LLaMA-3 | 70B | 64 | 4 | 4 | 2 | 1 | TP+PP for large model |
+| LLaMA-3.1 | 405B | 1024 | 8 | 8 | 2 | 1 | 3D parallelism |
+| GPT-3 | 175B | 128-512 | 4-8 | 8-16 | 1 | 1 | Large model config |
+| Mixtral | 8x7B | 64 | 1 | 4 | 1 | 8 | EP for MoE |
+| Mixtral | 8x22B | 256 | 4 | 4 | 8 | 8 | Combined TP+EP |
+| DeepSeek-V3 | 671B | 1024 | 2 | 16 | 1 | 64 | Large MoE config |
+
+**Performance Benchmarks:**
+
+Megatron Core achieves:
+* **Up to 47% Model FLOP Utilization (MFU)** on H100 clusters
+* **468 TFLOPS** for Mixtral 8X7B bf16 training
+* **15-25% speedup** with Megatron-FSDP vs PyTorch FSDP2
+* **50x faster checkpointing** with distributed checkpointing vs native PyTorch
+
 ## Choosing the Right Strategy: ZeRO, FSDP, and Megatron
 
 ### Decision Tree
@@ -1009,26 +1416,43 @@ Model Size < 10B?
     |         (good balance, shards gradients too)
     +- No
         |
-        Can single layer fit on one GPU?
+        Can single layer fit and compute efficiently on one GPU?
         +- Yes -> Use ZeRO-3 or FSDP2
         |         (state sharding is sufficient)
+        |         Models: 7B-30B, standard architectures
         +- No -> Use FSDP2 + Megatron TP (or ZeRO-3 + Megatron TP)
                 (need computation sharding for large layers)
                 |
-                Model Size < 200B?
-                +- Yes -> FSDP2 + Megatron TP
-                |         (or ZeRO-3 + Megatron TP)
+                Sequence Length >= 8K?
+                +- Yes -> Add Context Parallelism (CP)
+                |         FSDP2 + Megatron TP + CP
+                |         (reduces activation memory for long sequences)
                 +- No
                     |
-                    Multiple Nodes?
-                    +- Yes -> FSDP2 + Megatron TP + PP + ZeRO++
-                    |         (hierarchical parallelism)
+                    Model Size < 200B?
+                    +- Yes -> FSDP2 + Megatron TP
+                    |         (or ZeRO-3 + Megatron TP)
+                    |         Models: 50B-200B, large hidden dims
                     +- No
                         |
-                        Model Size < 500B?
-                        +- Yes -> FSDP2 + Megatron TP
-                        +- No -> ZeRO-Infinity + Megatron TP
-                                (offload to NVMe)
+                        Multiple Nodes?
+                        +- Yes -> Add Pipeline Parallelism (PP)
+                        |         FSDP2 + Megatron TP + PP
+                        |         (hierarchical parallelism for inter-node scaling)
+                        |         Optional: ZeRO++ for communication optimization
+                        +- No
+                            |
+                            Model Size < 500B?
+                            +- Yes -> FSDP2 + Megatron TP
+                            +- No -> ZeRO-Infinity + Megatron TP
+                                    (offload to NVMe for extreme scale)
+                                    |
+                                    MoE Model?
+                                    +- Yes -> Add Expert Parallelism (EP)
+                                    |         FSDP2 + Megatron TP + EP
+                                    |         (or ZeRO-3 + Megatron TP + EP)
+                                    |         Models: Mixtral, DeepSeek-V3, Qwen-MoE
+                                    +- No -> Continue with TP + PP
 ```
 
 ### Comparison Table
@@ -1044,7 +1468,12 @@ Model Size < 10B?
 | **ZeRO++** | Shard | Shard | Shard | 2/N× | Reduced by 4-6× | Multi-node large models |
 | **FSDP2** | Shard | Shard | Shard | 1/N× | All-gather + RS | 7B-200B params (when layers fit on one GPU) |
 | **Megatron TP** | Shard | Shard | Shard | 1/TP× | All-gather per layer | Large layers, 50B+ models |
+| **Megatron TP + CP** | Shard | Shard | Shard | 1/(TP×CP)× | TP + CP comm | Long sequences (>=8K), activation memory reduction |
+| **Megatron TP + PP** | Shard | Shard | Shard | 1/(TP×PP)× | TP + PP comm | Very large models, inter-node scaling |
+| **Megatron EP (MoE)** | Shard | Shard | Shard | 1/EP× (MoE layer) | All-to-all | MoE models (Mixtral, DeepSeek-V3) |
 | **FSDP2 + Megatron TP** | Shard | Shard | Shard | 1/(N×TP)× | Both patterns | 50B-200B+ models with large layers |
+| **Megatron-FSDP + TP** | Shard | Shard | Shard | 1/(N×TP)× | Optimized overlap | Maximum performance, 15-25% faster than FSDP2+TP |
+| **Full Hybrid (TP+PP+CP+EP)** | Shard | Shard | Shard | 1/(TP×PP×CP×EP)× | All patterns | Extreme scale (200B+), MoE, long context |
 
 ### Memory Savings Example
 
@@ -1182,6 +1611,10 @@ iftop -i ib0  # InfiniBand interface
 ```
 
 ## Complete Training Examples: ZeRO and Megatron
+
+This section provides complete, production-ready training examples for both ZeRO and Megatron, based on real-world configurations used in large-scale model training.
+
+### Example 1: Training with DeepSpeed ZeRO-3
 
 Here's a complete example training a large model with ZeRO-3:
 
@@ -1364,6 +1797,275 @@ deepspeed --num_gpus=8 \
   --deepspeed_config code/ds_config_zero3.json
 ```
 
+### Example 2: Training with Megatron Core (Production Configuration)
+
+Here's a production-ready example using Megatron Core to train a large model with tensor parallelism, based on actual Megatron-LM training scripts:
+
+**Training Script (`code/train_megatron_llama3_8b.sh`):**
+
+```bash
+#!/bin/bash
+
+# LLaMA-3 8B training with Megatron Core
+# Configuration: 8 GPUs, FP8 precision, context parallelism for long sequences
+
+export CUDA_DEVICE_MAX_CONNECTIONS=1
+
+GPUS_PER_NODE=8
+NUM_NODES=1
+MASTER_ADDR=${MASTER_ADDR:-localhost}
+MASTER_PORT=${MASTER_PORT:-6000}
+NODE_RANK=${NODE_RANK:-0}
+
+CHECKPOINT_PATH=${1:-"checkpoints/llama3_8b_fp8"}
+TENSORBOARD_LOGS_PATH=${2:-"tensorboard_logs/llama3_8b_fp8"}
+TOKENIZER_ARG=${3:-"MOCK"}
+DATA_ARG=${4:-"MOCK"}
+
+# Model parallelism configuration
+TP_SIZE=1      # Tensor parallelism (1 = no TP, use CP instead)
+CP_SIZE=2      # Context parallelism for 8K sequence
+PP_SIZE=1      # Pipeline parallelism
+MICRO_BATCH_SIZE=1
+GLOBAL_BATCH_SIZE=128
+
+# Model architecture (LLaMA-3 8B)
+MODEL_ARGS=(
+    --use-mcore-models
+    --num-layers 32
+    --hidden-size 4096
+    --ffn-hidden-size 14336
+    --num-attention-heads 32
+    --group-query-attention
+    --num-query-groups 8
+    --seq-length 8192
+    --max-position-embeddings 8192
+    --position-embedding-type rope
+    --rotary-base 1000000
+    --swiglu
+    --untie-embeddings-and-output-weights
+    --disable-bias-linear
+    --attention-backend fused
+)
+
+# Training hyperparameters
+TRAINING_ARGS=(
+    --micro-batch-size $MICRO_BATCH_SIZE
+    --global-batch-size $GLOBAL_BATCH_SIZE
+    --lr 0.00015
+    --min-lr 0.00001
+    --lr-decay-style cosine
+    --weight-decay 0.1
+    --adam-beta1 0.9
+    --adam-beta2 0.95
+    --clip-grad 1.0
+    --bf16
+    --grad-reduce-in-bf16
+    --cross-entropy-loss-fusion
+    --calculate-per-token-loss
+)
+
+# FP8 configuration (for Hopper/Ada/Blackwell GPUs)
+FP8_ARGS=(
+    --fp8-format hybrid
+    --fp8-amax-history-len 1024
+    --fp8-amax-compute-algo max
+    --fp8-param-gather
+)
+
+# Parallelism configuration
+PARALLEL_ARGS=(
+    --tensor-model-parallel-size $TP_SIZE
+    --context-parallel-size $CP_SIZE
+    --sequence-parallel
+    --use-distributed-optimizer
+    --overlap-grad-reduce
+    --overlap-param-gather
+)
+
+# Data configuration
+if [[ "$TOKENIZER_ARG" == "MOCK" ]]; then
+    DATA_ARGS=(
+        --mock-data
+        --tokenizer-type NullTokenizer
+        --vocab-size 128256
+    )
+else
+    DATA_ARGS=(
+        --data-path $DATA_ARG
+        --tokenizer-type HuggingFaceTokenizer
+        --tokenizer-model $TOKENIZER_ARG
+        --vocab-size 128256
+    )
+fi
+
+# Logging and checkpointing
+LOGGING_ARGS=(
+    --log-interval 1
+    --save-interval 1000
+    --eval-interval 100
+    --eval-iters 32
+    --save $CHECKPOINT_PATH
+    --load $CHECKPOINT_PATH
+    --tensorboard-dir $TENSORBOARD_LOGS_PATH
+    --ckpt-format torch_dist
+)
+
+# Run training
+torchrun --nproc_per_node=$GPUS_PER_NODE \
+    --nnodes=$NUM_NODES \
+    --node_rank=$NODE_RANK \
+    --master_addr=$MASTER_ADDR \
+    --master_port=$MASTER_PORT \
+    pretrain_gpt.py \
+    ${MODEL_ARGS[@]} \
+    ${TRAINING_ARGS[@]} \
+    ${FP8_ARGS[@]} \
+    ${PARALLEL_ARGS[@]} \
+    ${DATA_ARGS[@]} \
+    ${LOGGING_ARGS[@]}
+```
+
+**Key Features of This Configuration:**
+
+1. **Context Parallelism**: Uses CP=2 to handle 8K sequence length efficiently
+2. **FP8 Training**: Enables FP8 mixed precision for Hopper/Ada/Blackwell GPUs
+3. **Distributed Optimizer**: Shards optimizer states across data-parallel ranks
+4. **Communication Overlap**: Enables gradient reduction and parameter gathering overlap
+5. **Production-Ready**: Based on actual Megatron-LM training scripts
+
+**Running the Script:**
+
+```bash
+# Single node training
+./code/train_megatron_llama3_8b.sh \
+    checkpoints/llama3_8b \
+    tensorboard_logs/llama3_8b \
+    /path/to/tokenizer.model \
+    /path/to/data_prefix
+
+# Multi-node training (2 nodes, 8 GPUs each)
+# On node 0:
+MASTER_ADDR=node0 NODE_RANK=0 ./code/train_megatron_llama3_8b.sh ...
+
+# On node 1:
+MASTER_ADDR=node0 NODE_RANK=1 ./code/train_megatron_llama3_8b.sh ...
+```
+
+### Example 3: Megatron MoE Training (Mixtral 8x7B)
+
+Here's a complete example for training a Mixture-of-Experts model using Megatron:
+
+**Training Script (`code/train_megatron_mixtral.sh`):**
+
+```bash
+#!/bin/bash
+
+# Mixtral 8x7B MoE training with Megatron
+# Configuration: 64 GPUs (8 nodes × 8 GPUs), Expert Parallelism
+
+export CUDA_DEVICE_MAX_CONNECTIONS=1
+
+GPUS_PER_NODE=8
+NNODES=8
+MASTER_ADDR=${MASTER_ADDR:-"node0"}
+MASTER_PORT=${MASTER_PORT:-"6000"}
+NODE_RANK=${NODE_RANK:-"0"}
+
+CHECKPOINT_PATH=$1
+TOKENIZER_MODEL=$2
+DATA_PATH=$3
+
+# Model architecture (Mixtral 8x7B)
+MODEL_ARGS=(
+    --use-mcore-models
+    --num-layers 32
+    --hidden-size 4096
+    --ffn-hidden-size 14336
+    --num-attention-heads 32
+    --seq-length 4096
+    --max-position-embeddings 32768
+    --normalization RMSNorm
+    --position-embedding-type rope
+    --swiglu
+    --group-query-attention
+    --num-query-groups 8
+)
+
+# MoE configuration
+MOE_ARGS=(
+    --num-experts 8
+    --expert-model-parallel-size 8
+    --moe-router-topk 2
+    --moe-router-load-balancing-type aux_loss
+    --moe-aux-loss-coeff 1e-2
+    --moe-grouped-gemm
+    --moe-permute-fusion
+    --moe-token-dispatcher-type alltoall
+)
+
+# Parallelism configuration
+PARALLEL_ARGS=(
+    --tensor-model-parallel-size 1
+    --pipeline-model-parallel-size 4
+    --expert-model-parallel-size 8
+    --sequence-parallel
+    --use-distributed-optimizer
+    --overlap-grad-reduce
+    --overlap-param-gather
+)
+
+# Training configuration
+TRAINING_ARGS=(
+    --micro-batch-size 1
+    --global-batch-size 256
+    --lr 1e-4
+    --weight-decay 0.1
+    --clip-grad 1.0
+    --bf16
+)
+
+# Data configuration
+DATA_ARGS=(
+    --tokenizer-type Llama2Tokenizer
+    --tokenizer-model ${TOKENIZER_MODEL}
+    --data-path $DATA_PATH
+    --split 99990,8,2
+)
+
+# Logging
+LOGGING_ARGS=(
+    --log-interval 1
+    --save-interval 10000
+    --eval-interval 1000
+    --save $CHECKPOINT_PATH
+    --load $CHECKPOINT_PATH
+    --tensorboard-dir "${CHECKPOINT_PATH}/tensorboard"
+    --ckpt-format torch_dist
+)
+
+torchrun --nproc_per_node=$GPUS_PER_NODE \
+    --nnodes=$NNODES \
+    --node_rank=$NODE_RANK \
+    --master_addr=$MASTER_ADDR \
+    --master_port=$MASTER_PORT \
+    pretrain_gpt.py \
+    ${MODEL_ARGS[@]} \
+    ${MOE_ARGS[@]} \
+    ${PARALLEL_ARGS[@]} \
+    ${TRAINING_ARGS[@]} \
+    ${DATA_ARGS[@]} \
+    ${LOGGING_ARGS[@]}
+```
+
+**Key Features:**
+
+* **Expert Parallelism**: 8-way EP distributes 8 experts across GPUs
+* **Pipeline Parallelism**: 4 pipeline stages for inter-node scaling
+* **Token Routing**: All-to-all communication for efficient expert routing
+* **Load Balancing**: Auxiliary loss for balanced token distribution
+* **Performance**: Achieves 468 TFLOPS for Mixtral 8X7B training
+
 ## ZeRO vs FSDP vs Megatron: When to Use Which?
 
 Both ZeRO-3 and PyTorch FSDP do parameter sharding (state sharding). They solve the same problem—distributing model parameters, gradients, and optimizer states across GPUs to reduce memory usage. In practice, **FSDP2 should be considered the default solution** for large-model training, while DeepSpeed is most valuable in memory-constrained or extreme-scale scenarios where GPU-only approaches are no longer sufficient.
@@ -1385,15 +2087,53 @@ Both ZeRO-3 and PyTorch FSDP do parameter sharding (state sharding). They solve 
 
 **Important caveat**: CPU and NVMe offloading come with substantial throughput penalties. These are "feasibility" solutions—they enable training that wouldn't otherwise be possible, but at the cost of slower training speeds. Use them only when GPU-only approaches are truly insufficient.
 
+### Use Megatron (Computation Sharding):
+
+Megatron is **essential** (not optional) when:
+
+- **Individual layers exceed single-GPU computation capacity**: When a single Transformer layer's matrix operations are too large or too slow for one GPU
+- **Very large hidden dimensions**: Models with hidden_size >= 16K require tensor parallelism
+- **MoE models**: Expert parallelism is the standard approach for Mixture-of-Experts architectures
+- **Long-context training**: Context parallelism (CP) is the most efficient solution for sequences >= 8K tokens
+- **Multi-node scaling**: Pipeline parallelism enables efficient scaling across nodes
+- **Maximum performance**: Megatron-FSDP provides 15-25% speedup over PyTorch FSDP2
+
+**Megatron Parallelism Strategies:**
+
+* **Tensor Parallelism (TP)**: Use when individual layers are too large for single GPU
+* **Pipeline Parallelism (PP)**: Use for inter-node scaling and very deep models
+* **Context Parallelism (CP)**: Use for long sequences (>=8K tokens) to reduce activation memory
+* **Expert Parallelism (EP)**: Use for MoE models to distribute experts across GPUs
+* **Sequence Parallelism**: Always enable with TP to reduce activation memory
+
+**When to Combine with State Sharding:**
+
+* **FSDP2 + Megatron TP**: Default for 50B-200B models
+* **Megatron-FSDP + Megatron TP**: Maximum performance (15-25% faster than FSDP2+TP)
+* **ZeRO-3 + Megatron TP**: Legacy but still common in existing codebases
+
 ### Hybrid Approach
 
-You can even combine them:
-```python
-# Use FSDP for model sharding, DeepSpeed for other features
-from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-import deepspeed
+The modern standard is to combine state sharding with computation sharding:
 
-# This is possible but requires careful setup
+```bash
+# FSDP2 + Megatron TP (most common)
+--use-torch-fsdp2
+--tensor-model-parallel-size 4
+--sequence-parallel
+
+# Megatron-FSDP + Megatron TP (maximum performance)
+--use-megatron-fsdp
+--data-parallel-sharding-strategy optim_grads_params
+--tensor-model-parallel-size 4
+--sequence-parallel
+
+# Full hybrid for extreme scale
+--use-megatron-fsdp
+--tensor-model-parallel-size 4
+--pipeline-model-parallel-size 8
+--context-parallel-size 2
+--expert-model-parallel-size 8  # For MoE
 ```
 
 
@@ -1408,17 +2148,25 @@ import deepspeed
 - **Key insight**: These techniques eliminate memory redundancy but assume each layer can be computed on a single GPU
 
 **Computation sharding (Megatron):**
-- **Tensor Parallelism**: Splits large matrix operations across GPUs when individual layers exceed single-GPU limits
-- **Pipeline Parallelism**: Shards model depth across GPUs/nodes for very deep models
-- **Sequence Parallelism**: Splits activations along sequence dimension for long-context training
+- **Tensor Parallelism (TP)**: Splits large matrix operations across GPUs when individual layers exceed single-GPU limits
+- **Pipeline Parallelism (PP)**: Shards model depth across GPUs/nodes for very deep models, with virtual pipeline support
+- **Context Parallelism (CP)**: Advanced long-context solution that partitions sequences, eliminating recompute overhead
+- **Expert Parallelism (EP)**: Specialized parallelism for MoE models, achieving 468 TFLOPS for Mixtral 8X7B
+- **Sequence Parallelism**: Splits activations along sequence dimension, essential when TP is enabled
 - **Key insight**: Megatron addresses a fundamentally different problem—computation itself, not just memory
 
 **Hybrid parallelism (the modern default):**
 - **FSDP2 + Megatron TP**: The dominant pattern for 50B-200B+ models
   - FSDP2 handles state sharding across all GPUs
   - Megatron TP handles computation sharding for large layers
-- **Full hybrid**: FSDP2 + Megatron TP + PP for 200B+ models requiring multi-node scaling
+- **Megatron-FSDP + TP**: 15-25% faster alternative to FSDP2+TP for maximum performance
+- **Full hybrid**: FSDP2/Megatron-FSDP + Megatron TP + PP + CP for 200B+ models
+  - TP for large layers (within nodes)
+  - PP for inter-node scaling
+  - CP for long sequences (>=8K tokens)
+  - EP for MoE models
 - **Why it works**: State sharding and computation sharding operate on orthogonal axes and address different bottlenecks
+- **Performance**: Up to 47% MFU on H100 clusters, 468 TFLOPS for MoE training
 
 **Decision framework:**
 1. **Can a single layer fit and compute efficiently on one GPU?**
@@ -1427,11 +2175,23 @@ import deepspeed
 
 2. **Is GPU-only state sharding insufficient?**
    - Yes → Consider DeepSpeed ZeRO-Offload/Infinity (with throughput tradeoffs)
-   - No → FSDP2 is sufficient
+   - No → FSDP2 or Megatron-FSDP is sufficient
 
 3. **Do you need multi-node scaling?**
-   - Yes → Add Pipeline Parallelism and consider ZeRO++ for communication optimization
+   - Yes → Add Megatron Pipeline Parallelism (PP) for inter-node scaling
    - No → Tensor parallelism within nodes is sufficient
+
+4. **Is sequence length >= 8K tokens?**
+   - Yes → Add Megatron Context Parallelism (CP) to reduce activation memory
+   - No → Sequence parallelism with TP is sufficient
+
+5. **Is this an MoE model?**
+   - Yes → Add Megatron Expert Parallelism (EP) for efficient expert routing
+   - No → Standard TP/PP is sufficient
+
+6. **Do you need maximum performance?**
+   - Yes → Use Megatron-FSDP instead of PyTorch FSDP2 (15-25% faster)
+   - No → PyTorch FSDP2 is sufficient
 
 **The fundamental principle**: Large-scale training is no longer about choosing a single parallelism strategy, but about composing multiple strategies along orthogonal axes. State sharding and computation sharding are complementary, not competing.
 
@@ -1441,11 +2201,35 @@ So far, we've focused on distributed training—how to train large models across
 
 ## References
 
+### DeepSpeed and ZeRO
+
 - [ZeRO Paper (2020)](https://arxiv.org/abs/1910.02054): Original ZeRO optimization
 - [ZeRO-Offload Paper (2021)](https://arxiv.org/abs/2101.06840): CPU offloading techniques  
 - [ZeRO-Infinity Paper (2021)](https://arxiv.org/abs/2104.07857): NVMe offloading
 - [ZeRO++ Paper (2023)](https://arxiv.org/abs/2306.10209): Communication-optimized ZeRO
 - [DeepSpeed Documentation](https://www.deepspeed.ai/): Official docs and tutorials
 - [DeepSpeed GitHub](https://github.com/microsoft/DeepSpeed): Source code and examples
+- [DeepSpeed Megatron Tutorial](https://www.deepspeed.ai/tutorials/megatron/): Training with DeepSpeed and Megatron
+
+### Megatron-LM
+
 - [Megatron-LM Paper (2019)](https://arxiv.org/abs/1909.08053): Tensor parallelism for large language models
 - [Megatron-LM GitHub](https://github.com/NVIDIA/Megatron-LM): Source code and examples
+- [Megatron Core Documentation](https://docs.nvidia.com/megatron-core/): Official API documentation
+- [ROCm AI Developer Hub - Megatron Setup](https://rocm.docs.amd.com/projects/ai-developer-hub/en/latest/notebooks/pretrain/setup_tutorial.html): AMD GPU setup guide
+- [ROCm Megatron-LM Benchmark](https://rocm.docs.amd.com/en/latest/how-to/rocm-for-ai/training/benchmark-docker/megatron-lm.html?model=pyt_megatron_lm_train_llama-3.3-70b): ROCm training guide
+- [AWS Neuron Megatron Training](https://awsdocs-neuron.readthedocs-hosted.com/en/v2.9.1/frameworks/torch/torch-neuronx/tutorials/training/megatron_lm_gpt.html): AWS Inferentia training
+
+### Recent Research Papers
+
+- [Arctic Long Sequence Training (2025)](https://arxiv.org/html/2507.19845v1): Scalable training for multi-million token sequences
+- [SuperOffload (2025)](https://arxiv.org/html/2502.19811v3): Large-scale LLM training on superchips
+- [ZenFlow (2025)](https://arxiv.org/html/2502.07846): Stall-free offloading engine
+- [DeepCompile (2025)](https://arxiv.org/html/2505.11432): Compiler optimization for distributed training
+- [Universal Checkpointing (2024)](https://arxiv.org/html/2503.15758): Efficient checkpointing for large-scale training
+- [Megatron MoE Performance (2024)](https://arxiv.org/html/2411.05288): MoE training optimizations
+- [Context Parallelism (2024)](https://arxiv.org/html/2412.14711): Long-context training techniques
+
+
+
+
