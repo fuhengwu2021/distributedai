@@ -552,7 +552,7 @@ For a model with 4 layers (for illustration):
 - All GPUs work simultaneously on different parts of the computation
 - Communication operations synchronize results between GPUs
 
-## Linear Algebra Behind TP: Column & Row Parallelism
+### Linear Algebra Behind TP: Column & Row Parallelism
 
 Tensor parallelism is built on two fundamental linear algebra operations:
 
@@ -591,7 +591,7 @@ Then: Y = X₁ × A₁ + X₂ × A₂
 - **All-gather**: Concatenates results from multiple GPUs
 - **All-reduce**: Sums partial results from multiple GPUs
 
-## Applying TP to a Multi-Layer Perceptron (MLP)
+### Applying TP to a Multi-Layer Perceptron (MLP)
 
 An MLP layer (as found in LLaMA) consists of:
 
@@ -626,7 +626,7 @@ To use more GPUs, simply shard each matrix into more sections. For N GPUs:
 - Column parallel: Split into N columns
 - Row parallel: Split into N rows
 
-## Benefits of Tensor Parallelism
+### Benefits of Tensor Parallelism
 
 ### 1. Weight Space Reduction
 
@@ -874,7 +874,47 @@ An external load balancer (e.g., nginx, HAProxy) routes requests to different ra
 4. **Monitor KV cache**: Balance requests based on available KV cache per rank
 5. **Use Ray backend**: For multi-node DP, Ray simplifies deployment
 
-## Introduction to Pipeline Parallelism (PP) for Multi-Node Inference
+### vLLM Data Parallelism Source Code
+
+The data parallelism implementation in vLLM is distributed across several key files:
+
+**Core Implementation**:
+- `vllm/v1/engine/core.py` (lines 1139-1457): 
+  - `DPEngineCoreProc`: Main data parallel engine core process class
+  - `DPEngineCoreActor`: Ray actor version for distributed execution
+  - Handles DP rank initialization and step synchronization
+
+**Parallel State Management**:
+- `vllm/distributed/parallel_state.py` (line 1102+):
+  - `get_dp_group()`: Returns the data parallel process group
+  - Initializes DP groups and manages DP ranks
+
+**DP Coordination and Synchronization**:
+- `vllm/v1/worker/dp_utils.py`:
+  - `coordinate_batch_across_dp()`: Coordinates batch processing across DP ranks
+  - `_synchronize_dp_ranks()`: Synchronizes token counts and microbatching decisions
+  - Handles DP padding and ubatch coordination via all-reduce operations
+
+**DP Coordinator**:
+- `vllm/v1/engine/coordinator.py` (line 22+):
+  - `DPCoordinator`: Coordinates multiple DP engine ranks
+  - Manages request waves, load balancing stats, and START_DP_WAVE messages
+  - Collects statistics from DP engines for load balancing
+
+**Worker Integration**:
+- `vllm/v1/worker/gpu_worker.py`: GPU worker with DP support
+- `vllm/v1/worker/gpu_model_runner.py`: Model runner with DP batch coordination
+- `vllm/v1/worker/gpu/dp_utils.py`: GPU-specific DP utilities
+
+**Configuration**:
+- `vllm/config/parallel.py`:
+  - `ParallelConfig` class with `data_parallel_size`, `data_parallel_rank`, etc.
+
+**Examples**:
+- `examples/offline_inference/data_parallel.py`: Offline batch inference example
+- `examples/online_serving/multi_instance_data_parallel.py`: Online serving example
+
+## Pipeline Parallelism (PP) for Multi-Node Inference
 
 When models are too large for a single node (e.g., DeepSeek R1, LLaMA 405B), **Pipeline Parallelism (PP)** shards the model across multiple nodes.
 
@@ -1201,7 +1241,7 @@ VLLM_ROCM_USE_AITER=1 vllm serve model-name \
 
 **Key insight**: AllToAll communication requires `dp_size > 1`. With TP-only configurations (`dp_size=1`), vLLM always uses AllReduce even when the EP flag is enabled.
 
-## Solving Pipeline Bubbles with Request Groups
+### Solving Pipeline Bubbles with Request Groups
 
 ### The Pipeline Bubble Problem
 
@@ -1243,7 +1283,7 @@ GPU 2: [Group1][Group2][Group3][Group4][Group1][Group2]...
 
 3. **Load Balancing**: vLLM balances by splitting KV cache evenly and routing requests to schedulers with most available KV cache
 
-## Optimizing Pipelines with Chunked Prefill
+### Optimizing Pipelines with Chunked Prefill
 
 ### The Prefill vs. Decode Problem
 
