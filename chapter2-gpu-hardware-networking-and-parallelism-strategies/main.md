@@ -709,7 +709,7 @@ The key distinction is simple: **are you sharding computation or state?** If a s
 
 The following table provides a canonical taxonomy of all parallelization and scaling techniques used in large-model training and inference. The classification is based on **what is being sharded**—computation, model state, or data.
 
-| Parallelism / Technique | Primary Category | Sub-Category | Typical Phase | Framework / System |
+| Parallelism | Category | Sub-Category | Phase | Implementation |
 | ----------------------- | ---------------- | -------------------------------- | ------------- | -------------------- |
 | Data Parallel (DP) | Data | Replicated model, data sharded | Training | PyTorch DDP / Horovod |
 | Fully Sharded Data Parallel (FSDP) | State | Full state sharding | Training | PyTorch FSDP |
@@ -776,6 +776,20 @@ These aren't parallelism strategies per se, but they're essential for scaling:
 ### Combining Strategies
 
 In practice, you'll combine these. A common setup for a 70B model might be: FSDP for memory efficiency, plus some tensor parallelism for the largest layers, plus pipeline parallelism if you have enough GPUs. For MoE models, you might do expert parallelism plus data parallelism across expert groups.
+
+### Composition Patterns (Hybrid Parallelism)
+
+The following table shows common composition patterns. These are combinations of primitive strategies, not new primitives themselves:
+
+| Composition Pattern | Constituent Primitives | Typical Use Case | Representative Systems |
+| ------------------- | ---------------------- | ---------------- | ---------------------- |
+| DP + TP | Data + Computation | Large dense LLM training | Megatron-LM |
+| DP + PP | Data + Computation | Deep models with limited memory | GPipe + DDP |
+| DP + TP + PP | Data + Computation | Multi-thousand-GPU training | Megatron-DeepSpeed |
+| DP + EP | Data + Computation | Sparse MoE models | DeepSpeed-MoE |
+| FSDP + TP | State + Computation | Memory-efficient large LLMs | PyTorch FSDP + Megatron |
+| ZeRO-3 + PP | State + Computation | Extreme-scale models | DeepSpeed |
+| TP + Context Parallelism | Computation + Computation | Long-context inference | vLLM / SGLang |
 
 Most people don't implement these from scratch—you'll use PyTorch's DDP/FSDP, DeepSpeed's ZeRO, or libraries like Megatron-LM that handle the tensor parallelism details. But understanding what's happening under the hood helps when things go wrong.
 
