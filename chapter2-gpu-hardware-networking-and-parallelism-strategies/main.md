@@ -13,7 +13,7 @@ Before diving into GPU specifics, let's step back and understand what we're real
 
 ### What is Computational Power?
 
-Computational power, or compute capacity, measures how many operations a system can perform per second. For AI workloads, we care about floating-point operations per second (FLOPS). The scale is exponential: a single modern GPU like the H200 delivers around 1,000 TFLOPS (teraFLOPS, or 10^12 operations per second) for FP16 operations. A cluster with 1000 such GPUs gives you roughly 1 PFLOPS (petaFLOPS, 10^15 operations per second).
+Computational power, or compute capacity, measures how many operations a system can perform per second. For AI workloads, we care about floating-point operations per second (FLOPS). The scale is exponential: a single modern GPU like the H200 delivers around 1,000 TFLOPS (teraFLOPS, or 10^12 operations per second) for FP16 operations. A cluster with 1000 such GPUs gives you roughly 1,000 PFLOPS (petaFLOPS, 10^15 operations per second), or 1 EFLOPS (exaFLOPS, 10^18 operations per second): 1000 GPUs × 1000 TFLOPS = 10^6 TFLOPS = 1000 PFLOPS = 1 EFLOPS.
 
 But here's the thing: raw FLOPS numbers don't tell the whole story. In practice, you'll see different precision formats used for different purposes:
 
@@ -24,7 +24,7 @@ But here's the thing: raw FLOPS numbers don't tell the whole story. In practice,
 
 When someone says "this cluster delivers 500 PFLOPS," you need to ask: at what precision? An HPC cluster might quote FP64 numbers, while an AI cluster quotes FP16 or BF16. The same hardware can show very different numbers depending on which precision you're measuring.
 
-The growth in computational demand for AI has been staggering. Large language models require computational resources that grow roughly 750x every two years, while hardware capabilities grow only about 3x in the same period. This gap is why distributed training isn't optional—it's the only way to train modern models in reasonable time.
+The growth in computational demand for AI has been staggering. Large language models require computational resources that grow by orders of magnitude over a few years, depending on workload and model scaling, while hardware capabilities grow only about 3x in the same period. This gap is why distributed training isn't optional—it's the only way to train modern models in reasonable time.
 
 ### Why Clusters?
 
@@ -44,7 +44,7 @@ An **AI cluster** is a cluster specifically designed for AI workloads. Unlike ge
 
 **For training**, AI clusters need:
 
-- **High-bandwidth interconnects**: Gradient synchronization happens every training step. If communication is slow, GPUs sit idle waiting for gradients. NVLink (300-900 GB/s) within nodes and InfiniBand (200-400 Gb/s) between nodes are standard.
+- **High-bandwidth interconnects**: Gradient synchronization happens every training step. If communication is slow, GPUs sit idle waiting for gradients. NVLink (300-900 GB/s per GPU, aggregate bidirectional) within nodes and InfiniBand (200-400 Gb/s per link) between nodes are standard.
 - **Large aggregate memory**: Model parameters, gradients, and optimizer states are sharded across GPUs. A 70B model might need 8-16 GPUs just to fit in memory, even with techniques like FSDP.
 - **Fast storage**: Training datasets are large (ImageNet is 150 GB, text datasets can be terabytes). You need fast parallel filesystems or object storage to keep data pipelines fed.
 
@@ -70,10 +70,11 @@ MFU tells you if you're compute-bound or limited by something else. A well-optim
 
 For a 70B parameter transformer model training on H100 GPUs, you might see:
 
-- **Theoretical FLOPs per iteration**: ~80 TFLOPS (depends on batch size, sequence length)
-- **Actual FLOPS per second**: ~300 TFLOPS (if iteration takes 0.27 seconds)
+- **Theoretical FLOPs per iteration**: ~80 TFLOP (depends on batch size, sequence length)
+- **Iteration time**: 0.27 seconds
+- **Actual FLOPS per second**: ~80 TFLOP / 0.27 s ≈ 296 TFLOPS
 - **Peak H100 FLOPS**: ~1000 TFLOPS (FP16)
-- **MFU**: 300/1000 = 30%
+- **MFU**: 296/1000 = 29.6%
 
 That 30% MFU means 70% of your hardware is idle. Common causes: memory bandwidth saturation, communication overhead, or small batch sizes that don't keep GPUs busy.
 
@@ -101,13 +102,19 @@ Communication efficiency = Actual bandwidth / Theoretical bandwidth
 
 For InfiniBand HDR (200 Gb/s), you might achieve 180 Gb/s actual bandwidth, giving 90% efficiency. If efficiency is low, you might have topology issues, packet loss, or suboptimal communication patterns.
 
-**Throughput** (samples per second or tokens per second) is what you care about for training speed:
+**Throughput** (samples per second or tokens per second) is what you care about for training speed. There are two ways to measure it:
 
+**Cluster throughput** (total tokens processed per second across all GPUs):
 ```Python
-Throughput = (Global batch size × Sequence length) / (Total training time × GPU count)
+Throughput_cluster = (Global batch size × Sequence length) / Total training time
 ```
 
-This tells you how fast you're processing data. Higher is better, but you need to balance it with convergence—larger batches might train faster per iteration but need more iterations to converge.
+**Per-GPU throughput** (tokens per second per GPU):
+```Python
+Throughput_per_GPU = (Global batch size × Sequence length) / (Total training time × GPU count)
+```
+
+Higher throughput is better, but you need to balance it with convergence—larger batches might train faster per iteration but need more iterations to converge.
 
 **Resource utilization** breaks down where time is spent:
 
@@ -178,7 +185,7 @@ When you run distributed training, here's what happens:
 
 3. **CPU handles communication**: For multi-node training, CPU processes handle network communication (InfiniBand, Ethernet) and coordinate with NCCL for GPU collectives.
 
-The PCIe connection between CPU and GPU is often a bottleneck. PCIe Gen 4 x16 gives you about 32 GB/s bidirectional, while NVLink between GPUs gives 300-1800 GB/s. This is why you want GPUs to communicate directly via NVLink, not through the CPU.
+The PCIe connection between CPU and GPU is often a bottleneck. PCIe Gen 4 x16 gives you about 31.5 GB/s per direction (~63 GB/s bidirectional), while NVLink between GPUs gives 300-1800 GB/s per GPU (aggregate bidirectional). This is why you want GPUs to communicate directly via NVLink, not through the CPU.
 
 ### NUMA and CPU Affinity
 
@@ -236,7 +243,7 @@ That's PCIe Gen 5 with 16 lanes—roughly 64 GB/s per direction. Compare that to
 NVIDIA GeForce RTX 4090, 24564 MiB, 4, 16
 ```
 
-PCIe Gen 4, same 16 lanes, but only about 32 GB/s. The PCIe connection is what your GPU uses to talk to the CPU, but for multi-GPU communication, you want something faster.
+PCIe Gen 4, same 16 lanes, but only about 31.5 GB/s per direction (~63 GB/s bidirectional). The PCIe connection is what your GPU uses to talk to the CPU, but for multi-GPU communication, you want something faster.
 
 But PCIe is just one part of the story. For multi-GPU communication, you want NVLink—direct GPU-to-GPU links that bypass the CPU entirely. To see what your system actually has, run:
 
@@ -246,7 +253,7 @@ nvidia-smi topo -m
 
 This shows the topology matrix. The output can be dense, but here's what to look for:
 
-If you see `NV18`, `NV12`, or `NV4` between GPUs, you have NVLink. That's good—those links give you 300-900 GB/s depending on the generation, way faster than PCIe. In a well-configured system like a DGX or HGX box, you'll see all GPUs connected via NVLink through an NVSwitch, meaning every GPU can talk to every other GPU at full speed.
+If you see `NV18`, `NV12`, or `NV4` between GPUs, you have NVLink. That's good—those links give you 300-900 GB/s per GPU (aggregate bidirectional) depending on the generation, way faster than PCIe. In a well-configured system like a DGX or HGX box, you'll see all GPUs connected via NVLink through an NVSwitch, meaning every GPU can talk to every other GPU at full speed.
 
 If you see `PIX` or `PXB` between GPUs, they're only connected via PCIe. That works, but you'll hit bandwidth limits faster. You might also see `NODE` or `SYS`, which means the connection crosses NUMA boundaries—another thing that can slow things down.
 
@@ -265,13 +272,13 @@ One more thing: notice the CPU affinity column. GPUs 0-3 might be on NUMA node 0
 
 ### Key Architecture Milestones
 
-**Fermi (2010)** introduced the first complete GPU computing architecture with CUDA cores and ECC memory support. **Pascal (2016)** was the breakthrough for AI—it introduced NVLink (160 GB/s bidirectional), enabling multi-GPU systems that could actually communicate fast enough for distributed training.
+**Fermi (2010)** introduced the first complete GPU computing architecture with CUDA cores and ECC memory support. **Pascal (2016)** was the breakthrough for AI—it introduced NVLink (160 GB/s per GPU, aggregate bidirectional), enabling multi-GPU systems that could actually communicate fast enough for distributed training.
 
-**Volta (2017)** added Tensor Cores, specialized units for matrix multiplication that accelerated deep learning by 10-100x. This is when GPUs stopped being just graphics cards and became AI accelerators. **Ampere (2020)** with the A100 brought Tensor Core 3.0, supporting TF32 and BF16, plus NVLink 3.0 (600 GB/s) and NVSwitch for 8-GPU all-to-all connectivity.
+**Volta (2017)** added Tensor Cores, specialized units for matrix multiplication that accelerated deep learning by 10-100x. This is when GPUs stopped being just graphics cards and became AI accelerators. **Ampere (2020)** with the A100 brought Tensor Core 3.0, supporting TF32 and BF16, plus NVLink 3.0 (600 GB/s per GPU, aggregate bidirectional) and NVSwitch for 8-GPU all-to-all connectivity.
 
-**Hopper (2022)** with the H100 pushed things further: FP8 precision, Transformer Engine for dynamic precision switching, and NVLink 4.0 (900 GB/s). The H200 added more HBM3 memory (141 GB vs H100's 80 GB), which matters when you're training large models.
+**Hopper (2022)** with the H100 pushed things further: FP8 precision, Transformer Engine for dynamic precision switching, and NVLink 4.0 (900 GB/s per GPU, aggregate bidirectional). The H200 added more HBM3e memory (141 GB vs H100's 80 GB HBM3), which matters when you're training large models.
 
-**Blackwell (2024)** is the current generation. The B200 doubles NVLink bandwidth to 1.8 TB/s and introduces dual-die design—each B200 chip is actually two dies connected internally. This means a single B200 has roughly the compute of two H100s, but with better memory bandwidth (8 TB/s vs 3 TB/s).
+**Blackwell (2024)** is the current generation. The B200 doubles NVLink bandwidth to 1.8 TB/s per GPU (aggregate bidirectional) and introduces dual-die design—each B200 chip is actually two dies connected internally. This means a single B200 has roughly the compute of two H100s, but with better memory bandwidth (8 TB/s vs 3 TB/s per GPU).
 
 ### What These Numbers Mean for Training
 
@@ -279,21 +286,21 @@ When you're choosing GPUs for distributed training, you care about three things:
 
 **Memory capacity and bandwidth**: A 70B parameter model with FP16 weights needs about 140 GB just for the model. Add gradients, optimizer states (Adam uses 2x model size), and activations, and you're looking at 500+ GB per training step. The H100 has 80 GB HBM3, the H200 has 141 GB, and the B200 has 192 GB. More memory means larger batch sizes or fewer GPUs needed.
 
-HBM bandwidth matters too. The A100 has 2 TB/s, H100 has 3 TB/s, and B200 has 8 TB/s. When you're doing gradient synchronization, higher bandwidth means less time waiting for data transfers.
+HBM bandwidth matters too. The A100 has 2 TB/s, H100 has 3 TB/s, and B200 has 8 TB/s (all per GPU). However, interconnect bandwidth (NVLink/InfiniBand) is typically the main bottleneck for gradient synchronization across GPUs. HBM bandwidth primarily affects local operations like reduce kernels and fused operators—higher HBM bandwidth means faster local reductions and memory-bound operations.
 
 **Compute throughput**: This is where Tensor Cores shine. The H100 delivers about 1 PFLOP for FP16, while the B200 hits 2.25 PFLOP. But raw FLOPS don't tell the whole story—you need to look at what precision you're actually using. FP8 training can be 2x faster than FP16, but not all models train well at FP8. The Transformer Engine in Hopper and Blackwell architectures automatically switches between FP8 and FP16 during training, which is why you see claims of "6x faster" for certain workloads.
 
-**Interconnect bandwidth**: NVLink bandwidth determines how fast GPUs can synchronize gradients. A100 has 600 GB/s, H100 has 900 GB/s, and B200 has 1.8 TB/s. When you're doing data parallelism, you're doing AllReduce operations every step. Faster NVLink means less communication overhead.
+**Interconnect bandwidth**: NVLink bandwidth (per GPU, aggregate bidirectional) determines how fast GPUs can synchronize gradients. A100 has 600 GB/s, H100 has 900 GB/s, and B200 has 1.8 TB/s (all per GPU, aggregate bidirectional). When you're doing data parallelism, you're doing AllReduce operations every step. Faster NVLink means less communication overhead.
 
 ### Graphics Processing Unit (GPU) Product Families
 
 NVIDIA ships GPUs in different form factors depending on your needs:
 
-**HGX (Hyperscale GPU eXchange)** is a baseboard module that OEMs integrate into servers. An HGX H100 has 8 H100 GPUs connected via NVSwitch, giving you 640 GB total HBM and 7.2 TB/s aggregate NVLink bandwidth. You buy this from server vendors like Dell, Supermicro, or Inspur, who add CPUs, storage, and networking.
+**HGX (Hyperscale GPU eXchange)** is a baseboard module that OEMs integrate into servers. An HGX H100 has 8 H100 GPUs connected via NVSwitch, giving you 640 GB total HBM and 7.2 TB/s system aggregate NVLink bandwidth (8 GPUs × 900 GB/s per GPU). You buy this from server vendors like Dell, Supermicro, or Inspur, who add CPUs, storage, and networking.
 
 **DGX (Deep GPU Xceleration)** is NVIDIA's complete system. A DGX H100 is a pre-integrated server with 8 H100s, AMD EPYC CPUs, NVMe storage, and InfiniBand networking. It's more expensive but comes with optimized software stack and support. DGX systems are what most AI companies use for training—they're tested, documented, and just work.
 
-**SuperPOD** scales beyond a single server. A DGX SuperPOD connects multiple DGX systems (typically 32-64 nodes) via InfiniBand, creating a cluster with thousands of GPUs. The GB200 SuperPOD connects 8 GB200 NVL72 units (each with 72 GPUs) for a total of 576 GPUs with 1 PB/s NVLink bandwidth.
+**SuperPOD** scales beyond a single server. A DGX SuperPOD connects multiple DGX systems (typically 32-64 nodes) via InfiniBand, creating a cluster with thousands of GPUs. The GB200 SuperPOD connects 8 GB200 NVL72 units (each with 72 GPUs) for a total of 576 GPUs with 1 PB/s system aggregate NVLink bandwidth.
 
 The GB200 NVL72 is interesting—it's a liquid-cooled rack unit with 36 GB200 superchips (72 GPUs total) connected via NVLink. NVIDIA markets it as a "single massive GPU" because the NVLink topology makes all 72 GPUs appear as one unified memory space. This is what you'd use for training trillion-parameter models.
 
@@ -319,7 +326,7 @@ For inference, the calculus changes. B200's FP4 performance (20 PFLOP) makes it 
 
 **MIG (Multi-Instance GPU)** on A100 and H100 lets you partition a single GPU into multiple virtual GPUs. Each partition gets dedicated memory and compute. This is useful for cloud providers who want to rent GPU time to multiple customers, but for training large models, you'll want the full GPU.
 
-**NVLink-C2C** in Grace Hopper systems connects the CPU and GPU with 900 GB/s bandwidth. This lets the GPU access CPU memory directly, useful for models that don't fit in GPU memory. The Grace CPU has 512 GB LPDDR5X, so a GH200 system gives you 608 GB total addressable memory (96 GB GPU + 512 GB CPU).
+**NVLink-C2C** in Grace Hopper systems connects the CPU and GPU with 900 GB/s bandwidth (aggregate bidirectional). This lets the GPU access CPU memory directly, useful for models that don't fit in GPU memory. The Grace CPU has 512 GB LPDDR5X, so a GH200 system gives you 608 GB total addressable memory (96 GB GPU + 512 GB CPU).
 
 When you're designing distributed systems, these architectural details determine your parallelism strategy. High NVLink bandwidth means tensor parallelism is viable. Large memory means you can fit bigger models or use fewer GPUs. Fast HBM means you can process larger batches without hitting memory bandwidth limits.
 
@@ -509,7 +516,7 @@ There are several ways GPUs connect, and which one matters depends on whether yo
 
 **PCIe** is what you get by default. Every GPU connects to the CPU via PCIe, and if there's no NVLink, GPUs talk to each other through the CPU too. It works, but it's the slowest option—typically 16-64 GB/s depending on PCIe generation. The latency is also higher since everything goes through the CPU.
 
-**NVLink** is NVIDIA's direct GPU-to-GPU interconnect. When two GPUs have NVLink between them, they can talk directly without involving the CPU. Bandwidth is much higher—300-900 GB/s depending on the generation. The catch is that not all systems have it, and even when they do, not all GPU pairs might be connected.
+**NVLink** is NVIDIA's direct GPU-to-GPU interconnect. When two GPUs have NVLink between them, they can talk directly without involving the CPU. Bandwidth is much higher—300-900 GB/s per GPU (aggregate bidirectional) depending on the generation. The catch is that not all systems have it, and even when they do, not all GPU pairs might be connected.
 
 **NVSwitch** is what you see in high-end systems like DGX or HGX boxes. It's essentially a switch that connects all GPUs via NVLink, giving you all-to-all connectivity. Every GPU can talk to every other GPU at full NVLink speed simultaneously. This is what you want for large-scale distributed training within a single node.
 
