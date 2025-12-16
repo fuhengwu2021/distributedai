@@ -914,9 +914,16 @@ The data parallelism implementation in vLLM is distributed across several key fi
 - `examples/offline_inference/data_parallel.py`: Offline batch inference example
 - `examples/online_serving/multi_instance_data_parallel.py`: Online serving example
 
-## Pipeline Parallelism (PP) for Multi-Node Inference
+## Pipeline Parallelism (PP)
 
-When models are too large for a single node (e.g., DeepSeek R1, LLaMA 405B), **Pipeline Parallelism (PP)** shards the model across multiple nodes.
+**Pipeline Parallelism (PP)** shards the model across multiple nodes when models are too large for a single node (e.g., DeepSeek R1, LLaMA 405B). 
+
+**Note**: While PP can technically work on a single node, it's not the recommended approach:
+
+- **Single node**: Use **Tensor Parallelism (TP)** when the model doesn't fit on one GPU
+- **Multi-node**: Use **TP within nodes + PP across nodes** for very large models
+
+PP is primarily designed for multi-node deployments where you need to distribute layers across nodes.
 
 ### How Pipeline Parallelism Works
 
