@@ -160,7 +160,7 @@ Skills learned:
 
 ---
 
-### Chapter 5: DeepSpeed and ZeRO Optimization
+### Chapter 5: Beyond State Sharding with DeepSpeed and Megatron
 30 pages
 
 Description:

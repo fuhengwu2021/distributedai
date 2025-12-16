@@ -132,7 +132,7 @@ By the end of this chapter, readers will be able to:
 
 ---
 
-### Chapter 5: DeepSpeed and ZeRO Optimization
+### Chapter 5: Beyond State Sharding with DeepSpeed and Megatron
 **Approximate Length:** 30 pages
 
 **Chapter Overview:**

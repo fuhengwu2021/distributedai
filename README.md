@@ -38,7 +38,7 @@ This repository contains runnable code examples extracted from the book chapters
 - **Chapter 2** (`chapter2-gpu-hardware-networking-and-parallelism-strategies/code/`) — bandwidth and AllReduce microbenchmarks.
 - **Chapter 3** (`chapter3-distributed-training-with-pytorch-ddp/code/`) — torchrun launcher snippet and DDP/AMP helper examples.
 - **Chapter 4** (`chapter4-scaling-with-fully-sharded-data-parallel-fsdp/code/`) — FSDP checkpointing schematic (conceptual).
-- **Chapter 5** (`chapter5-deepspeed-and-zero-optimization/code/`) — DeepSpeed ZeRO Stage 3 config example (JSON).
+- **Chapter 5** (`chapter5-beyond-state-sharding/code/`) — DeepSpeed ZeRO Stage 3 config example (JSON).
 - **Chapter 6** (`chapter6-distributed-inference-fundamentals-and-vllm/code/`) — continuous batching scheduler pseudo-code.
 - **Chapter 7** (`chapter7-sglang-and-advanced-inference-architectures/code/`) — SGLang examples and advanced inference architectures.
 - **Chapter 8** (`chapter8-distributed-ai-training-in-action/code/`) — Distributed training examples.
@@ -119,12 +119,12 @@ torchrun --nproc_per_node=2 python chapter2-gpu-hardware-networking-and-parallel
 
 - `chapter4-scaling-with-fully-sharded-data-parallel-fsdp/code/fsdp_checkpointing.py` shows a schematic of wrapping a model with FSDP and activation checkpointing. It's a conceptual helper — adapt it into a real training loop and initialize PyTorch process groups before use.
 
-### Chapter 5 (DeepSpeed)
+### Chapter 5 (Beyond State Sharding with DeepSpeed and Megatron)
 
-- `chapter5-deepspeed-and-zero-optimization/code/deepspeed_stage3_config.json` is a sample DeepSpeed config demonstrating ZeRO Stage 3 with offload. Use it with a DeepSpeed-enabled training script:
+- `chapter5-beyond-state-sharding/code/deepspeed_stage3_config.json` is a sample DeepSpeed config demonstrating ZeRO Stage 3 with offload. Use it with a DeepSpeed-enabled training script:
 
 ```bash
-deepspeed --num_gpus=4 --deepspeed_config chapter5-deepspeed-and-zero-optimization/code/deepspeed_stage3_config.json train.py
+deepspeed --num_gpus=4 --deepspeed_config chapter5-beyond-state-sharding/code/deepspeed_stage3_config.json train.py
 ```
 
 ### Chapter 6 (inference scheduler)

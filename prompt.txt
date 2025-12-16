@@ -43,7 +43,7 @@ Part 1: Distributed AI Foundations and Distributed Training
 2.	GPU Hardware, Networking, and Parallelism Strategies
 3.	Distributed Training with PyTorch DDP
 4.	Scaling with Fully Sharded Data Parallel (FSDP)
-5.	DeepSpeed and ZeRO Optimization
+5.	Beyond State Sharding with DeepSpeed and Megatron
 
 
 Part 2: Distributed Inference and Production Deployment

@@ -28,3 +28,12 @@
 [submodule "resources/torch-examples"]
 	path = resources/torch-examples
 	url = https://github.com/pytorch/examples.git
+[submodule "resources/deepspeed"]
+	path = resources/deepspeed
+	url = https://github.com/deepspeedai/DeepSpeed.git
+[submodule "resources/megatron-lm"]
+	path = resources/megatron-lm
+	url = https://github.com/NVIDIA/Megatron-LM.git
+[submodule "resources/deepspeed-examples"]
+	path = resources/deepspeed-examples
+	url = https://github.com/deepspeedai/DeepSpeedExamples.git

@@ -146,7 +146,7 @@ This chapter provides hands-on experience with PyTorch FSDP, its sharding strate
 
 ---
 
-### Chapter 5 — DeepSpeed and ZeRO Optimization
+### Chapter 5 — Beyond State Sharding with DeepSpeed and Megatron
 
 **Summary:**
 A practical, code-heavy chapter covering DeepSpeed engine and ZeRO optimizations for massive model training. Readers will build production-ready DeepSpeed training jobs.
