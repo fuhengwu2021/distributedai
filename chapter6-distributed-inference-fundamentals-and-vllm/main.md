@@ -522,6 +522,8 @@ This architecture enables the distributed execution of inference across multiple
 
 ## Overview of Parallelism Strategies in vLLM
 
+![Parallelism strategies in vLLM](img/parallelism_strategies_overview.svg)
+
 vLLM provides three fundamental parallelism strategies for distributing computation and memory across multiple GPUs:
 
 1. **Tensor Parallelism (TP)**: Shards individual layers across multiple GPUs within a node. Each GPU processes a portion of each layer, with results synchronized through collective communication operations.
