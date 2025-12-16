@@ -952,6 +952,102 @@ for layer_group in my_layers:
 - **Frequency**: Once per layer group (much less than TP)
 - **Trade-off**: Lower communication overhead, but sequential execution
 
+### Solving Pipeline Bubbles with Request Groups
+
+### The Pipeline Bubble Problem
+
+In naive pipeline parallelism, GPUs sit idle between batches:
+
+```
+GPU 0: [====]     [====]     [====]
+GPU 1:     [====]     [====]     [====]
+GPU 2:         [====]     [====]     [====]
+```
+
+**Problem**: Each GPU is idle most of the time—huge waste of resources.
+
+### Solution: Request Groups (Virtual Engines)
+
+vLLM uses **request groups** (also called virtual engines) to keep all GPUs busy:
+
+```
+GPU 0: [Group1][Group2][Group3][Group4][Group1][Group2]...
+GPU 1: [Group1][Group2][Group3][Group4][Group1][Group2]...
+GPU 2: [Group1][Group2][Group3][Group4][Group1][Group2]...
+```
+
+**How it works**:
+- Multiple independent request streams (groups) run simultaneously
+- Each group is data-independent
+- vLLM uses multiple schedulers and cache engines to maintain separation
+- Locks ensure only one request group operates on each GPU at a time
+
+### Trade-offs
+
+1. **KV Cache Splitting**: KV cache is divided among request groups
+   - Each group gets a fraction (e.g., 1/4 for 4 PP stages)
+   - Supports smaller batch sizes per group
+
+2. **Micro-batches**: Each request group acts as a micro-batch
+   - All groups together form the full batch
+   - Can reduce decode efficiency (memory-bound operations benefit from larger batches)
+
+3. **Load Balancing**: vLLM balances by splitting KV cache evenly and routing requests to schedulers with most available KV cache
+
+### Optimizing Pipelines with Chunked Prefill
+
+### The Prefill vs. Decode Problem
+
+- **Prefill**: Long sequences, compute-intensive, can take significant time
+- **Decode**: Short sequences, memory-bound, fast
+
+**Problem**: Long prefill can create bubbles in the pipeline when decode is much faster.
+
+### Solution: Chunked Prefill
+
+**Chunked prefill** amortizes the cost of prefill by:
+
+1. Processing only a chunk of the prefill initially
+2. Interleaving the remaining prefill with subsequent decode steps
+3. Spreading prefill computation across multiple decode iterations
+
+**Visual Example**:
+
+Without chunked prefill:
+```
+Prefill: [==============]
+Decode:  [=][=][=][=][=]
+         ↑ Bubble here
+```
+
+With chunked prefill:
+```
+Prefill: [==][==][==][==][==]  (chunked)
+Decode:  [=][=][=][=][=][=][=]
+         ↑ Smooth, no bubbles
+```
+
+### Benefits
+
+1. **Eliminates bubbles**: Smooth pipeline execution
+2. **More KV cache space**: By limiting maximum batch size, vLLM can infer more available KV cache
+3. **Better concurrency**: Prevents arbitrary large prefill from consuming all memory
+
+### Choosing Chunk Size
+
+**Important**: Default chunk size may not be optimal for your workload.
+
+**Example** (LLaMA 13B on 2×L4 GPUs):
+- **Large chunk size**: Creates bubbles, ~20% performance loss
+- **Small chunk size**: Smooth execution, optimal performance
+
+**Considerations**:
+- Prefill-to-decode ratio
+- Hardware characteristics
+- Workload patterns
+
+**Note**: Chunked prefill is enabled by default in vLLM v1.
+
 ## Expert Parallelism (EP): A Modifier Flag for MoE Models
 
 **Expert Parallelism (EP)** is not a standalone parallelism strategy. Instead, it is a modifier flag (`--enable-expert-parallel`) that changes how MoE (Mixture-of-Experts) models distribute experts and communicate across GPUs. EP must be combined with TP or DP—it cannot be used alone.
@@ -1240,102 +1336,6 @@ VLLM_ROCM_USE_AITER=1 vllm serve model-name \
 | 1 | 1 | Yes | No | N/A (constraint violated) |
 
 **Key insight**: AllToAll communication requires `dp_size > 1`. With TP-only configurations (`dp_size=1`), vLLM always uses AllReduce even when the EP flag is enabled.
-
-### Solving Pipeline Bubbles with Request Groups
-
-### The Pipeline Bubble Problem
-
-In naive pipeline parallelism, GPUs sit idle between batches:
-
-```
-GPU 0: [====]     [====]     [====]
-GPU 1:     [====]     [====]     [====]
-GPU 2:         [====]     [====]     [====]
-```
-
-**Problem**: Each GPU is idle most of the time—huge waste of resources.
-
-### Solution: Request Groups (Virtual Engines)
-
-vLLM uses **request groups** (also called virtual engines) to keep all GPUs busy:
-
-```
-GPU 0: [Group1][Group2][Group3][Group4][Group1][Group2]...
-GPU 1: [Group1][Group2][Group3][Group4][Group1][Group2]...
-GPU 2: [Group1][Group2][Group3][Group4][Group1][Group2]...
-```
-
-**How it works**:
-- Multiple independent request streams (groups) run simultaneously
-- Each group is data-independent
-- vLLM uses multiple schedulers and cache engines to maintain separation
-- Locks ensure only one request group operates on each GPU at a time
-
-### Trade-offs
-
-1. **KV Cache Splitting**: KV cache is divided among request groups
-   - Each group gets a fraction (e.g., 1/4 for 4 PP stages)
-   - Supports smaller batch sizes per group
-
-2. **Micro-batches**: Each request group acts as a micro-batch
-   - All groups together form the full batch
-   - Can reduce decode efficiency (memory-bound operations benefit from larger batches)
-
-3. **Load Balancing**: vLLM balances by splitting KV cache evenly and routing requests to schedulers with most available KV cache
-
-### Optimizing Pipelines with Chunked Prefill
-
-### The Prefill vs. Decode Problem
-
-- **Prefill**: Long sequences, compute-intensive, can take significant time
-- **Decode**: Short sequences, memory-bound, fast
-
-**Problem**: Long prefill can create bubbles in the pipeline when decode is much faster.
-
-### Solution: Chunked Prefill
-
-**Chunked prefill** amortizes the cost of prefill by:
-
-1. Processing only a chunk of the prefill initially
-2. Interleaving the remaining prefill with subsequent decode steps
-3. Spreading prefill computation across multiple decode iterations
-
-**Visual Example**:
-
-Without chunked prefill:
-```
-Prefill: [==============]
-Decode:  [=][=][=][=][=]
-         ↑ Bubble here
-```
-
-With chunked prefill:
-```
-Prefill: [==][==][==][==][==]  (chunked)
-Decode:  [=][=][=][=][=][=][=]
-         ↑ Smooth, no bubbles
-```
-
-### Benefits
-
-1. **Eliminates bubbles**: Smooth pipeline execution
-2. **More KV cache space**: By limiting maximum batch size, vLLM can infer more available KV cache
-3. **Better concurrency**: Prevents arbitrary large prefill from consuming all memory
-
-### Choosing Chunk Size
-
-**Important**: Default chunk size may not be optimal for your workload.
-
-**Example** (LLaMA 13B on 2×L4 GPUs):
-- **Large chunk size**: Creates bubbles, ~20% performance loss
-- **Small chunk size**: Smooth execution, optimal performance
-
-**Considerations**:
-- Prefill-to-decode ratio
-- Hardware characteristics
-- Workload patterns
-
-**Note**: Chunked prefill is enabled by default in vLLM v1.
 
 ## Hands-on Examples
 
