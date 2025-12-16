@@ -994,7 +994,7 @@ Hybrid parallelism combines state sharding and computation sharding to overcome 
 
 Large-scale training is no longer about choosing a single parallelism strategy, but about composing multiple strategies along orthogonal axes.
 
-## Choosing the Right ZeRO Stage
+## Choosing the Right Strategy: ZeRO, FSDP, and Megatron
 
 ### Decision Tree
 
@@ -1181,7 +1181,7 @@ nvidia-smi dmon -i 0 -s u
 iftop -i ib0  # InfiniBand interface
 ```
 
-## Complete Training Example
+## Complete Training Examples: ZeRO and Megatron
 
 Here's a complete example training a large model with ZeRO-3:
 
@@ -1364,7 +1364,7 @@ deepspeed --num_gpus=8 \
   --deepspeed_config code/ds_config_zero3.json
 ```
 
-## ZeRO vs FSDP: When to Use Which?
+## ZeRO vs FSDP vs Megatron: When to Use Which?
 
 Both ZeRO-3 and PyTorch FSDP do parameter sharding (state sharding). They solve the same problem—distributing model parameters, gradients, and optimizer states across GPUs to reduce memory usage. In practice, **FSDP2 should be considered the default solution** for large-model training, while DeepSpeed is most valuable in memory-constrained or extreme-scale scenarios where GPU-only approaches are no longer sufficient.
 
