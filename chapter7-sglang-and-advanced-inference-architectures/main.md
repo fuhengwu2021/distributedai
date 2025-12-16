@@ -687,6 +687,7 @@ class CustomInferenceRouter:
 ### Complementary Approaches
 
 Both systems can coexist:
+
 - **vLLM**: For batch processing, large model serving, high-throughput workloads
 - **SGLang**: For interactive chat, low-latency APIs, high-QPS endpoints with session management
 

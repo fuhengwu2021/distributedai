@@ -1047,6 +1047,7 @@ Decode:  [=][=][=][=][=][=][=]
 **Important**: Default chunk size may not be optimal for your workload.
 
 **Example** (LLaMA 13B on 2×L4 GPUs):
+
 - **Large chunk size**: Creates bubbles, ~20% performance loss
 - **Small chunk size**: Smooth execution, optimal performance
 
@@ -1227,6 +1228,7 @@ vLLM allows combining multiple parallelism strategies to efficiently distribute 
 Since TP and PP operate along **different axes**, they can be combined effectively:
 
 **Typical Configuration**:
+
 - **Pipeline Parallelism**: Across nodes (where interconnect is slower)
 - **Tensor Parallelism**: Within nodes (where NVLink provides fast communication)
 

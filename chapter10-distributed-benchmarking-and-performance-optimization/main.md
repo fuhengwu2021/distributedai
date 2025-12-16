@@ -676,6 +676,7 @@ def benchmark_cold_start(model, prompts):
 Reasoning models (chain-of-thought, multi-step decision-making, or tool-augmented LLMs) behave differently from single-pass generation models. For these models you should measure both per-step latency and end-to-end session latency, and separate local generation time from external-call time (retrievals, tool calls, networked services).
 
 Key measurement points:
+
 - **Per-step latency:** Measure TTFT/TPT for each reasoning step separately to see whether some steps are significantly slower.
 - **End-to-end session latency:** Total time to complete the whole reasoning session (sum of steps + external calls).
 - **External-call breakdown:** Measure time spent waiting for retrievals, database queries, or tool responses vs local model generation.

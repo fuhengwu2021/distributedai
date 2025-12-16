@@ -269,6 +269,7 @@ With more GPUs, memory scales linearly: 8 GPUs → 263 GB per GPU, 16 GPUs → 1
 ### Communication Overhead
 
 ZeRO-3 has higher communication than ZeRO-1/2:
+
 - **Communication volume**: 3× the model size per iteration
   - Forward: 1× (all-gather params)
   - Backward: 2× (all-gather params + reduce-scatter grads)

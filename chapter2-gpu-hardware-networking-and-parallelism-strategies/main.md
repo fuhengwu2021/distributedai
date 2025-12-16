@@ -43,11 +43,13 @@ Clusters aren't new—they've been used in high-performance computing (HPC) for 
 An **AI cluster** is a cluster specifically designed for AI workloads. Unlike general-purpose cloud data centers that handle diverse workloads, AI clusters are optimized for the unique characteristics of deep learning:
 
 **For training**, AI clusters need:
+
 - **High-bandwidth interconnects**: Gradient synchronization happens every training step. If communication is slow, GPUs sit idle waiting for gradients. NVLink (300-900 GB/s) within nodes and InfiniBand (200-400 Gb/s) between nodes are standard.
 - **Large aggregate memory**: Model parameters, gradients, and optimizer states are sharded across GPUs. A 70B model might need 8-16 GPUs just to fit in memory, even with techniques like FSDP.
 - **Fast storage**: Training datasets are large (ImageNet is 150 GB, text datasets can be terabytes). You need fast parallel filesystems or object storage to keep data pipelines fed.
 
 **For inference**, the requirements shift:
+
 - **Lower latency networking**: While training cares about bandwidth, inference cares about latency. Users expect responses in milliseconds, not seconds.
 - **Efficient memory usage**: KV caches for attention mechanisms can consume significant memory. You need to balance cache size (for longer context) against memory limits.
 - **Load balancing**: Inference workloads are bursty. You need to route requests efficiently across GPUs and handle traffic spikes.
@@ -67,6 +69,7 @@ MFU = (Model FLOPs per iteration / Iteration time) / Peak FLOPS
 MFU tells you if you're compute-bound or limited by something else. A well-optimized cluster might achieve 40-60% MFU for large models. If MFU is low (say, 20%), you're likely hitting memory bandwidth limits, communication bottlenecks, or inefficient kernel launches.
 
 For a 70B parameter transformer model training on H100 GPUs, you might see:
+
 - **Theoretical FLOPs per iteration**: ~80 TFLOPS (depends on batch size, sequence length)
 - **Actual FLOPS per second**: ~300 TFLOPS (if iteration takes 0.27 seconds)
 - **Peak H100 FLOPS**: ~1000 TFLOPS (FP16)
@@ -107,6 +110,7 @@ Throughput = (Global batch size × Sequence length) / (Total training time × GP
 This tells you how fast you're processing data. Higher is better, but you need to balance it with convergence—larger batches might train faster per iteration but need more iterations to converge.
 
 **Resource utilization** breaks down where time is spent:
+
 - **GPU compute time**: Actual matrix multiplications
 - **Memory transfer time**: Moving data between CPU and GPU, or between GPUs
 - **Communication time**: Gradient synchronization, AllReduce operations
@@ -131,11 +135,13 @@ PUE = Total facility power / IT equipment power
 A PUE of 1.0 means all power goes to IT equipment (impossible in practice). Real datacenters achieve 1.2-1.5. Lower is better—it means less power wasted on cooling and overhead.
 
 **Reliability metrics** matter when you're running week-long training jobs:
+
 - **MTBF (Mean Time Between Failures)**: Average time between system failures. For a 10,000 GPU cluster, you might see failures every few hours.
 - **Availability**: Percentage of time the system is operational. Target: 99%+ for production clusters.
 - **MTTR (Mean Time To Recovery)**: Average time to recover from a failure. Good clusters recover in minutes, not hours.
 
 **Communication latency** is critical for distributed training. AllReduce latency should be:
+
 - **Within a node (NVLink)**: < 1 ms for typical gradient sizes
 - **Between nodes (InfiniBand)**: < 5 ms for cross-node communication
 - **P99 latency**: The 99th percentile latency matters more than average—one slow node can stall the entire training job
@@ -155,6 +161,7 @@ CPUs are built around the **von Neumann architecture**: a central processing uni
 The key difference: CPUs spend most of their silicon on control logic and cache, not compute units. A modern CPU might have 8-64 cores, each with complex out-of-order execution, branch prediction, and multi-level caches. GPUs have thousands of simple cores optimized for parallel workloads.
 
 For distributed training, CPUs handle:
+
 - **Data loading and preprocessing**: Reading from disk, decoding images, tokenizing text
 - **Orchestration**: Launching GPU kernels, managing process groups, handling communication
 - **System management**: Memory allocation, process scheduling, network stack
@@ -188,6 +195,7 @@ For distributed training, try to keep processes on the same NUMA node as their G
 ### CPU Requirements for Distributed Training
 
 For a typical 8-GPU server:
+
 - **CPU cores**: You want at least 2-4 CPU cores per GPU for data loading and orchestration. An 8-GPU system should have 16-32 CPU cores minimum.
 - **Memory**: CPU RAM should be 1.5-2x GPU memory for data staging. With 8×80GB GPUs, you want at least 1 TB CPU RAM.
 - **PCIe lanes**: Each GPU needs PCIe x16. An 8-GPU system needs 128 PCIe lanes, which typically means dual-socket CPUs (AMD EPYC or Intel Xeon).
@@ -408,6 +416,7 @@ NPUs are built around **AI Cores**—specialized units optimized for matrix mult
 The architecture tradeoff: CPUs are general-purpose (good at everything, great at nothing), GPUs are parallel processors (great at parallel workloads, less flexible), and NPUs are domain-specific (excellent at AI, limited elsewhere). NPUs allocate most of their silicon to AI Cores and memory bandwidth, with minimal control logic.
 
 Major NPU vendors include:
+
 - **Huawei Ascend**: Used in Huawei's Atlas servers and Cloud services. The Ascend 910 is designed for training, while Ascend 310 targets inference.
 - **Cambricon MLU**: Chinese company focusing on edge and cloud AI acceleration.
 - **Tesla Dojo**: Custom NPU for Tesla's autonomous driving training.
@@ -416,6 +425,7 @@ Major NPU vendors include:
 ### NPU Architecture: AI Cores and Memory
 
 NPU architecture centers on **AI Cores**—dedicated compute units for neural network operations. Each AI Core typically includes:
+
 - **Matrix multiplication units**: Optimized for GEMM (General Matrix Multiply) operations
 - **Vector processing units**: For element-wise operations, activations, normalization
 - **Specialized units**: For operations like pooling, convolution, attention
@@ -565,6 +575,7 @@ SPMD is different from SIMD (Single Instruction, Multiple Data). SIMD is an exec
 NVIDIA GPUs execute SPMD programs using **SIMT (Single Instruction, Multiple Thread)**. Here's how it works:
 
 **Thread hierarchy**: CUDA organizes threads into a hierarchy:
+
 - **Thread**: The smallest unit. Each thread has its own registers and can execute independently.
 - **Warp**: A group of 32 threads that execute together. This is the hardware scheduling unit.
 - **Block**: A group of threads (typically 128-1024) that can share memory and synchronize.
