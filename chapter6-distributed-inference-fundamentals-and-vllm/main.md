@@ -1,10 +1,10 @@
-title: "Distributed Inference Fundamentals and vLLM"
-
 # Chapter 6 — Distributed Inference Fundamentals and vLLM
 
-In the previous chapters, we've covered distributed training extensively: DDP for models that fit on a single GPU, FSDP for parameter sharding, and DeepSpeed ZeRO for even larger models. But training is only half the story. Once you've trained a model, you need to serve it efficiently at scale—handling thousands of concurrent requests, minimizing latency, and maximizing throughput.
+In the previous chapters, we've covered distributed training extensively: state sharding techniques like FSDP2 and DeepSpeed ZeRO for distributing model parameters, gradients, and optimizer states; computation sharding with Megatron's tensor parallelism, pipeline parallelism, and context parallelism; and hybrid approaches that combine both. These techniques enable training of models that would otherwise be impossible to fit in memory or compute efficiently.
 
-This chapter introduces distributed inference concepts and vLLM internals, focusing on tensor parallelism, data parallelism, pipeline parallelism, and optimization techniques for serving large language models efficiently in production environments. vLLM is a high-performance inference engine that uses innovations like PagedAttention and continuous batching to achieve state-of-the-art throughput and memory efficiency.
+However, training is only half the story. Once you've trained a model, you need to serve it efficiently at scale—handling thousands of concurrent requests, minimizing latency, and maximizing throughput. Inference presents a fundamentally different set of challenges: while training processes batches of data in a controlled environment, inference must handle unpredictable request patterns, maintain low latency for interactive applications, and efficiently manage memory for variable-length sequences.
+
+This chapter introduces distributed inference concepts and vLLM internals, focusing on how inference parallelism strategies differ from training, and optimization techniques for serving large language models efficiently in production environments. vLLM is a high-performance inference engine that uses innovations like PagedAttention and continuous batching to achieve state-of-the-art throughput and memory efficiency.
 
 ## Introduction to vLLM and Setup
 
