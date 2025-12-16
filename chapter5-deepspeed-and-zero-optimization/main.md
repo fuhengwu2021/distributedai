@@ -1,6 +1,10 @@
 # Chapter 5 — DeepSpeed and ZeRO Optimization
 
-When your model grows beyond what fits in GPU memory, you need to split it across devices. DeepSpeed's ZeRO (Zero Redundancy Optimizer) is a family of memory optimization techniques that progressively shard optimizer states, gradients, and parameters across GPUs. This chapter explains the evolution from ZeRO-1 through ZeRO-3, advanced variants like ZeRO-Infinity and ZeRO++, and practical guidance on which to use when.
+In the previous chapter, we covered PyTorch FSDP2, which shards parameters, gradients, and optimizer states across GPUs to enable training of models larger than what fits on a single GPU. FSDP2 is PyTorch-native and works well for most large model training scenarios.
+
+But what if you need to go even further? What if your model is so large that even full sharding across all available GPUs isn't enough? Or what if you want to leverage CPU memory or NVMe storage to extend your memory budget? Or if you're training across many nodes and communication overhead is killing your throughput?
+
+DeepSpeed's ZeRO (Zero Redundancy Optimizer) addresses these scenarios. Like FSDP2, ZeRO-3 shards parameters, gradients, and optimizer states. But DeepSpeed also provides ZeRO-Offload for CPU memory, ZeRO-Infinity for NVMe offloading, and ZeRO++ for communication optimization—features that extend beyond what FSDP2 currently offers. This chapter explains the evolution from ZeRO-1 through ZeRO-3, advanced variants like ZeRO-Infinity and ZeRO++, and practical guidance on when to choose DeepSpeed over FSDP2.
 
 ## Understanding the Memory Problem
 

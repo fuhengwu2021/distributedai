@@ -1498,7 +1498,7 @@ FSDP2 is actively developed and is the direction PyTorch is moving for large mod
 
 The code examples in this chapter show complete working setups. Run them on your hardware to see FSDP2 in action—you'll see the model sharded across GPUs, with each rank only holding its portion of the parameters, gradients, and optimizer states.
 
-In the next chapter, we'll cover DeepSpeed and ZeRO optimization, which provides additional features like ZeRO-Offload and ZeRO-Infinity for even larger models.
+FSDP2 handles most large model training scenarios well. But what if you need to train models that are so large they don't fit even with full sharding? Or what if you want CPU or NVMe offloading to extend memory even further? Or if you're training across many nodes and need optimized communication patterns? That's where DeepSpeed's ZeRO optimization comes in. ZeRO-3 does parameter sharding similar to FSDP2, but DeepSpeed also provides ZeRO-Offload for CPU memory, ZeRO-Infinity for NVMe offloading, and ZeRO++ for communication optimization—features that extend beyond what FSDP2 currently offers. In the next chapter, we'll explore the ZeRO family of optimizations and when to choose DeepSpeed over FSDP2.
 
 ## References
 
