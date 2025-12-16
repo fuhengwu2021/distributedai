@@ -435,20 +435,6 @@ If you're buying hardware, DGX systems are pre-integrated—NVIDIA ships you a c
 
 To actually measure your interconnect bandwidth, you can use NCCL tests or write a simple benchmark. The `code/bandwidth_test.py` script gives you a basic single-GPU test. For multi-GPU within a node, you'll want to use `nccl-tests`. For multi-node, NCCL tests will show you the InfiniBand bandwidth between nodes.
 
-## Distributed Communication Patterns
-
-When you're running distributed training, GPUs need to communicate. The main patterns you'll see are:
-
-**Broadcast** sends data from one GPU (usually rank 0) to all others. You use this during initialization to get the same model weights on every GPU.
-
-**AllReduce** aggregates data from all GPUs and distributes the result back. This is what DDP uses for gradient synchronization—each GPU computes gradients on its local data, then AllReduce averages them across all GPUs.
-
-**ReduceScatter** and **AllGather** show up in sharded parallelism. ReduceScatter splits the result across GPUs, while AllGather collects data from all GPUs into each GPU.
-
-The thing to watch with communication is not just raw bandwidth, but also startup latency and whether you can overlap it with computation. A fast interconnect helps, but if your communication pattern has high latency, you'll still wait. DDP tries to overlap communication with computation by bucketing gradients, which we'll cover in the next chapter.
-
-You can benchmark these operations yourself. The `code/allreduce_microbench.py` script shows a basic example, though you'll need to initialize the process group first (we'll cover that in Chapter 3).
-
 ## Chip Programming Systems: SPMD and CUDA
 
 Understanding how chips are programmed helps you write efficient distributed training code. The programming model (how you write code) and execution model (how hardware runs it) are different layers, and knowing both helps when debugging performance or porting code between platforms.
@@ -587,6 +573,22 @@ AMD GPUs use a different execution model. AMD's CDNA architecture (MI300X) uses 
 ROCm (AMD's CUDA alternative) provides a CUDA-like programming interface, but the hardware execution is different. This can lead to performance differences—code optimized for NVIDIA GPUs might not run as well on AMD GPUs.
 
 For distributed training, stick with NVIDIA if possible. The ecosystem (CUDA, cuDNN, NCCL) is mature and well-optimized. AMD is catching up, but NVIDIA still has the advantage in software support.
+
+
+## Distributed Communication Patterns
+
+When you're running distributed training, GPUs need to communicate. The main patterns you'll see are:
+
+**Broadcast** sends data from one GPU (usually rank 0) to all others. You use this during initialization to get the same model weights on every GPU.
+
+**AllReduce** aggregates data from all GPUs and distributes the result back. This is what DDP uses for gradient synchronization—each GPU computes gradients on its local data, then AllReduce averages them across all GPUs.
+
+**ReduceScatter** and **AllGather** show up in sharded parallelism. ReduceScatter splits the result across GPUs, while AllGather collects data from all GPUs into each GPU.
+
+The thing to watch with communication is not just raw bandwidth, but also startup latency and whether you can overlap it with computation. A fast interconnect helps, but if your communication pattern has high latency, you'll still wait. DDP tries to overlap communication with computation by bucketing gradients, which we'll cover in the next chapter.
+
+You can benchmark these operations yourself. The `code/allreduce_microbench.py` script shows a basic example, though you'll need to initialize the process group first (we'll cover that in Chapter 3).
+
 
 ## Parallelism Strategies
 
