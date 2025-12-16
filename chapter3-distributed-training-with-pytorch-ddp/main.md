@@ -329,6 +329,7 @@ Understanding how `DataLoader` works internally helps optimize data loading perf
 **DistributedSampler integration**: When using `DistributedSampler`, each process's `DataLoader` only sees the indices assigned to that process. The sampler ensures no data overlap between processes.
 
 **Performance tips**:
+
 - Set `num_workers` to 2-4x the number of GPUs (but not more than CPU cores)
 - Use `pin_memory=True` for faster CPU-to-GPU transfer
 - Set `prefetch_factor=2` (default) to prefetch batches ahead
@@ -1020,6 +1021,7 @@ Before optimizing DDP, you need to understand where time is spent. PyTorch's pro
 ### Using torch.profiler.profile for DDP Analysis
 
 The `torch.profiler.profile` context manager captures detailed timing information for CPU and CUDA operations. For DDP, you want to profile:
+
 - Forward pass time
 - Backward pass time (gradient computation)
 - AllReduce communication time
@@ -1290,6 +1292,7 @@ The profiler exports traces in Chrome trace format. To visualize:
    - GPU utilization
 
 In the trace view, you should see:
+
 - **Forward pass**: Dense compute operations
 - **Backward pass**: Mix of compute (gradient computation) and communication (AllReduce)
 - **Overlap**: AllReduce operations happening concurrently with backward compute operations
@@ -1344,6 +1347,7 @@ if dist.get_rank() == 0:
 ```
 
 **Interpreting metrics**:
+
 - **Communication overhead < 20%**: Good—communication is well hidden
 - **Communication overhead 20-40%**: Acceptable—some optimization possible
 - **Communication overhead > 40%**: Poor—communication is a bottleneck
@@ -1951,6 +1955,7 @@ Asynchronous data parallel is rarely used in modern training because:
 3. **Hardware is homogeneous**: Modern clusters have uniform GPU speeds, so straggler issues are less common.
 
 However, asynchronous data parallel can be useful for:
+
 - **Heterogeneous clusters**: When GPUs have significantly different speeds
 - **Fault tolerance**: When you want training to continue even if some GPUs fail
 - **Research**: When exploring trade-offs between speed and convergence
@@ -1960,6 +1965,7 @@ However, asynchronous data parallel can be useful for:
 PyTorch doesn't provide built-in asynchronous data parallel support (DDP is synchronous). You'd need to implement it manually using parameter servers or custom communication patterns. This is complex and error-prone, which is why most practitioners stick with DDP.
 
 If you need asynchronous behavior, consider:
+
 - **Gradient accumulation**: Simulate larger batches without synchronization overhead
 - **Pipeline parallelism**: Overlap computation across model layers (covered in later chapters)
 - **Elastic training**: Handle node failures and dynamic scaling (covered next)
@@ -1971,6 +1977,7 @@ While asynchronous data parallel is rarely used in practice, **elastic data para
 Elastic training is a distributed training approach that handles dynamic environments: node failures, resource changes, and membership changes. Instead of failing when a node crashes, elastic training automatically adjusts and continues training. This is crucial for long-running training jobs where node failures are inevitable.
 
 PyTorch provides **TorchElastic** (now part of `torchrun`) for elastic distributed training. It enables:
+
 - **Fault tolerance**: Automatically recover from node failures
 - **Dynamic scaling**: Add or remove nodes during training
 - **Checkpoint-based recovery**: Resume from the last checkpoint after failures
@@ -1992,6 +1999,7 @@ Elastic training uses a **rendezvous** mechanism to coordinate nodes:
 ### Elastic Agent
 
 The **Elastic Agent** is the control plane for elastic training. It:
+
 - Launches and manages worker processes
 - Monitors worker health and detects failures
 - Handles rendezvous and rank assignment
@@ -2030,6 +2038,7 @@ torchrun \
 ```
 
 Parameters:
+
 - `--nnodes=MIN:MAX`: Minimum and maximum number of nodes (2 to 4 in this example)
 - `--nproc-per-node`: Number of processes (GPUs) per node
 - `--max-restarts`: Maximum number of restart attempts
@@ -2116,6 +2125,7 @@ def train():
 ### When to Use Elastic Training
 
 Use elastic training when:
+
 - **Long-running jobs**: Training jobs that run for days or weeks benefit from fault tolerance
 - **Unreliable infrastructure**: Clusters with frequent node failures
 - **Dynamic resource allocation**: When you want to add/remove nodes based on availability
