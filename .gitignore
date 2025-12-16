@@ -41,3 +41,6 @@ __pycache__/
 
 # Code directories (at any level)
 **/code/
+
+# Generated PDF files
+**/main.pdf
