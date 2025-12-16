@@ -763,15 +763,6 @@ Model parallelism means the computation of a single sample is split across multi
 
 **Expert Parallelism (EP)** is for MoE (Mixture of Experts) models. You distribute different experts across GPUs, and tokens get routed to the right expert. If you have 64 experts and 8 GPUs, each GPU might hold 8 experts. The tricky part is load balancing—some experts get more traffic than others, so you need good routing. This is still model parallelism because a single sample's forward pass may require multiple GPUs (different experts for different tokens).
 
-### System-Level Techniques
-
-These aren't parallelism strategies per se, but they're essential for scaling:
-
-**Offloading** moves optimizer states or parameters to CPU or NVMe storage, freeing GPU memory at the cost of slower training. ZeRO-Offload and ZeRO-Infinity are examples.
-
-**Activation Checkpointing** recomputes activations during backward pass instead of storing them, trading computation for memory. This is almost always used with FSDP.
-
-**KV Cache Paging** (used in inference systems like vLLM) virtualizes KV cache memory, allowing you to serve more concurrent requests than would fit in GPU memory.
 
 ### Combining Strategies
 
@@ -795,7 +786,7 @@ Most people don't implement these from scratch—you'll use PyTorch's DDP/FSDP, 
 
 ## Strategy Selection: Choosing the Right Approach
 
-Here's a systematic way to think about it:
+Below there is a systematic way to think about it.
 
 ### Training Strategy Decision Tree
 
