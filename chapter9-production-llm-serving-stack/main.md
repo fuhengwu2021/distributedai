@@ -4,9 +4,9 @@
 
 This chapter builds a complete end-to-end production LLM serving stack, including the model runner, tokenizer service, API gateway, rate limiting, and observability. Readers implement A/B testing, canary rollouts, and distributed tracing to ensure reliability and maintainability at scale. By the end of this chapter, readers will be able to design, deploy, and operate production-grade LLM serving systems.
 
-**Chapter Length:** 32 pages
+**Chapter Length:** 35 pages
 
----
+
 
 ## 1. Anatomy of a Production LLM Serving System
 
@@ -329,8 +329,6 @@ async def handle_request(request: GenerationRequest):
     return final_response
 ```
 
----
-
 ## 2. Multi-Model Routing and Load Balancing
 
 In production systems, you often need to serve multiple models simultaneously, route requests intelligently, and balance load across instances. This section covers routing strategies and load balancing techniques.
@@ -568,8 +566,6 @@ class HealthChecker:
         """Check if endpoint is currently healthy"""
         return self.health_status.get(endpoint, False)
 ```
-
----
 
 ## 3. Canary Deployments and A/B Testing
 
@@ -842,8 +838,6 @@ class AutoRollback:
         return False
 ```
 
----
-
 ## 4. Observability and Distributed Tracing
 
 Observability is crucial for understanding system behavior, debugging issues, and optimizing performance. This section covers metrics collection, distributed tracing, and monitoring dashboards.
@@ -1057,8 +1051,6 @@ class StructuredLogger:
 
 logger = StructuredLogger("llm-serving")
 ```
-
----
 
 ## 5. Fault Tolerance and Cost Optimization
 
@@ -1311,8 +1303,6 @@ class CostOptimizedRouter:
         # Default to fastest
         return min(self.models.items(), key=lambda x: x[1]["latency_ms"])[0]
 ```
-
----
 
 ## 6. Local Kubernetes Setup with k3d for GPU Model Serving
 
@@ -2764,8 +2754,6 @@ With a working GPU-enabled Kubernetes cluster, you can:
 
 This local setup provides a safe environment to experiment with production patterns before deploying to cloud Kubernetes services.
 
----
-
 ## 7. Kubernetes Deployment with llm-d
 
 While building custom serving stacks provides flexibility, production deployments often benefit from standardized solutions that handle the operational complexity of distributed inference. [llm-d](https://github.com/llm-d/llm-d) is an open-source project that provides production-ready Helm charts and deployment patterns for running LLM inference on Kubernetes with modern accelerators.
@@ -3040,7 +3028,7 @@ monitoring:
 - You're not using Kubernetes
 - You have unique requirements not covered by llm-d
 
----
+
 
 ## Hands-On Examples
 
@@ -3190,8 +3178,6 @@ async def generate(request: dict):
         return result
 ```
 
----
-
 ## Best Practices
 
 ### 1. Handling Cold Starts
@@ -3254,8 +3240,6 @@ with tracer.start_as_current_span("request"):
         text = await detokenize(result)
 ```
 
----
-
 ## Use Cases
 
 ### Use Case 1: Cloud-Based LLM APIs
@@ -3292,7 +3276,7 @@ with tracer.start_as_current_span("request"):
 - Cost tracking per department
 - Audit logging
 
----
+
 
 ## Skills Learned
 
@@ -3329,7 +3313,7 @@ By the end of this chapter, readers will be able to:
    - Set up prefill/decode disaggregation
    - Monitor and optimize Kubernetes-based serving
 
----
+
 
 ## Summary
 
@@ -3343,8 +3327,6 @@ This chapter has covered building a complete production LLM serving stack. Key t
 
 Building production LLM serving systems requires careful attention to reliability, scalability, and cost. The patterns and techniques covered in this chapter provide a solid foundation for building such systems.
 
----
-
 ## Exercises
 
 1. **Build API Gateway:** Implement an API gateway with routing, rate limiting, and health checks.
@@ -3356,8 +3338,6 @@ Building production LLM serving systems requires careful attention to reliabilit
 4. **Optimize Costs:** Design a cost-optimized serving system using spot instances and intelligent model selection.
 
 5. **Deploy with llm-d:** Deploy a production LLM serving stack on Kubernetes using llm-d Helm charts, configure prefill/decode disaggregation, and monitor performance.
-
----
 
 ## Further Reading
 

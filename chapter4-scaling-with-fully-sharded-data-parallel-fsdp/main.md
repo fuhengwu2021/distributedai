@@ -1,7 +1,3 @@
----
-title: "Scaling with Fully Sharded Data Parallel (FSDP)"
----
-
 # Chapter 4 — Scaling with Fully Sharded Data Parallel (FSDP)
 
 When your model doesn't fit on a single GPU, you need to split it across multiple GPUs. FSDP (Fully Sharded Data Parallel) shards parameters, gradients, and optimizer states across ranks, letting you train models that are much larger than what fits in a single GPU's memory.
@@ -248,8 +244,6 @@ A few things that trip people up:
 Start simple: use full-shard with checkpointing, see if that's enough. Only add offloading if you're still hitting memory limits.
 
 The code example above shows a complete working setup. Run it on 2 GPUs to see FSDP2 in action—you'll see the model sharded across GPUs, with each rank only holding its portion of the parameters.
-
----
 
 ## References
 

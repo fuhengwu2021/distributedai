@@ -6,7 +6,7 @@ This chapter teaches readers how to benchmark distributed training and inference
 
 **Chapter Length:** 28 pages
 
----
+
 
 ## 1. Benchmarking Methodology and Metrics
 
@@ -129,7 +129,7 @@ torch.cuda.synchronize()
 time_taken = time.time() - start  # ✅
 ```
 
----
+
 
 ## 2. Training Benchmarking Tools and Procedures
 
@@ -353,7 +353,7 @@ print(f"Scaling efficiency: {efficiency:.1f}%")  # 81.25%
 - **50-70%:** Moderate scaling (communication overhead significant)
 - **<50%:** Poor scaling (bottleneck identified)
 
----
+
 
 ## 3. Inference Benchmarking with genai-bench
 
@@ -737,7 +737,7 @@ Guidance:
 - Correlate latency traces with quality/accuracy to choose the optimal number of reasoning steps.
 - When benchmarking across systems, include both per-step breakdowns and session-level aggregates in reports (P50/P95/P99 and mean/std).
 
----
+
 
 ## 4. Accuracy and Quality Benchmarking
 
@@ -1110,7 +1110,7 @@ def compare_models_statistically(model1_scores, model2_scores):
 - Model versions and configurations
 - Random seeds used
 
----
+
 
 ## 5. Network Bottleneck Diagnosis
 
@@ -1258,7 +1258,7 @@ def detect_topology():
     return topology
 ```
 
----
+
 
 ## 6. Scaling Efficiency and Optimization
 
@@ -1370,7 +1370,7 @@ for i, (data, target) in enumerate(dataloader):
         optimizer.zero_grad()
 ```
 
----
+
 
 ## Hands-On Examples
 
@@ -1610,7 +1610,7 @@ if __name__ == "__main__":
     pass
 ```
 
----
+
 
 ## Best Practices
 
@@ -1712,7 +1712,7 @@ def benchmark_with_warmup(func, warmup_iterations=20, measure_iterations=100):
     return times
 ```
 
----
+
 
 ## Use Cases
 
@@ -1750,7 +1750,7 @@ TensorRT    200 tok/s    0.10s          0.25s          26GB
 - **If data loading is bottleneck:** Increase num_workers, use prefetching
 - **If compute is bottleneck:** Check GPU utilization, optimize kernels
 
----
+
 
 ## Skills Learned
 
@@ -1788,7 +1788,7 @@ By the end of this chapter, readers will be able to:
    - Apply Amdahl's Law to understand limits
    - Implement optimization strategies based on bottleneck analysis
 
----
+
 
 ## Summary
 
@@ -1804,7 +1804,7 @@ This chapter has covered comprehensive benchmarking methodologies for distribute
 
 Effective benchmarking is the foundation of performance optimization and quality assurance. Without accurate measurements, optimization efforts are blind. The tools and techniques covered in this chapter provide a solid foundation for understanding and improving distributed AI system performance while maintaining model accuracy.
 
----
+
 
 ## Exercises
 
@@ -1818,7 +1818,7 @@ Effective benchmarking is the foundation of performance optimization and quality
 
 5. **Optimize a bottleneck:** Identify a bottleneck in a distributed system and implement an optimization. Measure both performance improvement and accuracy impact.
 
----
+
 
 ## Further Reading
 
@@ -1836,3 +1836,4 @@ Effective benchmarking is the foundation of performance optimization and quality
 - HumanEval (Code Generation): https://github.com/openai/human-eval
 - HELM (Holistic Evaluation): https://crfm.stanford.edu/helm/
 - Hugging Face Evaluate: https://huggingface.co/docs/evaluate/
+

@@ -1,7 +1,3 @@
----
-title: "Distributed Training with PyTorch DDP"
----
-
 # Chapter 3 — Distributed Training with PyTorch DDP
 
 This chapter is a hands-on guide to using PyTorch DistributedDataParallel (DDP) for multi-GPU and multi-node training. It explains DDP internals, how to initialize process groups, common failure modes and debugging techniques, and practical optimization strategies (bucketization, overlap, mixed precision). The chapter includes runnable examples and launcher recipes (`torchrun`, SLURM).
@@ -106,12 +102,12 @@ Use a single rank (e.g., `rank==0`) to write checkpoint files and have all ranks
 - Profile and instrument networking (NCCL) and compute (Nsight / nvprof) to identify bottlenecks.  
 - Keep checkpoints atomic and rotated to avoid corrupted resumes.
 
----
+
 
 References: PyTorch DDP docs, NCCL tuning guide, cluster launcher examples.
 ---
 title: "Distributed Training with PyTorch DDP"
----
+
 
 # Chapter 3 — Distributed Training with PyTorch DDP
 

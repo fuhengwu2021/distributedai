@@ -1,7 +1,3 @@
----
-title: "DeepSpeed and ZeRO Optimization"
----
-
 # Chapter 5 — DeepSpeed and ZeRO Optimization
 
 When your model grows beyond what fits in GPU memory, you need to split it across devices. DeepSpeed's ZeRO (Zero Redundancy Optimizer) is a family of memory optimization techniques that progressively shard optimizer states, gradients, and parameters across GPUs. This chapter explains the evolution from ZeRO-1 through ZeRO-3, advanced variants like ZeRO-Infinity and ZeRO++, and practical guidance on which to use when.
@@ -1036,7 +1032,7 @@ import deepspeed
 - For new projects: Use FSDP2 unless you need DeepSpeed-specific features
 - For very large models (>100B): DeepSpeed still has an edge
 
----
+
 
 ## References
 

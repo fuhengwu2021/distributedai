@@ -1,7 +1,3 @@
----
-title: "Distributed AI Training in Action"
----
-
 # Chapter 8 — Distributed AI Training in Action
 
 This chapter provides a practical guide to running distributed AI training workloads using Slurm as the job scheduler and resource manager. We'll cover setting up a Slurm cluster, submitting distributed training jobs, integrating with PyTorch DDP and FSDP, managing multi-node training, and best practices for production workloads.
@@ -658,7 +654,5 @@ All configuration files are available in `code/config/`:
 - https://stackoverflow.com/questions/40695348/running-multiple-worker-daemons-slurm?utm_source=chatgpt.com
 
 
-
----
 
 **Summary**: This chapter demonstrated how to use Slurm for distributed AI training, covering setup, job submission, PyTorch DDP/FSDP integration, and best practices. The provided configuration files and examples serve as a practical starting point for running distributed training workloads.

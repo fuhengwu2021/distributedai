@@ -1,7 +1,3 @@
----
-title: "GPU Hardware, Networking, and Parallelism Strategies"
----
-
 # Chapter 2 — GPU Hardware, Networking, and Parallelism Strategies
 
 Before you can effectively distribute training or inference across multiple GPUs, you need to understand what you're working with. The hardware topology of your system—how GPUs connect to each other and to the CPU—directly impacts which parallelism strategies will work best and what performance you can expect.

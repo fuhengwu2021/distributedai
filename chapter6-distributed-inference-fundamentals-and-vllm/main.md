@@ -1472,7 +1472,7 @@ nsys-ui profile.qdrep
 - **Disaggregated Prefill/Decode**: Advanced techniques for further optimization
 - **Improved EP stability**: Better support across model/quantization/hardware combinations
 
----
+
 
 ## References
 
