@@ -4,15 +4,15 @@ In the previous chapter, we covered PyTorch FSDP2, which shards parameters, grad
 
 However, there are scenarios where GPU-only state sharding is still not enough. A model may exceed the aggregate GPU memory budget even with full sharding, or the available GPU count may be limited. In other cases, practitioners may want to leverage CPU memory or NVMe storage to extend the effective memory capacity, accepting reduced throughput in exchange for feasibility.
 
-DeepSpeed's ZeRO (Zero Redundancy Optimizer) addresses these memory-centric edge cases. Like FSDP2, ZeRO-3 shards parameters, gradients, and optimizer states across GPUs. In addition, DeepSpeed provides ZeRO-Offload to CPU memory, ZeRO-Infinity to NVMe storage, and ZeRO++ for communication and scheduling optimizations in large, multi-node environments. These features extend the memory hierarchy beyond GPUs and offer practical solutions when GPU-only approaches are insufficient.
+DeepSpeed's ZeRO (Zero Redundancy Optimizer) addresses these memory-constrained scenarios. Like FSDP2, ZeRO-3 shards parameters, gradients, and optimizer states across GPUs. In addition, DeepSpeed provides ZeRO-Offload to CPU memory, ZeRO-Infinity to NVMe storage, and ZeRO++ for communication and scheduling optimizations in large, multi-node environments. These features extend the memory hierarchy beyond GPUs and offer practical solutions when GPU-only approaches are insufficient.
 
 Yet memory is not the only bottleneck. As model sizes continue to grow, a different limitation emerges: individual layers themselves may become too large or too expensive to compute efficiently on a single GPU, even if their parameters are fully sharded. This is where computation parallelism becomes necessary.
 
-Megatron-LM addresses this class of problems by introducing tensor parallelism and pipeline parallelism, which shard the computation of individual layers and the model depth itself across multiple GPUs. Rather than focusing on reducing memory redundancy, Megatron directly partitions large matrix multiplications and attention operations, enabling training of models whose per-layer computation would otherwise exceed single-GPU limits. This approach is particularly critical for very large Transformer-based language models.
+Megatron-LM addresses this class of problems by introducing tensor parallelism and pipeline parallelism, which shard the computation of individual layers and the model depth itself across multiple GPUs. Rather than focusing on reducing memory redundancy, Megatron directly partitions large matrix multiplications and attention operations, enabling training of models whose per-layer computation would otherwise exceed single-GPU limits. This approach is important for very large Transformer-based language models.
 
-This chapter covers two complementary families of techniques that address different bottlenecks. We first examine when state sharding alone is insufficient, then introduce DeepSpeed ZeRO as a memory extension toolbox for edge cases. The core of this chapter focuses on Megatron's computation parallelism strategies—tensor parallelism, pipeline parallelism, and sequence parallelism—which address a fundamentally different problem: sharding computation itself when individual layers exceed single-GPU limits. We then explore how these techniques are combined in practice through hybrid parallelism, which is the dominant pattern for training very large models. Finally, we provide practical guidance on choosing the right combination of techniques.
+This chapter covers two complementary families of techniques that address different bottlenecks. We first examine when state sharding alone is insufficient, then introduce DeepSpeed ZeRO as a memory extension toolbox that can leverage CPU and NVMe resources. The core of this chapter focuses on Megatron's computation parallelism strategies—tensor parallelism, pipeline parallelism, and sequence parallelism—which address a fundamentally different problem: sharding computation itself when individual layers exceed single-GPU limits. We then explore how these techniques are combined in practice through hybrid parallelism, which is commonly used for training very large models. Finally, we provide practical guidance on choosing the right combination of techniques.
 
-**Practical guidance**: Most new large-model training projects should start with FSDP2 and add Megatron-style computation parallelism only when per-layer computation becomes the bottleneck. DeepSpeed remains relevant primarily for offloading and extreme-scale edge cases. The mainstream pattern is FSDP2 + Megatron Tensor Parallelism.
+**Practical guidance**: When training large models, practitioners often begin with state sharding techniques like FSDP2 or ZeRO-3, then add Megatron-style computation parallelism when per-layer computation becomes the bottleneck. DeepSpeed ZeRO offers additional capabilities for CPU and NVMe offloading, which can be valuable when GPU memory is constrained. Common patterns include FSDP2 + Megatron Tensor Parallelism, as well as ZeRO-3 + Megatron for scenarios where DeepSpeed's ecosystem is already in use.
 
 ## Understanding the Memory Problem
 
@@ -850,13 +850,13 @@ Megatron:
 * Assumes per-layer computation must be distributed
 * Introduces communication inside each layer
 
-Once a single Transformer layer becomes too large or too slow for a single GPU, **Megatron-style computation sharding becomes unavoidable**, regardless of how aggressively the model state is sharded.
+Once a single Transformer layer becomes too large or too slow for a single GPU, **Megatron-style computation sharding becomes necessary**, regardless of how aggressively the model state is sharded.
 
-### The Modern Default: FSDP2 + Megatron
+### Hybrid Parallelism: Combining State and Computation Sharding
 
-The dominant pattern for training very large models is **hybrid parallelism**:
+A common pattern for training very large models is **hybrid parallelism**, which combines state sharding with computation sharding:
 
-* **FSDP2** handles state sharding across all GPUs
+* **FSDP2 or ZeRO-3** handles state sharding across all GPUs
 * **Megatron tensor parallelism** handles large per-layer computation
 * **Pipeline parallelism** enables scaling across nodes
 * Optional **sequence parallelism** reduces activation pressure
@@ -867,7 +867,7 @@ This combination allows:
 * Efficient execution of massive matrix operations
 * Scaling to hundreds or thousands of GPUs
 
-DeepSpeed ZeRO-3 can also be combined with Megatron, and this remains common in legacy codebases. However, for new projects, **FSDP2 + Megatron** is increasingly preferred due to tighter PyTorch integration and better compiler support.
+Both FSDP2 + Megatron and ZeRO-3 + Megatron are viable approaches. FSDP2 offers tighter PyTorch integration and compiler support, while ZeRO-3 provides additional features like CPU/NVMe offloading and is well-integrated with the DeepSpeed ecosystem.
 
 ### Megatron Core: Production-Ready Library
 
@@ -1332,7 +1332,7 @@ A useful rule of thumb is:
 * If depth or node count becomes limiting, add pipeline parallelism.
 * If long sequences dominate memory, enable sequence parallelism.
 
-Hybrid parallelism should be introduced incrementally, as each additional dimension increases system complexity.
+Hybrid parallelism is typically introduced incrementally, as each additional dimension increases system complexity.
 
 ### Operational Considerations
 
@@ -1347,7 +1347,7 @@ For this reason, hybrid setups are typically adopted only after simpler configur
 
 ### Summary
 
-Hybrid parallelism combines state sharding and computation sharding to overcome both memory and compute limits. By composing FSDP or ZeRO with Megatron's tensor, pipeline, and sequence parallelism, training systems can scale far beyond what any single technique enables on its own. Understanding how these strategies interact is essential for building robust large-scale training systems.
+Hybrid parallelism combines state sharding and computation sharding to overcome both memory and compute limits. By composing FSDP or ZeRO with Megatron's tensor, pipeline, and sequence parallelism, training systems can scale far beyond what any single technique enables on its own. Understanding how these strategies interact is important for building robust large-scale training systems.
 
 Large-scale training is no longer about choosing a single parallelism strategy, but about composing multiple strategies along orthogonal axes.
 
@@ -2068,28 +2068,28 @@ torchrun --nproc_per_node=$GPUS_PER_NODE \
 
 ## ZeRO vs FSDP vs Megatron: When to Use Which?
 
-Both ZeRO-3 and PyTorch FSDP do parameter sharding (state sharding). They solve the same problem—distributing model parameters, gradients, and optimizer states across GPUs to reduce memory usage. In practice, **FSDP2 should be considered the default solution** for large-model training, while DeepSpeed is most valuable in memory-constrained or extreme-scale scenarios where GPU-only approaches are no longer sufficient.
+Both ZeRO-3 and PyTorch FSDP do parameter sharding (state sharding). They solve the same problem—distributing model parameters, gradients, and optimizer states across GPUs to reduce memory usage. The choice between them depends on your specific requirements, existing infrastructure, and constraints.
 
-### Use PyTorch FSDP2 (Default Choice):
+### PyTorch FSDP2:
 
 - **Native PyTorch integration**: Pure PyTorch, no external dependencies
-- **torch.compile support**: FSDP2 works better with PyTorch's compiler
-- **Simpler codebase**: FSDP2 is more lightweight and easier to debug
-- **Most large models** (7B-200B): FSDP2 is mature and well-optimized for this range
+- **torch.compile support**: FSDP2 works well with PyTorch's compiler
+- **Simpler codebase**: FSDP2 is lightweight and straightforward to debug
+- **Large models** (7B-200B): FSDP2 is mature and well-optimized for this range
 - **GPU-only sharding is sufficient**: When your model fits with full parameter sharding across available GPUs
 
-### Use DeepSpeed ZeRO (Exception Cases):
+### DeepSpeed ZeRO:
 
 - **GPU memory is insufficient even with full sharding**: When aggregate GPU memory across all devices is still not enough
-- **Need CPU or NVMe offloading**: ZeRO-Offload (CPU) and ZeRO-Infinity (NVMe) extend memory beyond GPUs, though with significant throughput tradeoffs
-- **Extreme-scale multi-node training**: ZeRO++ provides communication optimizations that can help in very large, heterogeneous network environments
-- **Existing DeepSpeed ecosystem**: If you're already using other DeepSpeed features (MoE, compression, etc.)
+- **CPU or NVMe offloading**: ZeRO-Offload (CPU) and ZeRO-Infinity (NVMe) extend memory beyond GPUs, though with throughput tradeoffs
+- **Multi-node training optimizations**: ZeRO++ provides communication optimizations that can help in large, heterogeneous network environments
+- **DeepSpeed ecosystem integration**: If you're using other DeepSpeed features (MoE, compression, etc.)
 
 **Important caveat**: CPU and NVMe offloading come with substantial throughput penalties. These are "feasibility" solutions—they enable training that wouldn't otherwise be possible, but at the cost of slower training speeds. Use them only when GPU-only approaches are truly insufficient.
 
 ### Use Megatron (Computation Sharding):
 
-Megatron is **essential** (not optional) when:
+Megatron becomes necessary when:
 
 - **Individual layers exceed single-GPU computation capacity**: When a single Transformer layer's matrix operations are too large or too slow for one GPU
 - **Very large hidden dimensions**: Models with hidden_size >= 16K require tensor parallelism
@@ -2104,20 +2104,20 @@ Megatron is **essential** (not optional) when:
 * **Pipeline Parallelism (PP)**: Use for inter-node scaling and very deep models
 * **Context Parallelism (CP)**: Use for long sequences (>=8K tokens) to reduce activation memory
 * **Expert Parallelism (EP)**: Use for MoE models to distribute experts across GPUs
-* **Sequence Parallelism**: Always enable with TP to reduce activation memory
+* **Sequence Parallelism**: Typically enabled with TP to reduce activation memory
 
 **When to Combine with State Sharding:**
 
-* **FSDP2 + Megatron TP**: Default for 50B-200B models
-* **Megatron-FSDP + Megatron TP**: Maximum performance (15-25% faster than FSDP2+TP)
-* **ZeRO-3 + Megatron TP**: Legacy but still common in existing codebases
+* **FSDP2 + Megatron TP**: Common pattern for 50B-200B models
+* **Megatron-FSDP + Megatron TP**: High-performance option (15-25% faster than FSDP2+TP in some configurations)
+* **ZeRO-3 + Megatron TP**: Widely used in existing codebases, especially when DeepSpeed ecosystem is already in place
 
 ### Hybrid Approach
 
 The modern standard is to combine state sharding with computation sharding:
 
 ```bash
-# FSDP2 + Megatron TP (most common)
+# FSDP2 + Megatron TP (common pattern)
 --use-torch-fsdp2
 --tensor-model-parallel-size 4
 --sequence-parallel
@@ -2139,12 +2139,12 @@ The modern standard is to combine state sharding with computation sharding:
 
 ## Summary and Key Takeaways
 
-**Practical guidance**: Most new large-model training projects should start with FSDP2 and add Megatron-style computation parallelism only when per-layer computation becomes the bottleneck. DeepSpeed remains relevant primarily for offloading and extreme-scale edge cases. The mainstream pattern is **FSDP2 + Megatron Tensor Parallelism**.
+**Practical guidance**: When training large models, practitioners typically begin with state sharding techniques (FSDP2 or ZeRO-3) and add Megatron-style computation parallelism when per-layer computation becomes the bottleneck. DeepSpeed ZeRO offers additional capabilities for CPU and NVMe offloading, which can be valuable when GPU memory is constrained. Common patterns include **FSDP2 + Megatron Tensor Parallelism** and **ZeRO-3 + Megatron Tensor Parallelism**, with the choice depending on your infrastructure and requirements.
 
 **State sharding (FSDP2 / ZeRO):**
-- **FSDP2 is the default**: PyTorch-native, well-integrated, sufficient for most large-model training
+- **FSDP2**: PyTorch-native, well-integrated, suitable for many large-model training scenarios
 - **ZeRO stages**: Progressive sharding from optimizer states (ZeRO-1) to full parameter sharding (ZeRO-3)
-- **DeepSpeed edge cases**: ZeRO-Offload (CPU), ZeRO-Infinity (NVMe), ZeRO++ (multi-node communication) for scenarios where GPU-only sharding is insufficient
+- **DeepSpeed extensions**: ZeRO-Offload (CPU), ZeRO-Infinity (NVMe), ZeRO++ (multi-node communication) for scenarios where GPU-only sharding is insufficient
 - **Key insight**: These techniques eliminate memory redundancy but assume each layer can be computed on a single GPU
 
 **Computation sharding (Megatron):**
@@ -2155,12 +2155,13 @@ The modern standard is to combine state sharding with computation sharding:
 - **Sequence Parallelism**: Splits activations along sequence dimension, essential when TP is enabled
 - **Key insight**: Megatron addresses a fundamentally different problem—computation itself, not just memory
 
-**Hybrid parallelism (the modern default):**
-- **FSDP2 + Megatron TP**: The dominant pattern for 50B-200B+ models
+**Hybrid parallelism:**
+- **FSDP2 + Megatron TP**: Common pattern for 50B-200B+ models
   - FSDP2 handles state sharding across all GPUs
   - Megatron TP handles computation sharding for large layers
-- **Megatron-FSDP + TP**: 15-25% faster alternative to FSDP2+TP for maximum performance
-- **Full hybrid**: FSDP2/Megatron-FSDP + Megatron TP + PP + CP for 200B+ models
+- **ZeRO-3 + Megatron TP**: Alternative pattern, especially when DeepSpeed ecosystem is in use
+- **Megatron-FSDP + TP**: High-performance option (15-25% faster than FSDP2+TP in some configurations)
+- **Full hybrid**: FSDP2/Megatron-FSDP/ZeRO-3 + Megatron TP + PP + CP for 200B+ models
   - TP for large layers (within nodes)
   - PP for inter-node scaling
   - CP for long sequences (>=8K tokens)
@@ -2170,28 +2171,29 @@ The modern standard is to combine state sharding with computation sharding:
 
 **Decision framework:**
 1. **Can a single layer fit and compute efficiently on one GPU?**
-   - Yes → Use FSDP2-only (7B-30B models)
-   - No → Use FSDP2 + Megatron TP (50B+ models)
+   - Yes → State sharding alone may be sufficient (e.g., FSDP2 or ZeRO-3 for 7B-30B models)
+   - No → Consider adding computation sharding (e.g., FSDP2/ZeRO-3 + Megatron TP for 50B+ models)
 
 2. **Is GPU-only state sharding insufficient?**
-   - Yes → Consider DeepSpeed ZeRO-Offload/Infinity (with throughput tradeoffs)
-   - No → FSDP2 or Megatron-FSDP is sufficient
+   - Yes → Consider DeepSpeed ZeRO-Offload/Infinity for CPU/NVMe offloading (with throughput tradeoffs)
+   - No → FSDP2, Megatron-FSDP, or ZeRO-3 may be sufficient depending on your infrastructure
 
 3. **Do you need multi-node scaling?**
    - Yes → Add Megatron Pipeline Parallelism (PP) for inter-node scaling
-   - No → Tensor parallelism within nodes is sufficient
+   - No → Tensor parallelism within nodes may be sufficient
 
 4. **Is sequence length >= 8K tokens?**
    - Yes → Add Megatron Context Parallelism (CP) to reduce activation memory
-   - No → Sequence parallelism with TP is sufficient
+   - No → Sequence parallelism with TP may be sufficient
 
 5. **Is this an MoE model?**
    - Yes → Add Megatron Expert Parallelism (EP) for efficient expert routing
-   - No → Standard TP/PP is sufficient
+   - No → Standard TP/PP may be sufficient
 
-6. **Do you need maximum performance?**
-   - Yes → Use Megatron-FSDP instead of PyTorch FSDP2 (15-25% faster)
-   - No → PyTorch FSDP2 is sufficient
+6. **What is your infrastructure and ecosystem?**
+   - PyTorch-focused → FSDP2 or Megatron-FSDP may integrate better
+   - DeepSpeed ecosystem → ZeRO-3 + Megatron may be more natural
+   - Performance-critical → Consider Megatron-FSDP (15-25% faster than FSDP2+TP in some configurations)
 
 **The fundamental principle**: Large-scale training is no longer about choosing a single parallelism strategy, but about composing multiple strategies along orthogonal axes. State sharding and computation sharding are complementary, not competing.
 
