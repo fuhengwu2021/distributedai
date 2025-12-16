@@ -701,46 +701,208 @@ You can benchmark these operations yourself. The `code/allreduce_microbench.py` 
 
 ## Parallelism: Core Strategies
 
-There are several ways to split work across GPUs. Each has tradeoffs, and you'll often combine them. Here's the quick rundown:
+There are several ways to split work across GPUs. Each has tradeoffs, and you'll often combine them. But first, let's get the terminology right—there's a lot of confusion about what counts as "model parallelism" versus "data parallelism."
 
-**Data Parallelism (DP)** is the simplest. You replicate the entire model on each GPU and split the batch across GPUs. Each GPU processes different data, then you synchronize gradients. It's easy to implement and works great when your model fits on a single GPU. The downside is that you're storing the full model on every GPU, so memory usage scales with the number of GPUs.
+The key distinction is simple: **are you sharding computation or state?** If a single sample's forward pass requires multiple GPUs to complete, that's model parallelism. If each GPU processes samples independently and you just synchronize gradients or shard optimizer states, that's data parallelism.
 
-**Tensor Parallelism (TP)** splits individual layers across GPUs. Instead of replicating a layer, you split the weight matrix. For example, if you have a linear layer with a 4096x4096 weight matrix, you might split it into two 4096x2048 matrices on two GPUs. During forward pass, each GPU computes part of the output, then you AllGather to combine results. This lets you fit larger layers, but communication happens every layer, which can be expensive.
+### Parallelism Taxonomy Table
+
+The following table provides a canonical taxonomy of all parallelization and scaling techniques used in large-model training and inference. The classification is based on **what is being sharded**—computation, model state, or data.
+
+| Parallelism / Technique | Primary Category | Sub-Category | Typical Phase | Framework / System |
+| ----------------------- | ---------------- | -------------------------------- | ------------- | -------------------- |
+| Data Parallel (DP) | Data | Replicated model, data sharded | Training | PyTorch DDP / Horovod |
+| Fully Sharded Data Parallel (FSDP) | State | Full state sharding | Training | PyTorch FSDP |
+| ZeRO-1 | State | Optimizer state sharding | Training | DeepSpeed |
+| ZeRO-2 | State | Optimizer + gradient sharding | Training | DeepSpeed |
+| ZeRO-3 | State | Parameter + grad + opt sharding | Training | DeepSpeed |
+| Tensor Parallelism (TP) | Computation | Intra-layer (hidden/head) split | Training / Inference | Megatron-LM |
+| Sequence Parallelism | Computation | Sequence-length dimension split | Training | Megatron-LM |
+| Context Parallelism | Computation | Long-context attention/KV split | Inference | vLLM / SGLang |
+| Pipeline Parallelism (PP) | Computation | Inter-layer / stage split | Training / Inference | GPipe / DeepSpeed PP |
+| Expert Parallelism (MoE EP) | Computation | Sparse conditional compute | Training / Inference | DeepSpeed-MoE |
+| Operator / Intra-op Parallelism | Computation | Generic op-level sharding (SPMD) | Training / Inference | XLA SPMD / JAX pjit / PyTorch DTensor |
+
+### The Three Questions for Parallelism Determination
+
+To classify any parallelism technique, ask three questions:
+
+1. **Does it split computation?** Is the forward/backward pass itself divided across devices, or only model state (parameters, gradients, optimizer states)?
+
+2. **Must a single sample cross devices?** Does processing one sample require multiple devices, or can each device handle samples independently?
+
+3. **Does it introduce new device-to-device collaboration?** Does it need new communication patterns, or use existing primitives like AllReduce?
+
+**What the answers tell you:**
+
+- **Model parallelism** (Computation category): Answers "Yes" to questions 1 and 2. Examples: TP, PP, EP, Sequence, Context Parallelism.
+
+- **State sharding** (State category): Answers "No" to questions 1 and 2, "Yes" to question 3. Examples: FSDP, ZeRO. These are NOT model parallelism—they shard state but don't split computation.
+
+- **Data parallelism** (Data category): Answers "No" to questions 1 and 2, "Yes" to question 3. Example: DDP. Each GPU processes different samples independently.
+
+### Data Parallelism: Replicated and Sharded
+
+**Replicated Data Parallelism (DDP)** is the simplest. You replicate the entire model on each GPU and split the batch across GPUs. Each GPU processes different data samples independently, then you synchronize gradients using AllReduce. It's easy to implement and works great when your model fits on a single GPU. The downside is that you're storing the full model on every GPU, so memory usage scales with the number of GPUs.
+
+**Sharded Data Parallelism (FSDP/ZeRO)** doesn't replicate the model. Instead, you shard parameters, gradients, and optimizer states across GPUs. FSDP shards all three. ZeRO has stages—Stage 1 shards optimizer states, Stage 2 adds gradients, Stage 3 adds parameters. Both let you train much larger models with the same number of GPUs.
+
+FSDP and ZeRO are **not model parallelism**—they shard state, not computation. Each GPU still processes samples independently. You're just not storing the full model state on each GPU.
+
+### Model Parallelism: Computation Sharding
+
+Model parallelism means the computation of a single sample is split across multiple GPUs. There are several ways to do this:
+
+**Tensor Parallelism (TP)** splits individual layers across GPUs. Instead of replicating a layer, you split the weight matrix. For example, if you have a linear layer with a 4096×4096 weight matrix, you might split it into two 4096×2048 matrices on two GPUs. During forward pass, each GPU computes part of the output, then you AllGather to combine results. This lets you fit larger layers, but communication happens every layer, which can be expensive.
+
+**Sequence Parallelism** splits computation along the sequence length dimension. Different GPUs handle different token positions in the same sequence. This is often combined with tensor parallelism in systems like Megatron-LM. It's useful for very long sequences where attention computation becomes the bottleneck.
+
+**Context Parallelism** is similar to sequence parallelism but specifically for long-context scenarios. It splits attention computation and KV cache management across GPUs, allowing you to handle context windows that don't fit on a single GPU. This is particularly important for inference with long prompts.
 
 **Pipeline Parallelism (PP)** splits the model depth-wise. GPU 0 handles layers 0-10, GPU 1 handles layers 11-20, and so on. You pipeline microbatches through the stages to keep all GPUs busy. The challenge is pipeline bubbles—when one stage finishes before the next is ready, GPUs sit idle. Getting the scheduling right matters.
 
-**FSDP (Fully Sharded Data Parallel)** and **ZeRO** are memory optimization strategies. Instead of replicating optimizer states and gradients on every GPU, you shard them. FSDP shards parameters, gradients, and optimizer states. ZeRO does similar things but with different stages—Stage 1 shards optimizer states, Stage 2 adds gradients, Stage 3 adds parameters. Both let you train much larger models with the same number of GPUs.
+**Expert Parallelism (EP)** is for MoE (Mixture of Experts) models. You distribute different experts across GPUs, and tokens get routed to the right expert. If you have 64 experts and 8 GPUs, each GPU might hold 8 experts. The tricky part is load balancing—some experts get more traffic than others, so you need good routing. This is still model parallelism because a single sample's forward pass may require multiple GPUs (different experts for different tokens).
 
-**Expert Parallelism (EP)** is for MoE models. You distribute different experts across GPUs, and tokens get routed to the right expert. If you have 64 experts and 8 GPUs, each GPU might hold 8 experts. The tricky part is load balancing—some experts get more traffic than others, so you need good routing.
+### System-Level Techniques
+
+These aren't parallelism strategies per se, but they're essential for scaling:
+
+**Offloading** moves optimizer states or parameters to CPU or NVMe storage, freeing GPU memory at the cost of slower training. ZeRO-Offload and ZeRO-Infinity are examples.
+
+**Activation Checkpointing** recomputes activations during backward pass instead of storing them, trading computation for memory. This is almost always used with FSDP.
+
+**KV Cache Paging** (used in inference systems like vLLM) virtualizes KV cache memory, allowing you to serve more concurrent requests than would fit in GPU memory.
+
+### Combining Strategies
 
 In practice, you'll combine these. A common setup for a 70B model might be: FSDP for memory efficiency, plus some tensor parallelism for the largest layers, plus pipeline parallelism if you have enough GPUs. For MoE models, you might do expert parallelism plus data parallelism across expert groups.
-
-The decision tree is roughly: Does your model fit on one GPU? If yes, start with DP. If not, does a single layer not fit? Use TP. Is the model just too deep? Consider PP. Need maximum memory efficiency? FSDP or ZeRO Stage 3. MoE model? EP.
 
 Most people don't implement these from scratch—you'll use PyTorch's DDP/FSDP, DeepSpeed's ZeRO, or libraries like Megatron-LM that handle the tensor parallelism details. But understanding what's happening under the hood helps when things go wrong.
 
 ## Strategy Selection: Choosing the Right Approach
 
-There's no one-size-fits-all answer. Here's how I think about it:
+Here's a systematic way to think about it:
 
-First, does your model fit on a single GPU? If yes, data parallelism is usually the right starting point. It's simple, and you'll get good speedup as long as communication doesn't dominate.
+### Training Strategy Decision Tree
 
-If the model doesn't fit, figure out why. Is it one or two layers that are huge? Tensor parallelism might help. Is it the depth? Pipeline parallelism. Is it everything—weights, gradients, optimizer states? That's where FSDP or ZeRO shine.
+![Training Strategy Decision Tree](img/training_tree.svg)
 
-Also consider your constraints. If you're memory-limited (model doesn't fit), prioritize FSDP or ZeRO. If your goal is to maximize throughput (samples per second) and you have fast interconnects (good NVLink), tensor parallelism can work well—it splits layers across GPUs to process them faster, but requires communication every layer, so fast interconnects are essential. If you have slow interconnects (PCIe only), avoid strategies that require frequent communication like tensor parallelism.
+**Step 1: Does a full model replica fit on one device?**
 
-One thing that trips people up: the networking topology matters. If you're on a system where some GPU pairs are connected via NVLink and others via PCIe, try to keep communication-heavy operations on the NVLink-connected pairs. PyTorch and most frameworks don't do this automatically, so you might need to set process groups or device placement manually.
+If yes, use **replicated data parallelism (DDP)**. It's simple, and you'll get good speedup as long as communication doesn't dominate. This is the starting point for most models.
 
-A few practical tips:
+If no, move to sharded data parallelism.
 
-- Profile before you optimize. Use `nvidia-smi` to watch memory usage, and use PyTorch's profiler to see where time is spent. You might think communication is the bottleneck, but it could be data loading or something else.
+**Step 2: Use sharded data parallelism (FSDP/ZeRO)**
 
-- Use NCCL for GPU collectives. It's optimized and handles NVLink automatically. The alternative backends (GLOO, MPI) are slower.
+FSDP or ZeRO-3 shards parameters, gradients, and optimizer states. This alone might be enough—try it first before adding model parallelism.
 
-- Mixed precision helps. FP16 or BF16 cuts memory and bandwidth in half. Most models train fine with it, and the speedup is significant.
+**Step 3: Is computation of one sample split across devices?**
 
-- Watch out for NUMA. If you're on a multi-socket system, try to keep processes on the same NUMA node. Cross-NUMA communication adds latency.
+If you're still memory-limited or want better throughput, you might need to split computation. This is where true model parallelism comes in.
+
+**Step 4: How is computation split?**
+
+- **Tensor/Head/Hidden dimension**: Use **tensor parallelism**. Good for large layers that don't fit on one GPU. Requires fast interconnects (NVLink or high-bandwidth InfiniBand) since communication happens every layer.
+
+- **Sequence length**: Use **sequence parallelism**. Often combined with tensor parallelism for very long sequences.
+
+- **Layer/Stage**: Use **pipeline parallelism**. Good for deep models where you have enough GPUs to split layers. Watch out for pipeline bubbles.
+
+- **Experts/Sparse routing**: Use **expert parallelism**. Only for MoE models. Requires good load balancing.
+
+**Step 5: Hybrid combinations**
+
+Most large models use combinations:
+- **DP + TP**: Data parallelism across nodes, tensor parallelism within nodes
+- **DP + PP**: Data parallelism with pipeline stages
+- **DP + TP + PP**: All three combined for very large models
+- **DP + EP**: Data parallelism with expert parallelism for MoE
+
+**Step 6: System-level optimizations**
+
+If memory is still insufficient:
+- **Activation checkpointing**: Recompute activations during backward (almost always used with FSDP)
+- **CPU/NVMe offloading**: Move optimizer states or parameters off GPU (slower but enables larger models)
+
+### Inference Strategy Decision Tree
+
+Inference has different constraints than training. You don't need to store gradients or optimizer states, but you do need to handle KV cache for attention, and latency matters more than throughput in many cases.
+
+![Inference Strategy Decision Tree](img/inference_tree.svg)
+
+**Step 1: Are you scaling a single request or multiple requests?**
+
+If you're serving multiple requests, start with **request-level parallelism**:
+- **Batching**: Group multiple requests into batches for better GPU utilization
+- **Multiple model replicas**: Run multiple copies of the model to serve more concurrent requests
+- **Load-balanced serving**: Distribute requests across replicas
+
+If you're scaling a single request (e.g., very large model or long context), move to model parallelism.
+
+**Step 2: Does the model computation fit on one device?**
+
+If yes, use **single-GPU inference** with optimized kernels:
+- **FlashAttention**: Optimized attention kernels that reduce memory and improve speed
+- **Quantization**: INT8/INT4 quantization to reduce memory and increase throughput
+- **Kernel fusion**: Combine operations to reduce kernel launch overhead
+
+If no, you need model parallel inference.
+
+**Step 3: How is computation split?**
+
+- **Tensor/Head/Hidden dimension**: Use **tensor parallelism**. Common in inference systems like vLLM and TensorRT-LLM. Requires fast interconnects.
+
+- **Long Context/KV**: Use **context parallelism**. Essential for long-context inference where the context window doesn't fit on one GPU. Splits attention computation and KV cache across GPUs.
+
+- **Layer/Stage**: Use **pipeline parallelism**. Less common in inference than training, but useful for very large models where you want to keep latency low.
+
+- **Experts**: Use **expert parallelism**. Only for MoE models. Routes tokens to experts on different GPUs.
+
+**Step 4: Is memory or KV cache the bottleneck?**
+
+For inference, KV cache can be a major memory bottleneck, especially with long contexts and many concurrent requests. Use system-level serving techniques:
+
+- **KV Cache Paging / PagedAttention**: Virtualize KV cache memory, allowing you to serve more concurrent requests than would fit in GPU memory. Used in vLLM.
+
+- **KV Cache Disaggregation**: Store KV cache on separate devices or in CPU memory, fetching as needed. Useful for very long contexts.
+
+- **CPU/NVMe Offloading**: Move model parameters or KV cache off GPU. Slower but enables serving larger models or more concurrent requests.
+
+### Key Considerations for Inference
+
+**Latency vs. throughput tradeoff.** Training optimizes for throughput (samples per second). Inference often optimizes for latency (time to first token, time per token). Model parallelism can increase latency due to communication, so use it only when necessary.
+
+**KV cache is the new bottleneck.** Unlike training, inference needs to store KV cache for attention. With long contexts and many concurrent requests, KV cache can easily exceed GPU memory. PagedAttention and similar techniques are essential.
+
+**Batching improves efficiency.** Even with model parallelism, batching multiple requests improves GPU utilization. Dynamic batching (grouping requests of similar length) is common in production systems.
+
+**Quantization is more feasible in inference.** You can use INT8 or even INT4 quantization in inference without retraining (using quantization-aware techniques). This can 2-4x reduce memory and improve throughput.
+
+**Start with single-GPU, scale only if needed.** Most models can be served on a single GPU with quantization and optimized kernels. Only use model parallelism if the model truly doesn't fit or you need to serve many concurrent requests.
+
+### Key Considerations
+
+**Network topology matters.** If you're on a system where some GPU pairs are connected via NVLink and others via PCIe, try to keep communication-heavy operations (like tensor parallelism) on the NVLink-connected pairs. PyTorch and most frameworks don't do this automatically, so you might need to set process groups or device placement manually.
+
+**Interconnect speed determines what's feasible.** Tensor parallelism requires communication every layer, so you need fast interconnects (NVLink for intra-node, InfiniBand for inter-node). If you only have PCIe, avoid tensor parallelism—stick with FSDP/ZeRO or pipeline parallelism.
+
+**Memory vs. throughput tradeoff.** FSDP/ZeRO maximize memory efficiency but don't necessarily improve throughput. Tensor parallelism can improve throughput (by splitting large layers) but uses more memory per GPU. Pipeline parallelism can improve throughput if you have enough GPUs and can keep the pipeline full.
+
+**Start simple, add complexity only if needed.** Most models can be trained with just DDP or FSDP. Each additional parallelism strategy adds complexity and potential failure modes.
+
+### Practical Tips
+
+- **Profile before you optimize.** Use `nvidia-smi` to watch memory usage, and PyTorch's profiler to see where time is spent. You might think communication is the bottleneck, but it could be data loading or something else.
+
+- **Use NCCL for GPU collectives.** It's optimized and handles NVLink automatically. The alternative backends (GLOO, MPI) are slower.
+
+- **Mixed precision helps.** FP16 or BF16 cuts memory and bandwidth in half. Most models train fine with it, and the speedup is significant.
+
+- **Watch out for NUMA.** If you're on a multi-socket system, try to keep processes on the same NUMA node. Cross-NUMA communication adds latency.
+
+- **Test on small scale first.** Get your parallelism strategy working on 2-4 GPUs before scaling to many nodes. Debugging is much easier at small scale.
 
 The code examples in `code/` show basic topology detection and bandwidth testing. For real workloads, you'll use the higher-level APIs in PyTorch or DeepSpeed, but understanding what's happening underneath helps when things don't work as expected.
 
-In the next chapter, we'll dive into PyTorch DDP, which is the most common way to do data parallelism. We'll cover the setup, common pitfalls, and how to optimize it.
+In the next chapter, we'll dive into PyTorch DDP, which is the most common way to do replicated data parallelism. We'll cover the setup, common pitfalls, and how to optimize it. Then in Chapter 4, we'll cover FSDP for when your model doesn't fit on a single GPU.

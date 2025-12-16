@@ -25,3 +25,6 @@
 [submodule "resources/tilert"]
 	path = resources/tilert
 	url = https://github.com/tile-ai/TileRT.git
+[submodule "resources/torch-examples"]
+	path = resources/torch-examples
+	url = https://github.com/pytorch/examples.git

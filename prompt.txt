@@ -63,6 +63,7 @@ The above is the book i want to write.
 行文风格类似 /home/wukong/git.repo/mocksphere.com-ai-20250929/agent_output/oreilly/distributed-machine-learning-with-python
 不要让人一看就是GPT AI生成的.
 可运行的command要单独一行，读者好拷贝运行。
+不要重复的罗嗦的话，或者前后不一致的话。
 
 The newly added section need to match the existing style.
 
