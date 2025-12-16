@@ -2,7 +2,9 @@
 
 ## Overview
 
-This chapter builds a complete end-to-end production LLM serving stack, including the model runner, tokenizer service, API gateway, rate limiting, and observability. Readers implement A/B testing, canary rollouts, and distributed tracing to ensure reliability and maintainability at scale. By the end of this chapter, readers will be able to design, deploy, and operate production-grade LLM serving systems.
+We've covered training systems (DDP, FSDP, DeepSpeed), inference engines (vLLM, SGLang), and how to run them with Slurm. But building a production LLM serving system requires more than just running an inference engine. You need a complete stack: model runners that load and execute models efficiently, tokenizers that handle text preprocessing, API gateways that route and load balance requests, rate limiting to prevent abuse, observability to monitor performance, and deployment strategies like A/B testing and canary rollouts to ensure reliability.
+
+This chapter builds a complete end-to-end production LLM serving stack, including all these components. Readers implement A/B testing, canary rollouts, and distributed tracing to ensure reliability and maintainability at scale. By the end of this chapter, readers will be able to design, deploy, and operate production-grade LLM serving systems.
 
 **Chapter Length:** 35 pages
 
@@ -3334,6 +3336,8 @@ This chapter has covered building a complete production LLM serving stack. Key t
 5. **Cost optimization matters:** Spot instances, model selection, and autoscaling reduce costs
 
 Building production LLM serving systems requires careful attention to reliability, scalability, and cost. The patterns and techniques covered in this chapter provide a solid foundation for building such systems.
+
+Once you've built your distributed training and inference systems, you need to know how well they're performing. Are you getting the throughput you expect? Is latency acceptable? How efficiently are you using your GPUs? The next chapter teaches you how to benchmark distributed training and inference systems rigorously. We'll cover both performance benchmarking (throughput, latency, scaling efficiency) and accuracy benchmarking (model quality, output correctness), using tools like genai-bench, PyTorch profiler, and custom scripts. By the end, you'll be able to identify bottlenecks, evaluate model accuracy, and optimize your systems effectively.
 
 ## Exercises
 

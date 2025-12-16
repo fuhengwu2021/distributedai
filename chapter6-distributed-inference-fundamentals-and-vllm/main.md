@@ -2,7 +2,9 @@ title: "Distributed Inference Fundamentals and vLLM"
 
 # Chapter 6 — Distributed Inference Fundamentals and vLLM
 
-This chapter introduces distributed inference concepts and vLLM internals, focusing on tensor parallelism, data parallelism, pipeline parallelism, and optimization techniques for serving large language models efficiently in production environments.
+In the previous chapters, we've covered distributed training extensively: DDP for models that fit on a single GPU, FSDP for parameter sharding, and DeepSpeed ZeRO for even larger models. But training is only half the story. Once you've trained a model, you need to serve it efficiently at scale—handling thousands of concurrent requests, minimizing latency, and maximizing throughput.
+
+This chapter introduces distributed inference concepts and vLLM internals, focusing on tensor parallelism, data parallelism, pipeline parallelism, and optimization techniques for serving large language models efficiently in production environments. vLLM is a high-performance inference engine that uses innovations like PagedAttention and continuous batching to achieve state-of-the-art throughput and memory efficiency.
 
 ## Introduction to vLLM and Setup
 
@@ -1489,7 +1491,7 @@ nsys-ui profile.qdrep
 - **Disaggregated Prefill/Decode**: Advanced techniques for further optimization
 - **Improved EP stability**: Better support across model/quantization/hardware combinations
 
-
+vLLM's model parallelism approach (TP/PP/DP/EP) is excellent for large models and high-throughput workloads. But what if you need ultra-low latency for interactive applications? Or what if your models fit on a single GPU but you need to handle thousands of concurrent requests with session persistence? That's where SGLang comes in. The next chapter introduces SGLang, which uses a router-based architecture optimized for low-latency, high-QPS workloads. Unlike vLLM's focus on model sharding, SGLang emphasizes request-level routing, session affinity, and workload disaggregation to achieve different performance characteristics.
 
 ## References
 

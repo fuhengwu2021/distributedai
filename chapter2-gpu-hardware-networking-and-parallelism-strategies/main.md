@@ -910,4 +910,4 @@ For inference, KV cache can be a major memory bottleneck, especially with long c
 
 The code examples in `code/` show basic topology detection and bandwidth testing. For real workloads, you'll use the higher-level APIs in PyTorch or DeepSpeed, but understanding what's happening underneath helps when things don't work as expected.
 
-In the next chapter, we'll dive into PyTorch DDP, which is the most common way to do replicated data parallelism. We'll cover the setup, common pitfalls, and how to optimize it. Then in Chapter 4, we'll cover FSDP for when your model doesn't fit on a single GPU.
+With this hardware foundation in place, we're ready to start building distributed training systems. In the next chapter, we'll dive into PyTorch DDP (DistributedDataParallel), which is the most common way to do replicated data parallelism. DDP is the workhorse of distributed training—it's what most production training pipelines use, and understanding how it works is essential for building scalable AI systems. We'll cover the setup, common pitfalls, debugging techniques, and how to optimize it for your workloads.

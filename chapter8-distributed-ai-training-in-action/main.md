@@ -1,5 +1,7 @@
 # Chapter 8 — Distributed AI Training in Action
 
+So far, we've covered the theory and implementation of distributed training (DDP, FSDP, DeepSpeed) and inference (vLLM, SGLang). But understanding the concepts is only part of the equation—you also need to know how to actually run these systems in practice. Most HPC clusters and cloud providers use job schedulers like Slurm to manage GPU resources and coordinate multi-node jobs.
+
 This chapter provides a practical guide to running distributed AI training workloads using Slurm as the job scheduler and resource manager. We'll cover setting up a Slurm cluster, submitting distributed training jobs, integrating with PyTorch DDP and FSDP, managing multi-node training, and best practices for production workloads.
 
 **Audience:** ML engineers and researchers who need to run distributed training jobs on shared GPU clusters, and platform engineers setting up Slurm for AI workloads.
@@ -653,6 +655,6 @@ All configuration files are available in `code/config/`:
 - https://github.com/SchedMD/slurm
 - https://stackoverflow.com/questions/40695348/running-multiple-worker-daemons-slurm?utm_source=chatgpt.com
 
-
-
 **Summary**: This chapter demonstrated how to use Slurm for distributed AI training, covering setup, job submission, PyTorch DDP/FSDP integration, and best practices. The provided configuration files and examples serve as a practical starting point for running distributed training workloads.
+
+So far, we've covered training systems (DDP, FSDP, DeepSpeed) and inference engines (vLLM, SGLang), and how to run them with Slurm. But building a production LLM serving system requires more than just running an inference engine—you need a complete stack: model runners, tokenizers, API gateways, rate limiting, observability, A/B testing, and canary deployments. The next chapter builds a complete end-to-end production LLM serving stack, showing how all these components work together to create reliable, scalable, and maintainable systems.

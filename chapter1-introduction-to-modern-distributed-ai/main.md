@@ -691,7 +691,7 @@ This command uses several distributed primitives we've covered: `init_process_gr
 
 This chapter walked through resource estimation, decision frameworks, and practical examples for distributed AI systems. The core idea is simple: estimate your requirements first, then decide whether you actually need distributed systems. Don't assume you need them—calculate memory and compute needs, check if your model fits, and only then consider distribution.
 
-The next chapter explores GPU hardware, networking, and parallelism strategies in more depth.
+Now that we understand when and why to use distributed systems, we need to understand the hardware they run on. The next chapter explores GPU hardware, networking topologies, and the fundamental parallelism strategies that make distributed AI possible. Understanding these foundations is crucial for making informed decisions about which distributed approach to use.
 
 ## Further Reading
 

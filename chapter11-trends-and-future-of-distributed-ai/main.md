@@ -2,7 +2,9 @@
 
 ## Overview
 
-This chapter explores emerging trends and future directions in distributed AI systems. Readers will understand where the field is heading, evaluate new technologies and paradigms, and learn how to position themselves for the next wave of distributed AI innovations. The chapter covers MoE scaling, hybrid architectures, edge-cloud coordination, and emerging parallelism strategies, with practical code examples that demonstrate these concepts.
+Throughout this book, we've covered the current state of distributed AI: DDP and FSDP for training, DeepSpeed ZeRO for very large models, vLLM and SGLang for inference, Slurm for job scheduling, production serving stacks, and benchmarking methodologies. These technologies form a solid foundation for building and deploying distributed AI systems today.
+
+But the field is rapidly evolving. New architectures, optimization techniques, and deployment patterns emerge constantly. This chapter explores emerging trends and future directions in distributed AI systems. Readers will understand where the field is heading, evaluate new technologies and paradigms, and learn how to position themselves for the next wave of distributed AI innovations. The chapter covers MoE scaling, hybrid architectures, edge-cloud coordination, and emerging parallelism strategies, with practical code examples that demonstrate these concepts.
 
 **Chapter Length:** 20 pages
 

@@ -1,6 +1,8 @@
 # Chapter 7: SGLang and Advanced Inference Architectures
 
-This chapter introduces SGLang's distributed inference architecture, focusing on router-based request routing, prefill/decode disaggregation, and multi-node coordination. Unlike vLLM's model parallelism (TP/PP/DP), SGLang emphasizes request-level routing and workload disaggregation for high-QPS, low-latency distributed inference.
+In the previous chapter, we covered vLLM, which uses model parallelism (TP/PP/DP/EP) to distribute large models across GPUs. vLLM excels at high-throughput workloads with large batches and is optimized for models that require multiple GPUs just to fit in memory.
+
+But what if you need ultra-low latency for interactive chat applications? Or what if your models fit on a single GPU but you need to handle thousands of concurrent requests with session persistence? That's where SGLang comes in. This chapter introduces SGLang's distributed inference architecture, focusing on router-based request routing, prefill/decode disaggregation, and multi-node coordination. Unlike vLLM's model parallelism approach, SGLang emphasizes request-level routing and workload disaggregation for high-QPS, low-latency distributed inference.
 
 ## Introduction to SGLang and Setup
 
@@ -690,6 +692,8 @@ Both systems can coexist:
 
 - **vLLM**: For batch processing, large model serving, high-throughput workloads
 - **SGLang**: For interactive chat, low-latency APIs, high-QPS endpoints with session management
+
+We've now covered both training (DDP, FSDP, DeepSpeed) and inference (vLLM, SGLang) systems. But understanding the theory is only part of the equation—you also need to know how to actually run these systems in practice. The next chapter provides a hands-on guide to running distributed AI training workloads using Slurm, the job scheduler used by most HPC clusters and cloud providers. We'll cover setting up Slurm clusters, submitting distributed training jobs, integrating with PyTorch DDP and FSDP, and best practices for production workloads.
 
 ## References
 

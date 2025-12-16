@@ -2,6 +2,8 @@
 
 ## Overview
 
+We've now covered the full stack: distributed training (DDP, FSDP, DeepSpeed), inference engines (vLLM, SGLang), job scheduling (Slurm), and production serving systems. But once you've built these systems, you need to know how well they're performing. Are you getting the throughput you expect? Is latency acceptable? How efficiently are you using your GPUs? Are your optimizations degrading model accuracy?
+
 This chapter teaches readers how to benchmark distributed training and inference systems rigorously using tools like genai-bench, MLPerf, and custom profiling scripts. It covers both **performance benchmarking** (throughput, latency, scaling efficiency) and **accuracy benchmarking** (model quality, output correctness). Topics include warmup methodology, scaling efficiency, network bottleneck identification, accuracy evaluation, and performance analysis. By the end of this chapter, readers will be able to design reproducible benchmark experiments, identify performance bottlenecks, evaluate model accuracy, and optimize distributed systems effectively.
 
 **Chapter Length:** 28 pages
@@ -1806,6 +1808,8 @@ This chapter has covered comprehensive benchmarking methodologies for distribute
 7. **Reproducibility:** Document everything for fair comparisons
 
 Effective benchmarking is the foundation of performance optimization and quality assurance. Without accurate measurements, optimization efforts are blind. The tools and techniques covered in this chapter provide a solid foundation for understanding and improving distributed AI system performance while maintaining model accuracy.
+
+Throughout this book, we've covered the current state of distributed AI: DDP and FSDP for training, vLLM and SGLang for inference, Slurm for job scheduling, and production serving stacks. But the field is rapidly evolving. The final chapter explores emerging trends and future directions: MoE scaling, hybrid edge-cloud architectures, advanced parallelism strategies, and cost optimization techniques. Understanding where the field is heading will help you position yourself for the next wave of distributed AI innovations.
 
 
 

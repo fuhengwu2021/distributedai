@@ -1038,6 +1038,8 @@ import deepspeed
 - For new projects: Use FSDP2 unless you need DeepSpeed-specific features
 - For very large models (>100B): DeepSpeed still has an edge
 
+So far, we've focused on distributed training—how to train large models across multiple GPUs. But training is only half the story. Once you've trained a model, you need to serve it efficiently at scale. The next part of this book shifts focus to distributed inference: how to run inference on large models efficiently, handle high-throughput workloads, and serve models in production. We'll start with vLLM, a high-performance inference engine that uses techniques like PagedAttention and continuous batching to maximize throughput and minimize latency.
+
 
 
 ## References
