@@ -7,7 +7,7 @@ This chapter walks through GPU architecture basics, interconnect technologies, a
 
 ![](img/h100.jpg)
 
-## Computational Power and AI Clusters
+## Computational Power: AI Clusters and Metrics
 
 Before diving into GPU specifics, let's step back and understand what we're really building: AI clusters that deliver massive computational power. The numbers matter here—when you're training a 70B parameter model, you're not just using a few GPUs. You're orchestrating hundreds or thousands of them, and the way they're connected determines whether your training job finishes in days or weeks.
 
@@ -150,7 +150,7 @@ When you're benchmarking a cluster, measure these metrics at different scales: 8
 
 In the rest of this chapter, we'll cover the hardware details that make clusters work: GPU memory hierarchies, interconnect technologies, and how to choose parallelism strategies based on your cluster's topology.
 
-## CPU: The Orchestrator
+## Central Processing Unit (CPU)
 
 While GPUs do the heavy lifting in distributed training, CPUs play a crucial supporting role. Understanding CPU architecture helps you optimize data loading, manage GPU coordination, and debug performance bottlenecks.
 
@@ -202,7 +202,7 @@ For a typical 8-GPU server:
 
 The CPU doesn't need to be the latest generation—it's not doing the compute. But it needs enough cores and PCIe bandwidth to keep GPUs busy.
 
-## NVIDIA GPU: Architecture Evolution and Hardware
+## Graphics Processing Unit (GPU)
 
 When you're building distributed training systems, the GPU architecture matters. NVIDIA has been iterating on GPU designs since 2010, and each generation brings changes that affect how you design your training pipeline. Here's what you need to know about the GPUs you're likely to encounter.
 
@@ -285,7 +285,7 @@ HBM bandwidth matters too. The A100 has 2 TB/s, H100 has 3 TB/s, and B200 has 8 
 
 **Interconnect bandwidth**: NVLink bandwidth determines how fast GPUs can synchronize gradients. A100 has 600 GB/s, H100 has 900 GB/s, and B200 has 1.8 TB/s. When you're doing data parallelism, you're doing AllReduce operations every step. Faster NVLink means less communication overhead.
 
-### GPU Product Families
+### Graphics Processing Unit (GPU) Product Families
 
 NVIDIA ships GPUs in different form factors depending on your needs:
 
@@ -323,7 +323,7 @@ For inference, the calculus changes. B200's FP4 performance (20 PFLOP) makes it 
 
 When you're designing distributed systems, these architectural details determine your parallelism strategy. High NVLink bandwidth means tensor parallelism is viable. Large memory means you can fit bigger models or use fewer GPUs. Fast HBM means you can process larger batches without hitting memory bandwidth limits.
 
-## Google TPU: An Alternative Architecture
+## Tensor Processing Unit (TPU)
 
 While NVIDIA GPUs dominate the distributed training landscape, Google's Tensor Processing Unit (TPU) offers a different approach. TPUs are application-specific integrated circuits (ASICs) designed from the ground up for neural network workloads. If you're working at Google or using Google Cloud, you'll encounter TPUs. Understanding how they differ from GPUs helps when choosing hardware or porting code between platforms.
 
@@ -405,7 +405,7 @@ This is an example of algorithm-hardware co-design: Google identified that embed
 
 If you're training recommendation models or models with large embedding tables, TPU v4's Sparse Core is a significant advantage. For transformer-only models, it doesn't matter as much.
 
-## NPU: Domain-Specific AI Accelerators
+## Neural Processing Unit (NPU)
 
 While GPUs and TPUs dominate large-scale training, **Neural Processing Units (NPUs)** represent a different approach: domain-specific architecture (DSA) chips optimized for AI workloads. NPUs are ASICs (Application-Specific Integrated Circuits) designed from the ground up for neural network operations, trading general-purpose flexibility for efficiency.
 
@@ -501,7 +501,7 @@ This fragmentation means less software support, fewer frameworks, and more vendo
 
 For distributed training, NPUs are viable but require more vendor-specific knowledge than GPUs. If you're building a new cluster and have access to both, GPUs are usually the safer choice due to ecosystem maturity. But NPUs can be compelling for specific regions, workloads, or cost constraints.
 
-## High-Speed Interconnects: PCIe, NVLink, NVSwitch, InfiniBand, and Ethernet
+## High-Speed Interconnects: The Network Backbone
 
 There are several ways GPUs connect, and which one matters depends on whether you're talking about communication within a single server or across multiple servers.
 
@@ -677,7 +677,7 @@ ROCm (AMD's CUDA alternative) provides a CUDA-like programming interface, but th
 For distributed training, stick with NVIDIA if possible. The ecosystem (CUDA, cuDNN, NCCL) is mature and well-optimized. AMD is catching up, but NVIDIA still has the advantage in software support.
 
 
-## Distributed Communication Patterns
+## Distributed Communication: Patterns and Primitives
 
 When you're running distributed training, GPUs need to communicate. The main patterns you'll see are:
 
@@ -692,7 +692,7 @@ The thing to watch with communication is not just raw bandwidth, but also startu
 You can benchmark these operations yourself. The `code/allreduce_microbench.py` script shows a basic example, though you'll need to initialize the process group first (we'll cover that in Chapter 3).
 
 
-## Parallelism Strategies
+## Parallelism: Core Strategies
 
 There are several ways to split work across GPUs. Each has tradeoffs, and you'll often combine them. Here's the quick rundown:
 
@@ -712,7 +712,7 @@ The decision tree is roughly: Does your model fit on one GPU? If yes, start with
 
 Most people don't implement these from scratch—you'll use PyTorch's DDP/FSDP, DeepSpeed's ZeRO, or libraries like Megatron-LM that handle the tensor parallelism details. But understanding what's happening under the hood helps when things go wrong.
 
-## Choosing the Right Strategy
+## Strategy Selection: Choosing the Right Approach
 
 There's no one-size-fits-all answer. Here's how I think about it:
 
