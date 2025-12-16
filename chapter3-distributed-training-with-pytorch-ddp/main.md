@@ -1572,9 +1572,9 @@ if can_set_static_graph:
     print("Can enable static_graph=True")
 ```
 
-## 6. Checkpointing and Resuming Distributed Jobs
+## 7. Checkpointing and Resuming Distributed Jobs
 
-Long training jobs need checkpointing. With DDP, you need to save and restore model state, optimizer state, and random number generator state correctly.
+After optimizing your DDP training, you'll want to save progress regularly. Long training jobs need checkpointing, and with DDP, you need to save and restore model state, optimizer state, and random number generator state correctly.
 
 ### Saving Checkpoints
 
@@ -1716,9 +1716,11 @@ def save_checkpoint_atomic(model, optimizer, epoch, filepath):
 4. **Use barriers**: After saving, use `dist.barrier()` to ensure all processes see the checkpoint
 5. **Test loading**: Periodically test that checkpoints can be loaded correctly
 
-## 7. Advanced DDP Features
+Now that we've covered the essentials of DDP setup, debugging, profiling, optimization, and checkpointing, let's explore some advanced features that DDP provides for specialized use cases.
 
-DDP has several advanced features for specialized use cases: gradient hooks, communication hooks, and join() for uneven inputs.
+## 8. Advanced DDP Features
+
+DDP has several advanced features for specialized use cases: gradient hooks, communication hooks, and join() for uneven inputs. These features give you fine-grained control over DDP's behavior when you need to customize gradient synchronization or handle edge cases.
 
 ### Gradient Hooks
 
@@ -1796,9 +1798,11 @@ with model.join():
 - Different processes have different dataset sizes
 - You're using dynamic batching
 
-## 8. Best Practices and Common Patterns
+With the advanced features covered, let's consolidate the key practices that will help you write robust, efficient DDP training code.
 
-Here are best practices distilled from production DDP training:
+## 9. Best Practices and Common Patterns
+
+Here are best practices distilled from production DDP training. Following these patterns will help you avoid common pitfalls and build reliable distributed training pipelines:
 
 ### Always Validate Single-Process First
 
@@ -1896,9 +1900,234 @@ Long training jobs will fail. Save checkpoints regularly and test that they can 
 
 If you plan to use multi-node training, test it early. Multi-node has different failure modes than single-node (network issues, different hardware, etc.).
 
-## 9. Real-World Example: Training a Transformer with DDP
+So far, we've focused on **synchronous** DDP, where all GPUs wait for each other before synchronizing gradients. This is the standard approach and works well for most cases. However, there are alternative paradigms worth understanding: asynchronous and elastic data parallelism.
 
-Let's put it all together with a complete example: training a transformer model (GPT-style) with DDP, mixed precision, and checkpointing.
+## 10. Asynchronous Data Parallelism
+
+All the DDP implementations we've discussed so far are **synchronous**: all GPUs wait for each other to complete gradient computation before synchronizing. This ensures model consistency but can be inefficient when GPUs have different speeds or when communication overhead is high.
+
+**Asynchronous Data Parallelism (ADP)** allows GPUs to update parameters independently without waiting for others. Fast GPUs can update parameters more frequently, while slow GPUs don't block the entire training process.
+
+### How Asynchronous Data Parallel Works
+
+In asynchronous data parallel:
+
+1. **Forward pass**: Each GPU processes its data shard independently, computing gradients at its own pace.
+
+2. **Gradient push**: When a GPU finishes computing gradients, it immediately sends them to a parameter server (or master process) without waiting for other GPUs.
+
+3. **Parameter update**: The parameter server accumulates gradients and updates model parameters as soon as it receives gradients from any GPU.
+
+4. **Parameter pull**: GPUs pull the latest parameters from the parameter server before the next iteration.
+
+The key difference from synchronous DDP: GPUs don't wait for each other. A fast GPU might update parameters multiple times while a slow GPU is still computing gradients.
+
+### Advantages of Asynchronous Data Parallel
+
+- **No straggler waiting**: Fast GPUs don't wait for slow GPUs, improving overall throughput when GPUs have different speeds.
+
+- **Better GPU utilization**: GPUs stay busy computing instead of waiting for synchronization.
+
+- **Scalability**: Can handle large numbers of GPUs without communication bottlenecks (each GPU communicates independently with the parameter server).
+
+### Challenges of Asynchronous Data Parallel
+
+- **Stale gradients**: A GPU might compute gradients using old parameters while parameters are being updated by other GPUs. This creates gradient staleness, which can hurt convergence.
+
+- **Convergence issues**: The lack of synchronization can cause training instability. Models might converge slower or not converge at all, especially with high staleness.
+
+- **Race conditions**: Multiple GPUs updating parameters simultaneously can cause race conditions, requiring careful synchronization at the parameter server.
+
+- **Parameter server bottleneck**: All GPUs communicate with a central parameter server, which can become a bottleneck at scale.
+
+### When to Use Asynchronous Data Parallel
+
+Asynchronous data parallel is rarely used in modern training because:
+
+1. **DDP is fast enough**: With efficient communication (NVLink, InfiniBand) and overlap, synchronous DDP achieves high efficiency without the convergence risks.
+
+2. **Convergence is critical**: For most models, training stability and convergence are more important than marginal speed improvements.
+
+3. **Hardware is homogeneous**: Modern clusters have uniform GPU speeds, so straggler issues are less common.
+
+However, asynchronous data parallel can be useful for:
+- **Heterogeneous clusters**: When GPUs have significantly different speeds
+- **Fault tolerance**: When you want training to continue even if some GPUs fail
+- **Research**: When exploring trade-offs between speed and convergence
+
+### Implementing Asynchronous Data Parallel
+
+PyTorch doesn't provide built-in asynchronous data parallel support (DDP is synchronous). You'd need to implement it manually using parameter servers or custom communication patterns. This is complex and error-prone, which is why most practitioners stick with DDP.
+
+If you need asynchronous behavior, consider:
+- **Gradient accumulation**: Simulate larger batches without synchronization overhead
+- **Pipeline parallelism**: Overlap computation across model layers (covered in later chapters)
+- **Elastic training**: Handle node failures and dynamic scaling (covered next)
+
+While asynchronous data parallel is rarely used in practice, **elastic data parallelism** is increasingly important for production training systems that need to handle failures and dynamic resource allocation.
+
+## 11. Elastic Data Parallelism
+
+Elastic training is a distributed training approach that handles dynamic environments: node failures, resource changes, and membership changes. Instead of failing when a node crashes, elastic training automatically adjusts and continues training. This is crucial for long-running training jobs where node failures are inevitable.
+
+PyTorch provides **TorchElastic** (now part of `torchrun`) for elastic distributed training. It enables:
+- **Fault tolerance**: Automatically recover from node failures
+- **Dynamic scaling**: Add or remove nodes during training
+- **Checkpoint-based recovery**: Resume from the last checkpoint after failures
+
+### How Elastic Training Works
+
+Elastic training uses a **rendezvous** mechanism to coordinate nodes:
+
+1. **Rendezvous**: Nodes join a rendezvous point, waiting until a minimum number of nodes are available.
+
+2. **Barrier**: Once minimum nodes are reached, all nodes proceed together. If maximum nodes are specified, rendezvous completes immediately when maximum is reached.
+
+3. **Rank assignment**: Each node receives a unique rank for the training job.
+
+4. **Training**: Nodes run training with the assigned ranks.
+
+5. **Failure handling**: If a node fails, remaining nodes detect the failure and trigger a new rendezvous, reassigning ranks and continuing training.
+
+### Elastic Agent
+
+The **Elastic Agent** is the control plane for elastic training. It:
+- Launches and manages worker processes
+- Monitors worker health and detects failures
+- Handles rendezvous and rank assignment
+- Restarts workers when failures occur
+
+Each node runs an Elastic Agent that manages local workers. Agents coordinate with each other through the rendezvous backend.
+
+### Rendezvous Backend
+
+The rendezvous backend coordinates node discovery and synchronization. PyTorch provides two backends:
+
+1. **C10d backend**: Uses TCPStore (default). No external dependencies required.
+
+2. **etcd backend**: Uses etcd for coordination. More robust for large-scale deployments.
+
+The rendezvous process has several states:
+
+- **Non-existent**: No active rendezvous
+- **Joinable**: Nodes can join (waiting for minimum nodes)
+- **Frozen**: Minimum nodes reached, finalizing participant list
+- **Final**: Rendezvous complete, ranks assigned
+
+### Launching Elastic Training
+
+Use `torchrun` with elastic parameters:
+
+```bash
+torchrun \
+    --nnodes=2:4 \
+    --nproc-per-node=8 \
+    --max-restarts=3 \
+    --rdzv-id=my_job \
+    --rdzv-backend=c10d \
+    --rdzv-endpoint=master_node:29500 \
+    train.py
+```
+
+Parameters:
+- `--nnodes=MIN:MAX`: Minimum and maximum number of nodes (2 to 4 in this example)
+- `--nproc-per-node`: Number of processes (GPUs) per node
+- `--max-restarts`: Maximum number of restart attempts
+- `--rdzv-id`: Unique job identifier
+- `--rdzv-backend`: Rendezvous backend (c10d or etcd)
+- `--rdzv-endpoint`: Master node address and port
+
+### Implementing Checkpointing for Elastic Training
+
+Elastic training requires proper checkpointing because nodes can fail and restart. Your training script should:
+
+1. **Load checkpoint at startup**: Always try to load the latest checkpoint before starting training.
+
+2. **Save checkpoints regularly**: Save checkpoints frequently (every N epochs or iterations) so minimal progress is lost on failure.
+
+3. **Handle checkpoint loading**: If checkpoint exists, resume from that point. Otherwise, start from scratch.
+
+Example:
+
+```python
+import torch
+import torch.distributed as dist
+from torch.nn.parallel import DistributedDataParallel as DDP
+
+def load_checkpoint(checkpoint_path):
+    """Load checkpoint if it exists."""
+    if os.path.exists(checkpoint_path):
+        checkpoint = torch.load(checkpoint_path)
+        return checkpoint
+    return None
+
+def save_checkpoint(model, optimizer, epoch, checkpoint_path):
+    """Save checkpoint (only on rank 0)."""
+    if dist.get_rank() == 0:
+        checkpoint = {
+            'epoch': epoch,
+            'model_state_dict': model.module.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+        }
+        torch.save(checkpoint, checkpoint_path)
+
+def train():
+    dist.init_process_group(backend='nccl')
+    rank = dist.get_rank()
+    
+    # Load checkpoint
+    checkpoint = load_checkpoint('checkpoint.pt')
+    start_epoch = 0
+    
+    model = create_model().to(rank)
+    model = DDP(model, device_ids=[rank])
+    optimizer = create_optimizer(model.parameters())
+    
+    if checkpoint:
+        model.module.load_state_dict(checkpoint['model_state_dict'])
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        start_epoch = checkpoint['epoch'] + 1
+        if rank == 0:
+            print(f'Resuming from epoch {start_epoch}')
+    
+    # Training loop
+    for epoch in range(start_epoch, num_epochs):
+        # Training...
+        train_epoch(model, optimizer, dataloader)
+        
+        # Save checkpoint every epoch
+        save_checkpoint(model, optimizer, epoch, 'checkpoint.pt')
+    
+    dist.destroy_process_group()
+```
+
+### Elastic Training Best Practices
+
+1. **Frequent checkpoints**: Save checkpoints often. In the worst case, you'll lose progress since the last checkpoint.
+
+2. **Checkpoint on rank 0**: Only rank 0 should write checkpoints to avoid race conditions.
+
+3. **Atomic checkpoint writes**: Write to a temporary file, then rename to avoid corrupted checkpoints.
+
+4. **Test failure scenarios**: Intentionally kill nodes to verify recovery works correctly.
+
+5. **Monitor rendezvous**: Use `NCCL_DEBUG=INFO` to monitor rendezvous and communication.
+
+### When to Use Elastic Training
+
+Use elastic training when:
+- **Long-running jobs**: Training jobs that run for days or weeks benefit from fault tolerance
+- **Unreliable infrastructure**: Clusters with frequent node failures
+- **Dynamic resource allocation**: When you want to add/remove nodes based on availability
+- **Cost optimization**: Scale down during low-priority periods, scale up when needed
+
+For short training jobs or stable clusters, standard DDP (non-elastic) is simpler and sufficient.
+
+Now that we've covered all the key concepts—from basic DDP setup to advanced features like asynchronous and elastic training—let's put everything together in a complete, production-ready example that demonstrates best practices.
+
+## 12. Real-World Example: Training a Transformer with DDP
+
+Let's put it all together with a complete example: training a transformer model (GPT-style) with DDP, mixed precision, and checkpointing. This example demonstrates best practices and shows how the various DDP features work together in practice. It integrates everything we've learned: proper setup, DistributedSampler usage, mixed precision, checkpointing, and error handling.
 
 ```python
 import os
@@ -2068,234 +2297,25 @@ This example includes:
 
 ## Conclusion
 
-DDP is the foundation of distributed training in PyTorch. Understanding how it works—gradient synchronization, bucketing, overlap—helps you write efficient training code and debug issues when they arise.
+DDP is the foundation of distributed training in PyTorch. Throughout this chapter, we've covered how DDP works internally, how to set it up for single-node and multi-node training, how to debug common issues, how to profile and optimize performance, and how to handle advanced scenarios like checkpointing, asynchronous training, and elastic scaling.
+
+Understanding how DDP works—gradient synchronization, bucketing, overlap—helps you write efficient training code and debug issues when they arise. The key concepts we've explored include:
+
+- **Gradient synchronization**: DDP uses AllReduce to aggregate gradients across all processes, ensuring model consistency
+- **Computation-communication overlap**: DDP overlaps gradient synchronization with computation to hide communication latency
+- **Process management**: Using `torchrun` for launching and managing DDP processes
+- **Data sharding**: Using `DistributedSampler` to ensure each process sees different data
+- **Performance optimization**: Profiling, bucket tuning, mixed precision, and other optimization techniques
+- **Fault tolerance**: Checkpointing and elastic training for long-running jobs
 
 Key takeaways:
 
-- Use `torchrun` for launching DDP jobs
-- Always use `DistributedSampler` and call `set_epoch()` each epoch
-- Enable mixed precision for better performance
-- Profile before optimizing
-- Save checkpoints regularly
-- Test single-process before scaling
-
-## 10. Asynchronous Data Parallelism
-
-All the DDP implementations we've discussed so far are **synchronous**: all GPUs wait for each other to complete gradient computation before synchronizing. This ensures model consistency but can be inefficient when GPUs have different speeds or when communication overhead is high.
-
-**Asynchronous Data Parallelism (ADP)** allows GPUs to update parameters independently without waiting for others. Fast GPUs can update parameters more frequently, while slow GPUs don't block the entire training process.
-
-### How Asynchronous Data Parallel Works
-
-In asynchronous data parallel:
-
-1. **Forward pass**: Each GPU processes its data shard independently, computing gradients at its own pace.
-
-2. **Gradient push**: When a GPU finishes computing gradients, it immediately sends them to a parameter server (or master process) without waiting for other GPUs.
-
-3. **Parameter update**: The parameter server accumulates gradients and updates model parameters as soon as it receives gradients from any GPU.
-
-4. **Parameter pull**: GPUs pull the latest parameters from the parameter server before the next iteration.
-
-The key difference from synchronous DDP: GPUs don't wait for each other. A fast GPU might update parameters multiple times while a slow GPU is still computing gradients.
-
-### Advantages of Asynchronous Data Parallel
-
-- **No straggler waiting**: Fast GPUs don't wait for slow GPUs, improving overall throughput when GPUs have different speeds.
-
-- **Better GPU utilization**: GPUs stay busy computing instead of waiting for synchronization.
-
-- **Scalability**: Can handle large numbers of GPUs without communication bottlenecks (each GPU communicates independently with the parameter server).
-
-### Challenges of Asynchronous Data Parallel
-
-- **Stale gradients**: A GPU might compute gradients using old parameters while parameters are being updated by other GPUs. This creates gradient staleness, which can hurt convergence.
-
-- **Convergence issues**: The lack of synchronization can cause training instability. Models might converge slower or not converge at all, especially with high staleness.
-
-- **Race conditions**: Multiple GPUs updating parameters simultaneously can cause race conditions, requiring careful synchronization at the parameter server.
-
-- **Parameter server bottleneck**: All GPUs communicate with a central parameter server, which can become a bottleneck at scale.
-
-### When to Use Asynchronous Data Parallel
-
-Asynchronous data parallel is rarely used in modern training because:
-
-1. **DDP is fast enough**: With efficient communication (NVLink, InfiniBand) and overlap, synchronous DDP achieves high efficiency without the convergence risks.
-
-2. **Convergence is critical**: For most models, training stability and convergence are more important than marginal speed improvements.
-
-3. **Hardware is homogeneous**: Modern clusters have uniform GPU speeds, so straggler issues are less common.
-
-However, asynchronous data parallel can be useful for:
-- **Heterogeneous clusters**: When GPUs have significantly different speeds
-- **Fault tolerance**: When you want training to continue even if some GPUs fail
-- **Research**: When exploring trade-offs between speed and convergence
-
-### Implementing Asynchronous Data Parallel
-
-PyTorch doesn't provide built-in asynchronous data parallel support (DDP is synchronous). You'd need to implement it manually using parameter servers or custom communication patterns. This is complex and error-prone, which is why most practitioners stick with DDP.
-
-If you need asynchronous behavior, consider:
-- **Gradient accumulation**: Simulate larger batches without synchronization overhead
-- **Pipeline parallelism**: Overlap computation across model layers (covered in later chapters)
-- **Elastic training**: Handle node failures and dynamic scaling (covered next)
-
-## 11. Elastic Data Parallelism
-
-Elastic training is a distributed training approach that handles dynamic environments: node failures, resource changes, and membership changes. Instead of failing when a node crashes, elastic training automatically adjusts and continues training.
-
-PyTorch provides **TorchElastic** (now part of `torchrun`) for elastic distributed training. It enables:
-- **Fault tolerance**: Automatically recover from node failures
-- **Dynamic scaling**: Add or remove nodes during training
-- **Checkpoint-based recovery**: Resume from the last checkpoint after failures
-
-### How Elastic Training Works
-
-Elastic training uses a **rendezvous** mechanism to coordinate nodes:
-
-1. **Rendezvous**: Nodes join a rendezvous point, waiting until a minimum number of nodes are available.
-
-2. **Barrier**: Once minimum nodes are reached, all nodes proceed together. If maximum nodes are specified, rendezvous completes immediately when maximum is reached.
-
-3. **Rank assignment**: Each node receives a unique rank for the training job.
-
-4. **Training**: Nodes run training with the assigned ranks.
-
-5. **Failure handling**: If a node fails, remaining nodes detect the failure and trigger a new rendezvous, reassigning ranks and continuing training.
-
-### Elastic Agent
-
-The **Elastic Agent** is the control plane for elastic training. It:
-- Launches and manages worker processes
-- Monitors worker health and detects failures
-- Handles rendezvous and rank assignment
-- Restarts workers when failures occur
-
-Each node runs an Elastic Agent that manages local workers. Agents coordinate with each other through the rendezvous backend.
-
-### Rendezvous Backend
-
-The rendezvous backend coordinates node discovery and synchronization. PyTorch provides two backends:
-
-1. **C10d backend**: Uses TCPStore (default). No external dependencies required.
-
-2. **etcd backend**: Uses etcd for coordination. More robust for large-scale deployments.
-
-The rendezvous process has several states:
-
-- **Non-existent**: No active rendezvous
-- **Joinable**: Nodes can join (waiting for minimum nodes)
-- **Frozen**: Minimum nodes reached, finalizing participant list
-- **Final**: Rendezvous complete, ranks assigned
-
-### Launching Elastic Training
-
-Use `torchrun` with elastic parameters:
-
-```bash
-torchrun \
-    --nnodes=2:4 \
-    --nproc-per-node=8 \
-    --max-restarts=3 \
-    --rdzv-id=my_job \
-    --rdzv-backend=c10d \
-    --rdzv-endpoint=master_node:29500 \
-    train.py
-```
-
-Parameters:
-- `--nnodes=MIN:MAX`: Minimum and maximum number of nodes (2 to 4 in this example)
-- `--nproc-per-node`: Number of processes (GPUs) per node
-- `--max-restarts`: Maximum number of restart attempts
-- `--rdzv-id`: Unique job identifier
-- `--rdzv-backend`: Rendezvous backend (c10d or etcd)
-- `--rdzv-endpoint`: Master node address and port
-
-### Implementing Checkpointing for Elastic Training
-
-Elastic training requires proper checkpointing because nodes can fail and restart. Your training script should:
-
-1. **Load checkpoint at startup**: Always try to load the latest checkpoint before starting training.
-
-2. **Save checkpoints regularly**: Save checkpoints frequently (every N epochs or iterations) so minimal progress is lost on failure.
-
-3. **Handle checkpoint loading**: If checkpoint exists, resume from that point. Otherwise, start from scratch.
-
-Example:
-
-```python
-import torch
-import torch.distributed as dist
-from torch.nn.parallel import DistributedDataParallel as DDP
-
-def load_checkpoint(checkpoint_path):
-    """Load checkpoint if it exists."""
-    if os.path.exists(checkpoint_path):
-        checkpoint = torch.load(checkpoint_path)
-        return checkpoint
-    return None
-
-def save_checkpoint(model, optimizer, epoch, checkpoint_path):
-    """Save checkpoint (only on rank 0)."""
-    if dist.get_rank() == 0:
-        checkpoint = {
-            'epoch': epoch,
-            'model_state_dict': model.module.state_dict(),
-            'optimizer_state_dict': optimizer.state_dict(),
-        }
-        torch.save(checkpoint, checkpoint_path)
-
-def train():
-    dist.init_process_group(backend='nccl')
-    rank = dist.get_rank()
-    
-    # Load checkpoint
-    checkpoint = load_checkpoint('checkpoint.pt')
-    start_epoch = 0
-    
-    model = create_model().to(rank)
-    model = DDP(model, device_ids=[rank])
-    optimizer = create_optimizer(model.parameters())
-    
-    if checkpoint:
-        model.module.load_state_dict(checkpoint['model_state_dict'])
-        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        start_epoch = checkpoint['epoch'] + 1
-        if rank == 0:
-            print(f'Resuming from epoch {start_epoch}')
-    
-    # Training loop
-    for epoch in range(start_epoch, num_epochs):
-        # Training...
-        train_epoch(model, optimizer, dataloader)
-        
-        # Save checkpoint every epoch
-        save_checkpoint(model, optimizer, epoch, 'checkpoint.pt')
-    
-    dist.destroy_process_group()
-```
-
-### Elastic Training Best Practices
-
-1. **Frequent checkpoints**: Save checkpoints often. In the worst case, you'll lose progress since the last checkpoint.
-
-2. **Checkpoint on rank 0**: Only rank 0 should write checkpoints to avoid race conditions.
-
-3. **Atomic checkpoint writes**: Write to a temporary file, then rename to avoid corrupted checkpoints.
-
-4. **Test failure scenarios**: Intentionally kill nodes to verify recovery works correctly.
-
-5. **Monitor rendezvous**: Use `NCCL_DEBUG=INFO` to monitor rendezvous and communication.
-
-### When to Use Elastic Training
-
-Use elastic training when:
-- **Long-running jobs**: Training jobs that run for days or weeks benefit from fault tolerance
-- **Unreliable infrastructure**: Clusters with frequent node failures
-- **Dynamic resource allocation**: When you want to add/remove nodes based on availability
-- **Cost optimization**: Scale down during low-priority periods, scale up when needed
-
-For short training jobs or stable clusters, standard DDP (non-elastic) is simpler and sufficient.
-
-In the next chapter, we'll cover FSDP (Fully Sharded Data Parallel), which extends DDP to handle models that don't fit on a single GPU by sharding model parameters across GPUs.
+- Use `torchrun` for launching DDP jobs—it handles process management and error recovery
+- Always use `DistributedSampler` and call `set_epoch()` each epoch to ensure proper data shuffling
+- Enable mixed precision (FP16/BF16) for better performance—it's usually a free win
+- Profile before optimizing—use `torch.profiler.profile` to identify bottlenecks
+- Save checkpoints regularly—long training jobs will fail, and checkpoints let you resume
+- Test single-process before scaling—validate correctness before adding complexity
+- Understand your communication topology—NVLink for intra-node, InfiniBand for inter-node
+
+DDP is mature, well-optimized, and suitable for most distributed training scenarios. However, for very large models that don't fit on a single GPU, you'll need to move beyond DDP to techniques like FSDP (Fully Sharded Data Parallel), which we'll cover in the next chapter. FSDP extends DDP by sharding model parameters across GPUs, enabling training of models that are too large for any single GPU's memory.
