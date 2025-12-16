@@ -78,6 +78,7 @@ Each GPU still holds full parameters and gradients, but optimizer states are par
 ### Memory Savings
 
 For a model with Adam optimizer:
+
 - Parameters: No change (still replicated)
 - Gradients: No change (still replicated)  
 - Optimizer States: **Reduced by N×**

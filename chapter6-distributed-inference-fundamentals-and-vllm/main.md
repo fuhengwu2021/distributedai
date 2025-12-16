@@ -881,38 +881,45 @@ An external load balancer (e.g., nginx, HAProxy) routes requests to different ra
 The data parallelism implementation in vLLM is distributed across several key files:
 
 **Core Implementation**:
+
 - `vllm/v1/engine/core.py` (lines 1139-1457): 
   - `DPEngineCoreProc`: Main data parallel engine core process class
   - `DPEngineCoreActor`: Ray actor version for distributed execution
   - Handles DP rank initialization and step synchronization
 
 **Parallel State Management**:
+
 - `vllm/distributed/parallel_state.py` (line 1102+):
   - `get_dp_group()`: Returns the data parallel process group
   - Initializes DP groups and manages DP ranks
 
 **DP Coordination and Synchronization**:
+
 - `vllm/v1/worker/dp_utils.py`:
   - `coordinate_batch_across_dp()`: Coordinates batch processing across DP ranks
   - `_synchronize_dp_ranks()`: Synchronizes token counts and microbatching decisions
   - Handles DP padding and ubatch coordination via all-reduce operations
 
 **DP Coordinator**:
+
 - `vllm/v1/engine/coordinator.py` (line 22+):
   - `DPCoordinator`: Coordinates multiple DP engine ranks
   - Manages request waves, load balancing stats, and START_DP_WAVE messages
   - Collects statistics from DP engines for load balancing
 
 **Worker Integration**:
+
 - `vllm/v1/worker/gpu_worker.py`: GPU worker with DP support
 - `vllm/v1/worker/gpu_model_runner.py`: Model runner with DP batch coordination
 - `vllm/v1/worker/gpu/dp_utils.py`: GPU-specific DP utilities
 
 **Configuration**:
+
 - `vllm/config/parallel.py`:
   - `ParallelConfig` class with `data_parallel_size`, `data_parallel_rank`, etc.
 
 **Examples**:
+
 - `examples/offline_inference/data_parallel.py`: Offline batch inference example
 - `examples/online_serving/multi_instance_data_parallel.py`: Online serving example
 
@@ -986,6 +993,7 @@ GPU 2: [Group1][Group2][Group3][Group4][Group1][Group2]...
 ```
 
 **How it works**:
+
 - Multiple independent request streams (groups) run simultaneously
 - Each group is data-independent
 - vLLM uses multiple schedulers and cache engines to maintain separation
@@ -1052,6 +1060,7 @@ Decode:  [=][=][=][=][=][=][=]
 - **Small chunk size**: Smooth execution, optimal performance
 
 **Considerations**:
+
 - Prefill-to-decode ratio
 - Hardware characteristics
 - Workload patterns
@@ -1205,6 +1214,7 @@ Routed experts per GPU = Total Routed Experts / EP_SIZE
 ```
 
 **Example**: DeepSeek-R1 has 256 routed experts:
+
 - With `TP=8, DP=1, EP`: Each GPU holds 32 complete experts (256/8 = 32)
 - With `TP=1, DP=8, EP`: Each GPU holds 32 complete experts (256/8 = 32)
 - With `TP=4, DP=2, EP`: Each GPU holds 32 complete experts (256/8 = 32)
@@ -1250,6 +1260,7 @@ Since TP and PP operate along **different axes**, they can be combined effective
 When combining TP with EP for MoE models:
 
 **Behavior**:
+
 - Experts are distributed across TP ranks (split experts)
 - Uses AllReduce communication (not AllToAll, since `dp_size=1`)
 - KV cache is duplicated on each TP rank (same as TP without EP)
@@ -1268,6 +1279,7 @@ When combining TP with EP for MoE models:
 When combining DP with EP for MoE models:
 
 **Behavior**:
+
 - Enables **DP Attention**: Request-level parallelism with partitioned KV cache
 - Experts are distributed across DP ranks
 - Uses AllToAll communication (requires `dp_size > 1`)
@@ -1290,6 +1302,7 @@ When combining DP with EP for MoE models:
 When combining TP with DP:
 
 **Behavior**:
+
 - Each DP rank contains a TP group
 - Total GPUs = `DP_size × TP_size`
 - Non-MoE layers: TP-sharded within each DP rank
@@ -1307,6 +1320,7 @@ When combining TP with DP:
 For MoE models, you can combine all three:
 
 **Behavior**:
+
 - EP_SIZE = TP_SIZE × DP_SIZE
 - Experts distributed across all GPUs in the combined group
 - Communication: AllToAll (since `dp_size > 1`)
@@ -1322,6 +1336,7 @@ For MoE models, you can combine all three:
 **Critical constraint**: EP only activates if `TP_SIZE × DP_SIZE > 1` within each pipeline stage.
 
 **Limitations**:
+
 - `--pipeline-parallel-size 2 --enable-expert-parallel` → EP does NOT activate (TP=1, DP=1 per stage)
 - `--pipeline-parallel-size 2 --tensor-parallel-size 4 --enable-expert-parallel` → EP activates (TP=4 per stage)
 - Requires AITER (Advanced Inter-node Tensor-parallelism Engine Runtime) for stability

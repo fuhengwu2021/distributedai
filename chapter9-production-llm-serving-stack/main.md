@@ -1865,6 +1865,7 @@ To use a different model, simply change the model name in the deployment args:
 
 ```yaml
 args:
+
 - |
   vllm serve meta-llama/Llama-3.2-1B-Instruct \
     --trust-remote-code \
@@ -1900,6 +1901,7 @@ For better performance, you can adjust vLLM parameters:
 
 ```yaml
 args:
+
 - |
   vllm serve mistralai/Mistral-7B-Instruct-v0.3 \
     --trust-remote-code \
@@ -1928,6 +1930,7 @@ For larger models requiring multiple GPUs:
 
 ```yaml
 args:
+
 - |
   vllm serve mistralai/Mistral-7B-Instruct-v0.3 \
     --tensor-parallel-size 2 \
@@ -2232,6 +2235,7 @@ In your pod YAML, use `/models` (the path inside the k3d node) as the hostPath, 
 
 ```yaml
 volumes:
+
 - name: models
   hostPath:
     path: /models        # ✅ Correct: path inside k3d node
@@ -2644,6 +2648,7 @@ For production use, you may want to adjust vLLM parameters:
 
 ```yaml
 args:
+
 - --model
 - /models/Phi-tiny-MoE-instruct
 - --host
@@ -2674,9 +2679,11 @@ For models that need multiple GPUs:
 
 ```yaml
 args:
+
 - --tensor-parallel-size
 - "2"                    # Use 2 GPUs
 env:
+
 - name: CUDA_VISIBLE_DEVICES
   value: "0,1"           # Specify GPU IDs
 resources:
@@ -2738,6 +2745,7 @@ resources:
 
 ```yaml
 containers:
+
 - name: vllm-server
   image: vllm-dev:latest  # Use your custom image instead of vllm/vllm-openai:latest
 ```

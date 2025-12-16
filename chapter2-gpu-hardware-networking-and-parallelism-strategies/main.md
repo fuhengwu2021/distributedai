@@ -62,7 +62,7 @@ When you're evaluating or optimizing an AI cluster, you need concrete metrics. R
 
 **Model FLOPS Utilization (MFU)** is the most important metric for training efficiency. It measures what percentage of peak hardware FLOPS you're actually using:
 
-```
+```Python
 MFU = (Model FLOPs per iteration / Iteration time) / Peak FLOPS
 ```
 
@@ -79,7 +79,7 @@ That 30% MFU means 70% of your hardware is idle. Common causes: memory bandwidth
 
 **Linear scaling** measures how well performance scales with cluster size. The formula is:
 
-```
+```Python
 Linear scaling = (Multi-GPU throughput) / (Single-GPU throughput × GPU count)
 ```
 
@@ -87,7 +87,7 @@ Perfect scaling gives you 1.0 (100%). In practice, you'll see 0.7-0.9 for well-o
 
 **GPU utilization** is simpler—it's the percentage of time GPUs spend computing vs waiting. You can check it with:
 
-```bash
+```Python
 nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader
 ```
 
@@ -95,7 +95,7 @@ High utilization (90%+) is good, but it doesn't tell you if you're using the rig
 
 **Communication efficiency** measures how well you're using network bandwidth:
 
-```
+```Python
 Communication efficiency = Actual bandwidth / Theoretical bandwidth
 ```
 
@@ -103,7 +103,7 @@ For InfiniBand HDR (200 Gb/s), you might achieve 180 Gb/s actual bandwidth, givi
 
 **Throughput** (samples per second or tokens per second) is what you care about for training speed:
 
-```
+```Python
 Throughput = (Global batch size × Sequence length) / (Total training time × GPU count)
 ```
 
@@ -120,7 +120,7 @@ A well-optimized cluster spends 70-80% of time in compute, 10-20% in communicati
 
 **Energy efficiency** matters for large clusters. **FLOPS per Watt** measures compute efficiency:
 
-```
+```Python
 FLOPS/Watt = Total FLOPS / Total power consumption
 ```
 
@@ -128,7 +128,7 @@ An H100 delivers about 1.4 TFLOPS/Watt at FP16. Higher is better—it means you'
 
 **PUE (Power Usage Effectiveness)** measures datacenter efficiency:
 
-```
+```Python
 PUE = Total facility power / IT equipment power
 ```
 
@@ -439,12 +439,14 @@ Huawei's Ascend 910, for example, has 32 GB HBM2 with 1.6 TB/s bandwidth and del
 Like GPUs, NPUs come in training and inference variants:
 
 **Training NPUs** (like Ascend 910) need:
+
 - High precision support (FP32, BF16, FP16) for stable gradient computation
 - Large memory capacity for model parameters, gradients, and optimizer states
 - High-bandwidth interconnects for multi-chip training
 - Flexibility to support various model architectures
 
 **Inference NPUs** (like Ascend 310, Edge TPU) prioritize:
+
 - Lower precision (INT8, INT4) for efficiency
 - Lower power consumption for edge deployment
 - Lower latency for real-time applications
@@ -650,6 +652,7 @@ PyTorch doesn't generate CUDA kernels on the fly. Instead, it calls pre-compiled
 - **Tensor Core usage**: Automatically using Tensor Cores when available
 
 You rarely write CUDA kernels directly for distributed training. But understanding how CUDA works helps when:
+
 - Debugging performance issues (why is my GPU utilization low?)
 - Writing custom operations (maybe you need a fused kernel)
 - Understanding framework limitations (why can't PyTorch do X?)

@@ -415,6 +415,7 @@ genai-bench benchmark \
 
 **Traffic Scenarios:**
 Traffic scenarios define input/output token distributions:
+
 - `D(input_tokens, output_tokens)`: Deterministic fixed tokens
 - `I(input_tokens, output_tokens)`: Image-text input with fixed tokens
 - `E(input_tokens)`: Embedding input with fixed tokens
@@ -734,6 +735,7 @@ def measure_reasoning_session(model, session_steps, do_tool_call_fn=None):
 ```
 
 Guidance:
+
 - Instrument and log timestamps for each reasoning step and every external dependency.
 - Correlate latency traces with quality/accuracy to choose the optimal number of reasoning steps.
 - When benchmarking across systems, include both per-step breakdowns and session-level aggregates in reports (P50/P95/P99 and mean/std).
