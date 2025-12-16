@@ -54,6 +54,94 @@ An **AI cluster** is a cluster specifically designed for AI workloads. Unlike ge
 
 The hardware topology—how GPUs connect within a node and how nodes connect to each other—directly impacts what parallelism strategies work. A cluster where all GPUs are connected via NVSwitch (all-to-all connectivity) can use tensor parallelism effectively. A cluster where GPUs are only connected via PCIe will struggle with communication-heavy strategies.
 
+### Key Metrics for AI Clusters
+
+When you're evaluating or optimizing an AI cluster, you need concrete metrics. Raw FLOPS numbers are marketing—what matters is how efficiently you use the hardware. Here are the metrics that actually matter:
+
+**Model FLOPS Utilization (MFU)** is the most important metric for training efficiency. It measures what percentage of peak hardware FLOPS you're actually using:
+
+```
+MFU = (Model FLOPs per iteration / Iteration time) / Peak FLOPS
+```
+
+MFU tells you if you're compute-bound or limited by something else. A well-optimized cluster might achieve 40-60% MFU for large models. If MFU is low (say, 20%), you're likely hitting memory bandwidth limits, communication bottlenecks, or inefficient kernel launches.
+
+For a 70B parameter transformer model training on H100 GPUs, you might see:
+- **Theoretical FLOPs per iteration**: ~80 TFLOPS (depends on batch size, sequence length)
+- **Actual FLOPS per second**: ~300 TFLOPS (if iteration takes 0.27 seconds)
+- **Peak H100 FLOPS**: ~1000 TFLOPS (FP16)
+- **MFU**: 300/1000 = 30%
+
+That 30% MFU means 70% of your hardware is idle. Common causes: memory bandwidth saturation, communication overhead, or small batch sizes that don't keep GPUs busy.
+
+**Linear scaling** measures how well performance scales with cluster size. The formula is:
+
+```
+Linear scaling = (Multi-GPU throughput) / (Single-GPU throughput × GPU count)
+```
+
+Perfect scaling gives you 1.0 (100%). In practice, you'll see 0.7-0.9 for well-optimized clusters. If scaling drops below 0.5, you have a communication bottleneck.
+
+**GPU utilization** is simpler—it's the percentage of time GPUs spend computing vs waiting. You can check it with:
+
+```bash
+nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader
+```
+
+High utilization (90%+) is good, but it doesn't tell you if you're using the right kernels or if communication is blocking computation. MFU is more informative.
+
+**Communication efficiency** measures how well you're using network bandwidth:
+
+```
+Communication efficiency = Actual bandwidth / Theoretical bandwidth
+```
+
+For InfiniBand HDR (200 Gb/s), you might achieve 180 Gb/s actual bandwidth, giving 90% efficiency. If efficiency is low, you might have topology issues, packet loss, or suboptimal communication patterns.
+
+**Throughput** (samples per second or tokens per second) is what you care about for training speed:
+
+```
+Throughput = (Global batch size × Sequence length) / (Total training time × GPU count)
+```
+
+This tells you how fast you're processing data. Higher is better, but you need to balance it with convergence—larger batches might train faster per iteration but need more iterations to converge.
+
+**Resource utilization** breaks down where time is spent:
+- **GPU compute time**: Actual matrix multiplications
+- **Memory transfer time**: Moving data between CPU and GPU, or between GPUs
+- **Communication time**: Gradient synchronization, AllReduce operations
+- **Idle time**: Waiting for data, synchronization, or other bottlenecks
+
+A well-optimized cluster spends 70-80% of time in compute, 10-20% in communication, and minimal time idle.
+
+**Energy efficiency** matters for large clusters. **FLOPS per Watt** measures compute efficiency:
+
+```
+FLOPS/Watt = Total FLOPS / Total power consumption
+```
+
+An H100 delivers about 1.4 TFLOPS/Watt at FP16. Higher is better—it means you're getting more compute for the same power bill.
+
+**PUE (Power Usage Effectiveness)** measures datacenter efficiency:
+
+```
+PUE = Total facility power / IT equipment power
+```
+
+A PUE of 1.0 means all power goes to IT equipment (impossible in practice). Real datacenters achieve 1.2-1.5. Lower is better—it means less power wasted on cooling and overhead.
+
+**Reliability metrics** matter when you're running week-long training jobs:
+- **MTBF (Mean Time Between Failures)**: Average time between system failures. For a 10,000 GPU cluster, you might see failures every few hours.
+- **Availability**: Percentage of time the system is operational. Target: 99%+ for production clusters.
+- **MTTR (Mean Time To Recovery)**: Average time to recover from a failure. Good clusters recover in minutes, not hours.
+
+**Communication latency** is critical for distributed training. AllReduce latency should be:
+- **Within a node (NVLink)**: < 1 ms for typical gradient sizes
+- **Between nodes (InfiniBand)**: < 5 ms for cross-node communication
+- **P99 latency**: The 99th percentile latency matters more than average—one slow node can stall the entire training job
+
+When you're benchmarking a cluster, measure these metrics at different scales: 8 GPUs, 64 GPUs, 512 GPUs, 2048 GPUs. The metrics that degrade with scale (like linear scaling or communication efficiency) tell you where your bottlenecks are.
+
 In the rest of this chapter, we'll cover the hardware details that make clusters work: GPU memory hierarchies, interconnect technologies, and how to choose parallelism strategies based on your cluster's topology.
 
 ## CPU: The Orchestrator
@@ -106,7 +194,7 @@ For a typical 8-GPU server:
 
 The CPU doesn't need to be the latest generation—it's not doing the compute. But it needs enough cores and PCIe bandwidth to keep GPUs busy.
 
-## NVIDIA GPU
+## NVIDIA GPU: Architecture Evolution and Hardware
 
 When you're building distributed training systems, the GPU architecture matters. NVIDIA has been iterating on GPU designs since 2010, and each generation brings changes that affect how you design your training pipeline. Here's what you need to know about the GPUs you're likely to encounter.
 

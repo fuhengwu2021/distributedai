@@ -108,3 +108,8 @@ And my chapter1-introduction-to-modern-distributed-ai/code is actually a soft li
 the coderepo is resources/coderepo.
 
 Can you reorg the folder for me?
+
+
+
+extract the code from /media/wukong/jackie/git.repo/AIInfra/01AICluster/04Performance/CODE03MFU.md into a /media/wukong/jackie/git.repo/distributed-ai/chapter2-gpu-hardware-networking-and-parallelism-strategies/code/aicluster as runnable code 
+
