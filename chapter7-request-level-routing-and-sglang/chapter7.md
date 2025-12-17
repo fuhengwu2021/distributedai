@@ -50,7 +50,7 @@ docker pull lmsysorg/sglang:latest
 
 **Run the Docker Container**
 
-The Docker image runs an OpenAI-compatible server. To serve a base model like `facebook/opt-125m`, run:
+The Docker image runs an OpenAI-compatible server. To serve a small model like `Qwen/Qwen2.5-0.5B-Instruct`, run:
 
 ```bash
 docker run --runtime nvidia --gpus all \
@@ -58,16 +58,17 @@ docker run --runtime nvidia --gpus all \
   -p 8000:8000 --ipc=host --shm-size 32g \
   lmsysorg/sglang:latest \
   python3 -m sglang.launch_server \
-    --model-path facebook/opt-125m \
+    --model-path Qwen/Qwen2.5-0.5B-Instruct \
     --host 0.0.0.0 \
     --port 8000
 ```
+
+> **Note:** SGLang does not support OPT models (e.g., `facebook/opt-125m`). SGLang supports architectures such as Llama, Mistral, Qwen, Gemma, Phi3, and others. See the [SGLang documentation](https://docs.sglang.io) for the full list of supported model architectures.
 
 Here are some small models suitable for learning purposes:
 
 | Model Name | Type | Parameter Size |
 |------------|------|----------------|
-| `facebook/opt-125m` | Base | 125M |
 | `Qwen/Qwen2.5-0.5B-Instruct` | Chat/Instruct | 0.5B |
 | `meta-llama/Llama-3.2-1B-Instruct` | Chat/Instruct | 1B |
 | `meta-llama/Llama-3.2-1B` | Base | 1B |
