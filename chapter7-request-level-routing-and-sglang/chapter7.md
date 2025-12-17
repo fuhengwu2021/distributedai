@@ -362,7 +362,7 @@ The cache-aware scheduling implementation can be found in:
 
 ### Structured Output Decoding with X-Grammar
 
-**Structured Output Decoding** (also called **Constraint Decoding**) enables LLMs to generate outputs that conform to specific formats, such as JSON, SQL queries, or custom grammars. SGLang's **X-Grammar** framework provides an efficient implementation that supports any Context-Free Grammar (CFG).
+**Structured Output Decoding** (also called **Constraint Decoding**) enables LLMs to generate outputs that conform to specific formats, such as JSON, SQL queries, or custom grammars. SGLang's **X-Grammar** framework provides an efficient implementation that supports any Context-Free Grammar (CFG). X-Grammar uses **Finite State Machines (FSMs)** for simple rules and **Pushdown Automata (PDAs)** for complex rules requiring stack state, ensuring guaranteed syntactically correct output.
 
 #### The Problem: Naive Constraint Decoding
 
@@ -404,9 +404,9 @@ condition -> column operator value
 """
 ```
 
-**2. Adaptive Token Mask Cache:**
+**2. Adaptive Token Mask Cache (FSM-based):**
 
-For context-free rules (where token validity depends only on current state), X-Grammar precompiles valid tokens:
+For context-free rules (where token validity depends only on current state), X-Grammar uses **Finite State Machines (FSMs)** to precompile valid tokens:
 
 ```python
 # Example: boolean value rule
@@ -420,7 +420,7 @@ bool_value -> "true" | "false"
 
 **3. Pushdown Automaton (PDA) for Context-Dependent Rules:**
 
-For rules requiring stack state (e.g., matching parentheses), X-Grammar uses PDA:
+For rules requiring stack state (e.g., matching parentheses), X-Grammar uses **Pushdown Automata (PDAs)**, which extend FSMs with a stack to handle context-dependent validation:
 
 ```python
 # Example: balanced parentheses
@@ -4011,6 +4011,13 @@ The following decision matrix provides a clear guide for choosing between SGLang
 | **Memory Efficiency** | RadixAttention for prefix reuse | PagedAttention for variable sequences | Both optimize differently |
 | **Fault Tolerance** | Router routes around failures | Requires model re-sharding | SGLang more flexible |
 | **Use Case** | Interactive chat, high-QPS APIs | Batch processing, large model serving | Different workload patterns |
+| **Performance (Multi-turn)** | 10-20% faster than vLLM | Baseline | SGLang benefits from RadixAttention cache reuse |
+| **Performance (Single-shot)** | Baseline | 1.1x faster than SGLang | vLLM optimized for simple completions |
+| **Throughput (Short inputs)** | 5000+ tokens/sec | 5000+ tokens/sec | Both achieve high throughput in offline tests |
+| **Latency Under Load** | Maintains low latency | May degrade | SGLang better for real-time applications |
+| **Learning Curve** | Higher (structured generation syntax) | Lower (simple APIs) | vLLM easier to get started |
+| **Community Size** | Growing, responsive maintainers | Large, established | vLLM has more tutorials and examples |
+| **Documentation** | Improving, focused examples | Comprehensive guides | vLLM has more extensive documentation |
 
 #### Quick Decision Guide
 
@@ -4088,13 +4095,15 @@ Both systems can coexist in production:
 
 **Hybrid Deployment:**
 
+Many enterprises successfully use both frameworks for different parts of their infrastructure:
+
 ```bash
-# vLLM for batch jobs
+# vLLM for batch jobs and high-throughput completion
 vllm serve facebook/opt-125m \
     --tensor-parallel-size 8 \
     --port 30000
 
-# SGLang for interactive API
+# SGLang for interactive API and structured generation
 sglang.launch_server \
     --model-path facebook/opt-125m \
     --port 8001
@@ -4102,7 +4111,36 @@ sglang.launch_server \
 # Router routes based on request type
 # Batch requests → vLLM
 # Interactive requests → SGLang
+# Structured output requests → SGLang
 ```
+
+**Performance Insights:**
+
+Based on benchmarks with DeepSeek-R1 on dual H100 GPUs:
+
+- **Multi-turn conversations**: SGLang demonstrates 10-20% speed boost over vLLM due to RadixAttention's automatic caching of partial overlaps, reducing compute costs for context-heavy applications like customer support, tutoring, or coding assistants.
+
+- **Single-shot prompts**: vLLM is 1.1x faster than SGLang for simple text completion tasks, making it better suited for templated prompts and high-throughput batch processing.
+
+- **Throughput**: Both engines achieve over 5000 tokens per second in offline tests with short inputs. However, SGLang maintains better latency under load, making it more suitable for real-time applications.
+
+- **Structured generation**: SGLang avoids retry loops needed by other frameworks, resulting in better end-to-end latency for structured tasks despite potentially slower raw generation speed.
+
+### Alternatives Beyond SGLang vs vLLM
+
+While SGLang and vLLM are popular choices for LLM inference, several other frameworks offer different trade-offs:
+
+1. **TensorRT-LLM**: NVIDIA's optimized inference engine with the best performance on NVIDIA GPUs, but limited to CUDA environments. TensorRT-LLM provides highly optimized kernels and quantization support, making it ideal for production deployments on NVIDIA hardware where maximum performance is critical.
+
+2. **Text Generation Inference (TGI)**: Hugging Face's serving solution with good model support but generally lower throughput than vLLM. TGI is well-integrated with the Hugging Face ecosystem and provides easy deployment for Hugging Face models, making it a good choice for teams already using Hugging Face transformers.
+
+3. **Ray Serve**: A more general-purpose serving framework that can work with multiple inference engines. Ray Serve provides flexible deployment options and can orchestrate SGLang, vLLM, or other backends, making it suitable for complex multi-model deployments and ML pipelines.
+
+**When to Consider Alternatives:**
+
+- **TensorRT-LLM**: Choose when you need maximum performance on NVIDIA GPUs and can accept CUDA-only deployment constraints.
+- **TGI**: Choose when you prioritize Hugging Face ecosystem integration and ease of deployment over raw throughput.
+- **Ray Serve**: Choose when you need a unified serving framework for multiple models or inference engines, or when building complex ML pipelines.
 
 We've now covered both training (DDP, FSDP, DeepSpeed) and inference (vLLM, SGLang) systems. But understanding the theory is only part of the equation—you also need to know how to actually run these systems in practice. The next chapter provides a hands-on guide to running distributed AI training workloads using Slurm, the job scheduler used by most HPC clusters and cloud providers. We'll cover setting up Slurm clusters, submitting distributed training jobs, integrating with PyTorch DDP and FSDP, and best practices for production workloads.
 
@@ -4139,3 +4177,4 @@ We've now covered both training (DDP, FSDP, DeepSpeed) and inference (vLLM, SGLa
 ### Blog Posts
 
 - [Why SGLang is a Game-Changer for LLM Workflows](https://huggingface.co/blog/paresh2806/sglang-efficient-llm-workflows): Hugging Face blog post covering SGLang's architecture, RadixAttention, structured output decoding, and production use cases
+- [Use Cases Favoring vLLM vs SGLang in 2025](https://kanerika.com/blogs/sglang-vs-vllm/): Practical deployment guide with performance benchmarks, use case analysis, and decision framework for choosing between SGLang and vLLM
