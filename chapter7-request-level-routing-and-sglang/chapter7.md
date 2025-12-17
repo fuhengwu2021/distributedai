@@ -26,19 +26,19 @@ SGLang can be installed using several methods. **Docker is the quickest way to t
 
 Docker provides the quickest way to get started with SGLang without installing dependencies locally. Pre-built images are available on the [SGLang Docker Hub page](https://hub.docker.com/r/lmsysorg/sglang).
 
-SGLang supports three main types of models. Base models like `facebook/opt-125m` are pre-trained language models without instruction tuning, and they use the `/v1/completions` endpoint with a `prompt` parameter. Chat models such as `Qwen/Qwen2.5-0.5B-Instruct` are fine-tuned for conversational tasks and use `/v1/chat/completions` with a `messages` parameter. Embedding models like `sentence-transformers/all-MiniLM-L6-v2` generate vector representations and use `/v1/embeddings` with an `input` parameter.
+SGLang supports three main types of models. Base models like `facebook/opt-125m` are pre-trained language models without instruction tuning, and they use the `/v1/completions` endpoint with a `prompt` parameter. Chat models such as `Qwen/Qwen2.5-0.5B-Instruct` are fine-tuned for conversational tasks and use `/v1/chat/completions` with a `messages` parameter. Embedding models like `Qwen/Qwen3-Embedding-0.6B` generate vector representations and use `/v1/embeddings` with an `input` parameter.
 
 The SGLang server exposes an OpenAI-compatible API with the following endpoints:
 
 | Endpoint | Method | Description | Usage |
 |------------------|--------|-----------------------|---------------------------|
-| `/v1/models` | GET | List available models | `curl http://localhost:8000/v1/models` |
+| `/v1/models` | GET | List available models | `curl http://localhost:30000/v1/models` |
 | `/v1/completions` | POST | Text completion for base models | Use with `prompt` parameter for base models |
 | `/v1/chat/completions` | POST | Chat completion for instruction-tuned models | Use with `messages` parameter for chat models |
 | `/v1/embeddings` | POST | Generate embeddings from text | Use with `input` parameter for embedding models |
-| `/health` | GET | Health check endpoint | `curl http://localhost:8000/health` |
-| `/metrics` | GET | Prometheus metrics | `curl http://localhost:8000/metrics` |
-| `/docs` | GET | API documentation (Swagger UI) | Open in browser: `http://localhost:8000/docs` |
+| `/health` | GET | Health check endpoint | `curl http://localhost:30000/health` |
+| `/metrics` | GET | Prometheus metrics | `curl http://localhost:30000/metrics` |
+| `/docs` | GET | API documentation (Swagger UI) | Open in browser: `http://localhost:30000/docs` |
 
 **Pull the Latest Image**
 
@@ -65,12 +65,12 @@ docker run --runtime nvidia --gpus all \
   -v $HOME/.cache/huggingface:/root/.cache/huggingface \
   --env "HF_TOKEN=$HF_TOKEN" \
   --env "SGLANG_MODEL=$SGLANG_MODEL" \
-  -p 8000:8000 --ipc=host --shm-size 32g \
+  -p 30000:30000 --ipc=host --shm-size 32g \
   lmsysorg/sglang:latest-runtime \
   python3 -m sglang.launch_server \
     --model-path $SGLANG_MODEL \
     --host 0.0.0.0 \
-    --port 8000
+    --port 30000
 ```
 
 > **Note:** SGLang does not support OPT models (e.g., `facebook/opt-125m`). SGLang supports architectures such as Llama, Mistral, Qwen, Gemma, Phi3, and others. See the [SGLang documentation](https://docs.sglang.io) for the full list of supported model architectures.
@@ -83,7 +83,7 @@ Here are some small models suitable for learning purposes:
 | `meta-llama/Llama-3.2-1B-Instruct` | Chat/Instruct | 1B |
 | `meta-llama/Llama-3.2-1B` | Base | 1B |
 | `microsoft/Phi-tiny-MoE-instruct` | MoE/Instruct | ~500M (active) |
-| `sentence-transformers/all-MiniLM-L6-v2` | Embedding | 22M |
+| `Qwen/Qwen3-Embedding-0.6B` | Embedding | 0.6B |
 
 To use any of these models, replace the model name in the Docker command:
 
@@ -109,64 +109,86 @@ The `--shm-size 32g` flag sets the shared memory size, which is important for SG
 Once the container is running, verify it's working correctly. First, check that the server is responding:
 
 ```bash
-curl -w "\nHTTP Status: %{http_code}\n" http://localhost:8000/health
+curl -w "\nHTTP Status: %{http_code}\n" http://localhost:30000/health
 ```
 
 List the available models:
 
 ```bash
-curl http://localhost:8000/v1/models
+curl http://localhost:30000/v1/models
 ```
 
 Test a base model completion:
 
 ```bash
-curl http://localhost:8000/v1/completions \
+curl http://localhost:30000/v1/completions \
   -H "Content-Type: application/json" \
-  -d "{\"model\": \"$SGLANG_MODEL\", \"prompt\": \"The result of 1+1 is\", \"max_tokens\": 3}"
+  -d '{
+    "model": "'"$SGLANG_MODEL"'",
+    "prompt": "The result of 1+1 is",
+    "max_tokens": 3
+  }'
 ```
 
 Test a chat model:
 
 ```bash
-curl http://localhost:8000/v1/chat/completions \
+curl http://localhost:30000/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -d "{
-    \"model\": \"$SGLANG_MODEL\",
-    \"messages\": [
-      {\"role\": \"user\", \"content\": \"Hello, how are you?\"}
+  -d '{
+    "model": "'"$SGLANG_MODEL"'",
+    "messages": [
+      {"role": "user", "content": "Hello, how are you?"}
     ]
-  }"
+  }'
 ```
 
 For deterministic output (same result every time), add `"temperature": 0`:
 
 ```bash
-curl http://localhost:8000/v1/chat/completions \
+curl http://localhost:30000/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -d "{
-    \"model\": \"$SGLANG_MODEL\",
-    \"messages\": [
-      {\"role\": \"user\", \"content\": \"Hello, how are you?\"}
+  -d '{
+    "model": "'"$SGLANG_MODEL"'",
+    "messages": [
+      {"role": "user", "content": "Hello, how are you?"}
     ],
-    \"temperature\": 0
-  }"
+    "temperature": 0
+  }'
 ```
 
 **Note**: Setting `temperature=0` enables greedy sampling (always selects the highest probability token), which should produce the same output for the same input. However, SGLang does not guarantee complete reproducibility by default due to scheduling and batching optimizations.
 
-Test an embedding model (note: embedding models are different from language models, so you may want to set a separate variable):
+Test an embedding model:
+
+> **Note:** Embedding models are different from language models. To serve an embedding model, you must launch the server with the `--is-embedding` flag. For example, to use `Qwen/Qwen3-Embedding-0.6B`:
 
 ```bash
-# For embedding models, you can use a different model or the same variable
-export SGLANG_EMBEDDING_MODEL="${SGLANG_EMBEDDING_MODEL:-sentence-transformers/all-MiniLM-L6-v2}"
+export SGLANG_MODEL="Qwen/Qwen3-Embedding-0.6B"
 
-curl http://localhost:8000/v1/embeddings \
+docker run --runtime nvidia --gpus all \
+  -v $HOME/.cache/huggingface:/root/.cache/huggingface \
+  --env "HF_TOKEN=$HF_TOKEN" \
+  --env "SGLANG_MODEL=$SGLANG_MODEL" \
+  -p 30000:30000 --ipc=host --shm-size 32g \
+  lmsysorg/sglang:latest-runtime \
+  python3 -m sglang.launch_server \
+    --model-path $SGLANG_MODEL \
+    --is-embedding --trust-remote-code\
+    --host 0.0.0.0 \
+    --port 30000
+```
+
+Then test the embeddings endpoint:
+
+```bash
+curl http://localhost:30000/v1/embeddings \
   -H "Content-Type: application/json" \
-  -d "{
-    \"model\": \"$SGLANG_EMBEDDING_MODEL\",
-    \"input\": \"Hello, world!\"
-  }"
+  -d '{
+    "model": "'"$SGLANG_MODEL"'",
+    "input": "Hello, world!",
+    "encoding_format": "float"
+  }'
 ```
 
 #### Alternative Installation Methods
@@ -905,7 +927,7 @@ python -m sglang_router.launch_router \
     --prefill http://127.0.0.1:30000 \
     --decode http://127.0.0.1:30001 \
     --host 0.0.0.0 \
-    --port 8000
+    --port 30000
 ```
 
 **For NIXL backend**, replace `--disaggregation-ib-device` with `--disaggregation-transfer-backend nixl`.
@@ -1088,16 +1110,16 @@ For distributed DP, use router-based architecture:
 # Worker 1
 python -m sglang.launch_server \
     --model-path facebook/opt-125m \
-    --port 8000
+    --port 30000
 
 # Worker 2
 python -m sglang.launch_server \
     --model-path facebook/opt-125m \
-    --port 8000
+    --port 30000
 
 # Router
 python -m sglang_router.launch_router \
-    --worker-urls http://worker1:8000 http://worker2:8000 \
+    --worker-urls http://worker1:30000 http://worker2:30000 \
     --policy cache_aware
 ```
 
@@ -1342,17 +1364,17 @@ For smaller models, router-based architecture with replicated workers provides b
 # Node 1
 python -m sglang.launch_server \
     --model-path facebook/opt-125m \
-    --port 8000
+    --port 30000
 
 # Node 2
 python -m sglang.launch_server \
     --model-path facebook/opt-125m \
-    --port 8000
+    --port 30000
 
 # Node 3
 python -m sglang.launch_server \
     --model-path facebook/opt-125m \
-    --port 8000
+    --port 30000
 ```
 
 **2. Configure Router (SGLang Model Gateway):**
@@ -1361,10 +1383,10 @@ python -m sglang.launch_server \
 # Basic configuration
 python -m sglang_router.launch_router \
     --worker-urls \
-        http://node1:8000 \
-        http://node2:8000 \
-        http://node3:8000 \
-        http://node4:8000 \
+        http://node1:30000 \
+        http://node2:30000 \
+        http://node3:30000 \
+        http://node4:30000 \
     --policy cache_aware \
     --port 8080
 
@@ -1372,22 +1394,22 @@ python -m sglang_router.launch_router \
 python -m sglang_router.launch_router \
     --enable-igw \
     --worker-urls \
-        http://node1:8000 \
-        http://node2:8000 \
+        http://node1:30000 \
+        http://node2:30000 \
     --policy cache_aware \
     --port 8080
 
 # With gRPC support
 python -m sglang_router.launch_router \
     --worker-urls \
-        http://node1:8000 \
+        http://node1:30000 \
         grpc://node2:50051 \
     --policy cache_aware \
     --port 8080
 
 # With history storage (Enterprise Extension: Oracle ATP)
 python -m sglang_router.launch_router \
-    --worker-urls http://node1:8000 \
+    --worker-urls http://node1:30000 \
     --history-storage oracle_atp \
     --oracle-atp-connection-string "..." \
     --port 8080
@@ -1459,7 +1481,7 @@ class CacheAwarePolicy:
 
 ```bash
 python -m sglang_router.launch_router \
-    --worker-urls http://node1:8000 http://node2:8000 \
+    --worker-urls http://node1:30000 http://node2:30000 \
     --policy cache_aware \
     --cache-threshold 0.5 \
     --balance-abs-threshold 10 \
@@ -2825,7 +2847,7 @@ This section covers common deployment patterns for different model sizes and use
 # Node 1
 python -m sglang.launch_server \
     --model-path facebook/opt-125m \
-    --port 8000
+    --port 30000
 
 # Node 2-4 (similar)
 ...
@@ -2833,10 +2855,10 @@ python -m sglang.launch_server \
 # Router
 python -m sglang_router.launch_router \
     --worker-urls \
-        http://node1:8000 \
-        http://node2:8000 \
-        http://node3:8000 \
-        http://node4:8000 \
+        http://node1:30000 \
+        http://node2:30000 \
+        http://node3:30000 \
+        http://node4:30000 \
     --policy cache_aware \
     --port 8080
 ```
@@ -2865,7 +2887,7 @@ python -m sglang_router.launch_router \
 python -m sglang.launch_server \
     --model-path facebook/opt-125m \
     --tp 8 \
-    --port 8000
+    --port 30000
 
 # Node 2-4 (similar)
 ...
@@ -2873,10 +2895,10 @@ python -m sglang.launch_server \
 # Router
 python -m sglang_router.launch_router \
     --worker-urls \
-        http://node1:8000 \
-        http://node2:8000 \
-        http://node3:8000 \
-        http://node4:8000 \
+        http://node1:30000 \
+        http://node2:30000 \
+        http://node3:30000 \
+        http://node4:30000 \
     --policy cache_aware
 ```
 
@@ -3151,16 +3173,16 @@ for batch_size in [1, 2, 4, 8, 16, 32]:
 for i in {1..4}; do
     ssh node$i "python -m sglang.launch_server \
         --model facebook/opt-125m \
-        --port 8000"
+        --port 30000"
 done
 
 # Router node: Start router
 python -m sglang_router.launch_router \
     --worker-urls \
-        http://node1:8000 \
-        http://node2:8000 \
-        http://node3:8000 \
-        http://node4:8000 \
+        http://node1:30000 \
+        http://node2:30000 \
+        http://node3:30000 \
+        http://node4:30000 \
     --policy cache_aware \
     --port 8080
 ```
@@ -3194,7 +3216,7 @@ python -m sglang_router.launch_router \
     --prefill http://127.0.0.1:30000 \
     --decode http://127.0.0.1:30001 \
     --host 0.0.0.0 \
-    --port 8000
+    --port 30000
 ```
 
 ### Example 3: Session Affinity Testing
@@ -3243,7 +3265,7 @@ python -m sglang.launch_server \
     --dist-init-addr 172.16.4.52:20000 \
     --nnodes 4 \
     --node-rank 0 \
-    --port 8000
+    --port 30000
 
 # Node 1 (PP Stage 1, TP ranks 16-31)
 python -m sglang.launch_server \
@@ -3253,7 +3275,7 @@ python -m sglang.launch_server \
     --dist-init-addr 172.16.4.52:20000 \
     --nnodes 4 \
     --node-rank 1 \
-    --port 8000
+    --port 30000
 
 # Node 2-3 (PP Stages 2-3, similar)
 ...
@@ -3457,10 +3479,10 @@ class SGLangMonitor:
 monitor = SGLangMonitor(
     router_url="http://router:8080",
     worker_urls=[
-        "http://worker1:8000",
-        "http://worker2:8000",
-        "http://worker3:8000",
-        "http://worker4:8000"
+        "http://worker1:30000",
+        "http://worker2:30000",
+        "http://worker3:30000",
+        "http://worker4:30000"
     ]
 )
 monitor.monitor_loop(interval=10)
@@ -4000,7 +4022,7 @@ Both systems can coexist in production:
 # vLLM for batch jobs
 vllm serve facebook/opt-125m \
     --tensor-parallel-size 8 \
-    --port 8000
+    --port 30000
 
 # SGLang for interactive API
 sglang.launch_server \
