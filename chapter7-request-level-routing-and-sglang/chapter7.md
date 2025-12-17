@@ -38,6 +38,7 @@ The SGLang server exposes an OpenAI-compatible API with the following endpoints:
 | `/v1/embeddings` | POST | Generate embeddings from text | Use with `input` parameter for embedding models |
 | `/generate` | POST | Generate text using diffusion models | Use with `text` parameter for diffusion language models |
 | `/v1/rerank` | POST | Rerank documents by relevance to a query | Use with `query` and `documents` parameters for rerank models |
+| `/v1/classify` | POST | Classify text inputs | Use with `input` parameter for classification models (same as reward models) |
 | `/health` | GET | Health check endpoint | `curl http://localhost:30000/health` |
 | `/metrics` | GET | Prometheus metrics | `curl http://localhost:30000/metrics` |
 | `/docs` | GET | API documentation (Swagger UI) | Open in browser: `http://localhost:30000/docs` |
@@ -75,7 +76,7 @@ docker run --runtime nvidia --gpus all \
     --port 30000
 ```
 
-> **Note:** SGLang does not support OPT models (e.g., `facebook/opt-125m`). SGLang supports architectures such as Llama, Mistral, Qwen, Gemma, Phi3, and others. See the [SGLang documentation](https://docs.sglang.io) for the full list of supported model architectures.
+> **Note:** SGLang does not support OPT models (e.g., `facebook/opt-125m`). SGLang supports architectures such as Llama, Mistral, Qwen, Gemma, Phi3, and others. Some models may require `--trust-remote-code` flag. See the [SGLang documentation](https://docs.sglang.io) for the full list of supported model architectures.
 
 Here are some small models suitable for learning purposes:
 
@@ -167,7 +168,7 @@ curl http://localhost:30000/v1/chat/completions \
 
 Test an embedding model:
 
-> **Note:** Embedding models are different from language models. To serve an embedding model, you must launch the server with the `--is-embedding` flag. For example, to use `Qwen/Qwen3-Embedding-0.6B`:
+> **Note:** Embedding models are different from language models. To serve an embedding model, you must launch the server with the `--is-embedding` flag. Some embedding models may also require `--trust-remote-code`. For example, to use `Qwen/Qwen3-Embedding-0.6B`:
 
 ```bash
 export SGLANG_MODEL="Qwen/Qwen3-Embedding-0.6B"
@@ -180,7 +181,8 @@ docker run --runtime nvidia --gpus all \
   lmsysorg/sglang:latest-runtime \
   python3 -m sglang.launch_server \
     --model-path $SGLANG_MODEL \
-    --is-embedding --trust-remote-code\
+    --is-embedding \
+    --trust-remote-code \
     --host 0.0.0.0 \
     --port 30000
 ```
@@ -240,9 +242,9 @@ You can optionally provide a configuration file for the diffusion algorithm usin
 
 Test a multimodal/vision language model (VLM):
 
-> **Note:** Vision language models (VLMs) accept multimodal inputs including images, videos, and text. They use the `/v1/chat/completions` endpoint with multimodal content in the `messages` parameter. Some models may require `--trust-remote-code` or specific chat templates.
+> **Note:** Vision language models (VLMs) accept multimodal inputs including images, videos, and text. They use the `/v1/chat/completions` endpoint with multimodal content in the `messages` parameter. Some models may require `--trust-remote-code`, specific chat templates (e.g., `--chat-template glm-4v` for GLM-4.5V), or other flags like `--max-mamba-cache-size` for NVIDIA Nemotron Nano 2.0 VL. Some models like DotsVLM-OCR should NOT use `--trust-remote-code`.
 
-For VLM models, launch the server normally (no special flags required, unless the model needs `--trust-remote-code` or a specific chat template):
+For VLM models, launch the server normally (add flags as needed for your specific model):
 
 ```bash
 export SGLANG_MODEL="meta-llama/Llama-3.2-11B-Vision-Instruct"
@@ -288,9 +290,9 @@ For video input, use `video_url` instead of `image_url` in the content array. Yo
 
 Test a rerank model:
 
-> **Note:** Rerank models rerank search results based on semantic relevance. They require the `--is-embedding` flag and some additional flags for optimal performance. Some models may require `--trust-remote-code`.
+> **Note:** Rerank models rerank search results based on semantic relevance. They require the `--is-embedding` flag and additional optimization flags: `--disable-radix-cache`, `--chunked-prefill-size -1`, and `--attention-backend triton`. Some models may require `--trust-remote-code`.
 
-For rerank models, launch the server with the `--is-embedding` flag and recommended optimization flags:
+For rerank models, launch the server with the required flags:
 
 ```bash
 export SGLANG_MODEL="BAAI/bge-reranker-v2-m3"
@@ -330,9 +332,9 @@ The response will include scores for each document, with higher scores indicatin
 
 Test a reward model:
 
-> **Note:** Reward models output scalar reward scores or classification results, often used in reinforcement learning or content moderation tasks. They require the `--is-embedding` flag and use the `/v1/embeddings` endpoint. Some models may require `--trust-remote-code`. Large models may benefit from tensor parallelism with `--tp-size`.
+> **Note:** Reward models output scalar reward scores or classification results, often used in reinforcement learning or content moderation tasks. They require the `--is-embedding` flag and use the `/v1/embeddings` endpoint. Some models may require `--trust-remote-code`. Large models (e.g., 72B) may benefit from tensor parallelism with `--tp-size`.
 
-For reward models, launch the server with the `--is-embedding` flag:
+For reward models, launch the server with the `--is-embedding` flag (add `--trust-remote-code` if needed):
 
 ```bash
 export SGLANG_MODEL="jason9693/Qwen2.5-1.5B-apeach"
@@ -362,6 +364,8 @@ curl http://localhost:30000/v1/embeddings \
 ```
 
 The response will include a reward score indicating the quality or preference rating of the input text.
+
+> **Note on Classification Models:** Classification models use the same setup as reward models (with `--is-embedding` flag) but use the `/v1/classify` endpoint instead. They accept an `input` parameter and return classification results with labels and probabilities.
 
 #### Alternative Installation Methods
 
