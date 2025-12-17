@@ -112,8 +112,8 @@ monitor_files() {
     
     # Use inotifywait to monitor file changes
     inotifywait -m -r -e close_write,moved_to --format '%w%f' "${watch_dirs[@]}" 2>/dev/null | while read -r file; do
-        # Process appendix file
-        if [[ "$file" =~ /chapterx/chapterx\.md$ ]]; then
+        # Process appendix file (handle both relative and absolute paths)
+        if [[ "$file" =~ (^|/)chapterx/chapterx\.md$ ]] || [[ "$file" == *"/chapterx/chapterx.md" ]]; then
             # Small delay to ensure file is fully written
             sleep 0.5
             convert_appendix

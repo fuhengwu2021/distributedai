@@ -155,9 +155,89 @@ In addition to the models listed in the table, SGLang also supports video and im
 For alternative installation methods (pip, uv, or from source), please refer to the [SGLang installation guide](https://docs.sglang.io/get_started/install.html).
 
 
+## Overview of the SGLang Architecture
+
+SGLang's architecture follows a **frontend-backend** design pattern, as described in the [Hugging Face blog post on SGLang](https://huggingface.co/blog/paresh2806/sglang-efficient-llm-workflows). The system consists of an **API Server** (frontend) that handles client requests and the **SGLang Runtime (SRT)** (backend) that executes inference:
+
+```
+┌────────────────────────────────────────┐
+│           Clients                      │
+│  ┌──────────────┐  ┌──────────────┐    │
+│  │SGLang Program│  │ HTTP Client  │    │
+│  │ + Interpreter│  │              │    │
+│  └──────┬───────┘  └──────┬───────┘    │
+└─────────┼─────────────────┼────────────┘
+          │                 │
+          └────────┬────────┘
+                   ↓
+        ┌──────────────────────┐
+        │    API Server        │ ← Entry point for requests
+        └──────────┬───────────┘
+                   │
+                   ↓
+    ┌──────────────────────────────────┐
+    │   SGLang Runtime (SRT)           │
+    │                                  │
+    │  ┌──────────┐                    │
+    │  │Tokenizer │ ← Converts text to tokens
+    │  └────┬─────┘                    │
+    │       │                          │
+    │       ↓                          │
+    │  ┌──────────────┐                │
+    │  │Request Queue │ ← Batches requests
+    │  └──────┬───────┘                │
+    │         │                        │
+    │         ↓                        │
+    │  ┌──────────────┐                │
+    │  │  Scheduler    │ ← Intelligent batching
+    │  │               │   RadixAttention
+    │  └──────┬───────┘                │
+    │         │                        │
+    │         ↓                        │
+    │  ┌──────────────────────┐        │
+    │  │   GPU Workers         │      │
+    │  │  W0 → W1 → W2 → W3    │ ← Model execution
+    │  └──────┬───────────────┘      │
+    │         │                        │
+    │         ↓                        │
+    │  ┌──────────────┐               │
+    │  │ Detokenizer   │ ← Converts tokens to text
+    │  └──────┬───────┘               │
+    └─────────┼───────────────────────┘
+              │
+              ↓
+        ┌──────────────┐
+        │  API Server  │ ← Returns responses
+        └──────────────┘
+```
+
+**Key Components**:
+
+- **API Server**: The entry point that receives requests from SGLang programs (via Interpreter) or HTTP clients, and returns detokenized responses.
+- **SGLang Runtime (SRT)**: The backend execution engine containing:
+  - **Tokenizer**: Converts incoming text into numerical tokens for the model
+  - **Request Queue**: Buffers tokenized requests for batching and managing concurrency
+  - **Scheduler**: Intelligently batches requests, prioritizes tasks that benefit from KV cache reuse (RadixAttention), and minimizes tail latency. Implements zero-overhead scheduling with CPU/GPU overlap.
+  - **GPU Workers**: Execute model inference on GPUs. Can be organized for tensor parallelism (W0 → W1 → W2 → W3) or as independent workers for data parallelism.
+  - **Detokenizer**: Converts generated tokens back into human-readable text
+
+**For Distributed Deployments**:
+
+When scaling across multiple nodes, SGLang adds a **Router (Model Gateway)** layer above the API Server:
+
+- **Router (Model Gateway)**: Routes requests across multiple SRT instances
+  - **Control Plane**: Worker Manager, Load Monitor, Health Checker
+  - **Data Plane**: HTTP/gRPC routers with load balancing policies (cache-aware, power-of-two, round-robin)
+  - Maintains session affinity for KV cache locality
+
+**Key Architectural Differences from vLLM**:
+
+- **vLLM**: Uses a scheduler-executor-worker pattern focused on model parallelism (TP/PP/DP) to split model weights across GPUs. The executor coordinates distributed inference with weight synchronization via all-reduce operations.
+- **SGLang**: Uses a frontend-backend pattern with request-level optimizations. The SRT scheduler focuses on intelligent batching with RadixAttention for prefix cache reuse, rather than model weight sharding. For distributed deployments, the Router distributes requests based on load, cache locality, and session affinity, making it better suited for high-QPS, low-latency workloads.
+
 ## SGLang Core Theory
 
-SGLang's architecture is built around several core innovations that enable high-performance inference: RadixAttention for KV cache reuse, structured output decoding with X-Grammar, graph-based Intermediate Representation (IR), operator fusion, and an advanced scheduler with CPU/GPU overlap. These techniques work together to achieve up to 6.4x higher throughput compared to existing inference systems. **While vLLM focuses on optimizing model parallelism (TP/PP) and memory efficiency (PagedAttention), SGLang emphasizes request-level optimizations like RadixAttention and router-based routing**, making it better suited for high-QPS, low-latency workloads where request routing and cache locality matter more than model weight distribution.
+SGLang's architecture is built around several core innovations that enable high-performance inference: RadixAttention for KV cache reuse, structured output decoding with X-Grammar, graph-based Intermediate Representation (IR), operator fusion, and an advanced scheduler with CPU/GPU overlap. These techniques work together to significantly improve throughput and reduce latency. **While vLLM focuses on optimizing model parallelism (TP/PP) and memory efficiency (PagedAttention), SGLang emphasizes request-level optimizations like RadixAttention and router-based routing**, making it better suited for high-QPS, low-latency workloads where request routing and cache locality matter more than model weight distribution.
 
 ### RadixAttention: Prefix Cache Reuse
 
@@ -231,6 +311,14 @@ class RadixCache:
         pass
 ```
 
+**Source Code Location:**
+
+The RadixAttention implementation can be found in the SGLang source code:
+
+- **RadixCache class**: `python/sglang/srt/mem_cache/radix_cache.py` - Main radix tree implementation for KV cache prefix sharing
+- **RadixAttention layer**: `python/sglang/srt/layers/radix_attention.py` - Attention layer that uses RadixCache
+- **RadixKey and MatchResult**: Defined in `python/sglang/srt/mem_cache/radix_cache.py`
+
 **Performance Benefits:**
 
 - **Computation Savings**: Up to 90% reduction in prefill computation for shared prefixes
@@ -258,6 +346,13 @@ def get_next_batch_to_run(self):
             batch.append(req)
     return batch
 ```
+
+**Source Code Location:**
+
+The cache-aware scheduling implementation can be found in:
+
+- **SchedulePolicy class**: `python/sglang/srt/managers/schedule_policy.py` - Contains `_compute_prefix_matches()` and `_sort_by_longest_prefix()` methods
+- **Request initialization**: `python/sglang/srt/managers/schedule_batch.py` - The `Req.init_next_round_input()` method calls `tree_cache.match_prefix()` to find cached prefixes
 
 **Cache Locality Optimization:**
 
@@ -385,6 +480,12 @@ print(response)  # {"name": "John", "age": 30, "city": "NYC"}
 - **Low Overhead**: Minimal impact on generation speed
 - **Flexible**: Supports any CFG, not just JSON
 
+**Source Code Location:**
+
+- **X-Grammar backend**: `python/sglang/srt/constrained/xgrammar_backend.py` - Main X-Grammar implementation
+- **Grammar compilation**: Uses the `xgrammar` library for CFG compilation and PDA construction
+- **Grammar integration**: `python/sglang/srt/managers/scheduler_output_processor_mixin.py` - Grammar token acceptance during decoding
+
 ### Graph-Based Intermediate Representation (IR)
 
 SGLang uses a compact graph-based IR that:
@@ -392,6 +493,13 @@ SGLang uses a compact graph-based IR that:
 - Compiles operator sequences into fused kernels at compile time
 - Reduces kernel launch latency significantly
 - Enables aggressive operator fusion optimizations
+
+**Source Code Location:**
+
+- **IR definition**: `python/sglang/lang/ir.py` - Core IR data structures
+- **IR compilation**: `python/sglang/srt/compilation/compile.py` - Compilation passes
+- **Backend compilation**: `python/sglang/srt/compilation/backend.py` - Backend-specific compilation
+- **Pass manager**: `python/sglang/srt/compilation/pass_manager.py` - Optimization passes
 
 **IR Structure:**
 
@@ -436,6 +544,13 @@ class FusedLayerNormLinearActivation(nn.Module):
 - `layernorm + linear + activation`: Most common pattern
 - `attention + output_projection`: Reduces memory traffic
 - `mlp_up + gelu + mlp_down`: Complete MLP fusion
+
+**Source Code Location:**
+
+- **Fused operations**: `sgl-kernel/csrc/` - CUDA/C++ fused kernel implementations
+- **MoE fusion**: `sgl-kernel/csrc/moe/` - Fused MoE operations (e.g., `moe_fused_gate.cu`, `fused_experts_kernel_impl`)
+- **Custom ops**: `python/sglang/srt/custom_op.py` - Custom operator base class with fusion support
+- **TopK fusion**: `sgl-kernel/python/sgl_kernel/top_k.py` - Fused top-k operations
 
 ### Zero-Overhead Scheduler
 
@@ -524,6 +639,13 @@ while True:
 - **Higher Throughput**: Up to 2x improvement over serial scheduling
 - **Lower Latency**: Reduced end-to-end latency
 
+**Source Code Location:**
+
+- **Scheduler main class**: `python/sglang/srt/managers/scheduler.py` - Main scheduler implementation
+- **Schedule policy**: `python/sglang/srt/managers/schedule_policy.py` - Scheduling policies and batch formation
+- **Schedule batch**: `python/sglang/srt/managers/schedule_batch.py` - Batch data structures and request management
+- **Overlap utilities**: `python/sglang/srt/managers/overlap_utils.py` - CPU/GPU overlap utilities
+
 **Token Placeholder Mechanism:**
 
 To enable async execution, SGLang uses token placeholders:
@@ -550,6 +672,12 @@ class TpModelWorkerClient:
             output_queue.put((batch, tokens))
 ```
 
+**Source Code Location:**
+
+- **TP Worker**: `python/sglang/srt/managers/tp_worker.py` - Tensor parallel worker with async execution
+- **TP Worker overlap thread**: `python/sglang/srt/managers/tp_worker_overlap_thread.py` - Overlap thread implementation
+- **Request structure**: `python/sglang/srt/managers/schedule_batch.py` - Request data structures with placeholder support
+
 ### Lightweight Scheduler
 
 SGLang uses an event loop scheduler that:
@@ -558,6 +686,12 @@ SGLang uses an event loop scheduler that:
 - Dispatches fused kernels with minimal overhead
 - Optimizes for low latency rather than maximum throughput
 - Supports dynamic batch formation with continuous batching
+
+**Source Code Location:**
+
+- **Scheduler implementation**: `python/sglang/srt/managers/scheduler.py` - Main scheduler with event loop
+- **Scheduler enhancer**: `python/sglang/srt/managers/scheduler_enhancer.py` - Scheduler optimizations
+- **Schedule policy**: `python/sglang/srt/managers/schedule_policy.py` - Policy implementations for batch selection
 
 ## Router-Based Distributed Architecture
 
@@ -804,11 +938,19 @@ Prefill/Decode (PD) disaggregation is a key distributed architecture pattern in 
 
 ### Transfer Engines
 
+In PD disaggregation, after a prefill worker processes the initial prompt and generates the KV cache, this cache must be transferred to a decode worker for token generation. **Transfer Engines** are the mechanisms responsible for efficiently moving KV cache data between prefill and decode workers over the network.
+
+**Why Transfer Engines Matter:**
+
+- **Performance**: KV cache can be large (especially for long contexts), so efficient transfer is critical for low latency
+- **Network Optimization**: Different engines use different network protocols (RDMA, UCX) optimized for high-bandwidth, low-latency transfers
+- **Hardware Compatibility**: Different engines support different hardware (GPUs, NPUs) and network fabrics
+
 SGLang supports multiple transfer engines for KV cache transfer between prefill and decode workers:
 
-- **Mooncake**: High-performance transfer engine using RDMA for efficient data transfers
-- **NIXL**: UCX-based transfer engine for flexible deployment
-- **ASCEND**: For Ascend NPU deployments
+- **Mooncake**: High-performance transfer engine using RDMA (Remote Direct Memory Access) for efficient, low-latency data transfers. Optimized for InfiniBand networks and provides direct memory-to-memory transfers without CPU involvement.
+- **NIXL**: UCX-based transfer engine for flexible deployment across different network fabrics (InfiniBand, Ethernet, etc.). Provides a unified interface for high-performance communication.
+- **ASCEND**: Specialized transfer engine for Ascend NPU deployments, optimized for Huawei Ascend hardware and network stacks.
 
 ### PD Disaggregation Setup
 
@@ -3993,3 +4135,7 @@ We've now covered both training (DDP, FSDP, DeepSpeed) and inference (vLLM, SGLa
 - [SGLang Scheduler Evolution](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/sglang/scheduler-evolution/SGLang%20Scheduler%20Evolution.md): Technical evolution of SGLang's scheduler from serial to CPU/GPU overlap
 - [Constraint Decoding in SGLang](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/tree/main/sglang/constraint-decoding): Concepts, methods, and optimization techniques for constraint decoding
 - [Understanding Constraint Decoding](https://www.aidancooper.co.uk/constrained-decoding/): Comprehensive guide to constraint decoding concepts and methods
+
+### Blog Posts
+
+- [Why SGLang is a Game-Changer for LLM Workflows](https://huggingface.co/blog/paresh2806/sglang-efficient-llm-workflows): Hugging Face blog post covering SGLang's architecture, RadixAttention, structured output decoding, and production use cases
