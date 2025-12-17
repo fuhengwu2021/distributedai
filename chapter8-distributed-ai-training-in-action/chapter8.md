@@ -1,6 +1,6 @@
 # Chapter 8 — Distributed AI Training in Action
 
-So far, we've covered the theory and implementation of distributed training (DDP, FSDP, DeepSpeed) and inference (vLLM, SGLang). But understanding the concepts is only part of the equation—you also need to know how to actually run these systems in practice. Most HPC clusters and cloud providers use job schedulers like Slurm to manage GPU resources and coordinate multi-node jobs.
+So far, we've covered the theory and implementation of distributed training (DDP, FSDP, DeepSpeed, Megatron) and inference (vLLM, SGLang). But understanding the concepts is only part of the equation—you also need to know how to actually run these systems in practice. Most HPC clusters and cloud providers use job schedulers like Slurm to manage GPU resources and coordinate multi-node jobs.
 
 This chapter provides a practical guide to running distributed AI training workloads using Slurm as the job scheduler and resource manager. We'll cover setting up a Slurm cluster, submitting distributed training jobs, integrating with PyTorch DDP and FSDP, managing multi-node training, and best practices for production workloads.
 

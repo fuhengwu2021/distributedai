@@ -2,7 +2,7 @@
 
 ## Overview
 
-We've covered training systems (DDP, FSDP, DeepSpeed), inference engines (vLLM, SGLang), and how to run them with Slurm. But building a production LLM serving system requires more than just running an inference engine. You need a complete stack: model runners that load and execute models efficiently, tokenizers that handle text preprocessing, API gateways that route and load balance requests, rate limiting to prevent abuse, observability to monitor performance, and deployment strategies like A/B testing and canary rollouts to ensure reliability.
+We've covered training systems (DDP, FSDP, DeepSpeed, Megatron), inference engines (vLLM, SGLang), and how to run them with Slurm. But building a production LLM serving system requires more than just running an inference engine. You need a complete stack: model runners that load and execute models efficiently, tokenizers that handle text preprocessing, API gateways that route and load balance requests, rate limiting to prevent abuse, observability to monitor performance, and deployment strategies like A/B testing and canary rollouts to ensure reliability.
 
 This chapter builds a complete end-to-end production LLM serving stack, including all these components. Readers implement A/B testing, canary rollouts, and distributed tracing to ensure reliability and maintainability at scale. By the end of this chapter, readers will be able to design, deploy, and operate production-grade LLM serving systems.
 

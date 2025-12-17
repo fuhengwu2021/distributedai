@@ -2,7 +2,7 @@
 
 ## Overview
 
-We've now covered the full stack: distributed training (DDP, FSDP, DeepSpeed), inference engines (vLLM, SGLang), job scheduling (Slurm), and production serving systems. But once you've built these systems, you need to know how well they're performing. Are you getting the throughput you expect? Is latency acceptable? How efficiently are you using your GPUs? Are your optimizations degrading model accuracy?
+We've now covered the full stack: distributed training (DDP, FSDP, DeepSpeed, Megatron), inference engines (vLLM, SGLang), job scheduling (Slurm), and production serving systems. But once you've built these systems, you need to know how well they're performing. Are you getting the throughput you expect? Is latency acceptable? How efficiently are you using your GPUs? Are your optimizations degrading model accuracy?
 
 This chapter teaches readers how to benchmark distributed training and inference systems rigorously using tools like genai-bench, MLPerf, and custom profiling scripts. It covers both **performance benchmarking** (throughput, latency, scaling efficiency) and **accuracy benchmarking** (model quality, output correctness). Topics include warmup methodology, scaling efficiency, network bottleneck identification, accuracy evaluation, and performance analysis. By the end of this chapter, readers will be able to design reproducible benchmark experiments, identify performance bottlenecks, evaluate model accuracy, and optimize distributed systems effectively.
 
