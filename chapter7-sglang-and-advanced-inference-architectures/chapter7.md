@@ -193,11 +193,11 @@ export CUDA_HOME=/usr/local/cuda-<your-cuda-version>
 
 ## SGLang Core Theory
 
-SGLang's architecture is built around several core innovations that enable high-performance inference: RadixAttention for KV cache reuse, structured output decoding with X-Grammar, graph-based Intermediate Representation (IR), operator fusion, and an advanced scheduler with CPU/GPU overlap. These techniques work together to achieve up to 6.4x higher throughput compared to existing inference systems.
+SGLang's architecture is built around several core innovations that enable high-performance inference: RadixAttention for KV cache reuse, structured output decoding with X-Grammar, graph-based Intermediate Representation (IR), operator fusion, and an advanced scheduler with CPU/GPU overlap. These techniques work together to achieve up to 6.4x higher throughput compared to existing inference systems. **While vLLM focuses on optimizing model parallelism (TP/PP) and memory efficiency (PagedAttention), SGLang emphasizes request-level optimizations like RadixAttention and router-based routing**, making it better suited for high-QPS, low-latency workloads where request routing and cache locality matter more than model weight distribution.
 
 ### RadixAttention: Prefix Cache Reuse
 
-**RadixAttention** is one of SGLang's most significant innovations, enabling efficient KV cache reuse across requests that share common prefixes. This is particularly valuable in scenarios where multiple requests share the same prompt prefix, such as AI agents with system prompts or few-shot learning examples.
+**RadixAttention** is one of SGLang's most significant innovations, enabling efficient KV cache reuse across requests that share common prefixes. This is particularly valuable in scenarios where multiple requests share the same prompt prefix, such as AI agents with system prompts or few-shot learning examples. **Unlike vLLM's PagedAttention which optimizes memory efficiency within a single request's KV cache, RadixAttention optimizes across multiple requests by sharing common prefixes**, making it especially effective for high-QPS scenarios with shared system prompts or few-shot examples.
 
 #### The Problem: Redundant KV Cache Computation
 
@@ -597,6 +597,8 @@ SGLang uses an event loop scheduler that:
 
 Unlike vLLM's model parallelism (TP/PP/DP) which focuses on splitting model weights, SGLang uses a **router-based architecture** that emphasizes request-level routing, session affinity, and workload disaggregation. This approach is optimized for high-QPS, low-latency workloads where request routing matters more than model sharding.
 
+**Key Distinction**: While vLLM's model parallelism (TP/PP) splits model weights across GPUs and requires synchronization between workers, SGLang's Router uses request-level routing to distribute requests across independent workers. This makes SGLang better suited for high-QPS, low-latency distributed inference scenarios where request routing and cache locality are more important than model weight distribution.
+
 ### Key Architectural Differences from vLLM
 
 **vLLM (Chapter 6) focuses on:**
@@ -609,25 +611,150 @@ Unlike vLLM's model parallelism (TP/PP/DP) which focuses on splitting model weig
 - **Workload disaggregation**: Separating prefill and decode workloads
 - **Session management**: Maintaining KV cache locality through routing
 
-### Router Architecture Components
+### SGLang Model Gateway Architecture
 
-**1. Central Router**
-- Routes requests based on session affinity and cache locality
-- Implements dynamic routing policies (cache-aware, load-based, priority-based)
-- Manages session-to-worker mappings
-- Supports A/B testing and canary deployments
+**SGLang Model Gateway** (formerly SGLang Router) is a high-performance model-routing gateway for large-scale LLM deployments. It centralizes worker lifecycle management, balances traffic across heterogeneous protocols (HTTP, gRPC, OpenAI-compatible), and provides enterprise-ready control over history storage, MCP tooling, and privacy-sensitive workflows.
 
-**2. Session Affinity / Cache Locality**
-- Routes requests from the same session to the same worker
-- Keeps KV cache "hot" on specific workers
-- Minimizes KV cache transfers between nodes
-- Improves cache hit rates significantly (2-3x latency reduction)
+**Comparison with vLLM**: Unlike vLLM's model parallelism approach where workers must synchronize model weights via all-reduce operations (TP) or pipeline stages (PP), SGLang's Model Gateway routes requests to independent workers without requiring weight synchronization. This request-level routing approach eliminates communication overhead between workers, making it ideal for high-QPS scenarios where latency matters more than maximizing single-request throughput.
 
-**3. Prefill/Decode (PD) Disaggregation**
-- Specialized prefill workers for heavy initial computation
-- Dedicated decode workers for token generation
-- Prevents decode workers from being blocked by long prefill requests
-- Enables independent scaling of prefill vs decode capacity
+The gateway architecture consists of three main planes:
+
+#### Control Plane
+
+The control plane manages worker registration, monitoring, and orchestration:
+
+**1. Worker Manager**
+- Discovers worker capabilities via `/get_server_info` and `/get_model_info` endpoints
+- Tracks real-time load statistics for each worker
+- Registers and removes workers from the shared registry
+- Validates worker health and capabilities
+
+**2. Job Queue**
+- Serializes add/remove worker requests to prevent race conditions
+- Exposes status via `/workers/{url}` endpoint for tracking onboarding progress
+- Manages background operations asynchronously
+
+**3. Load Monitor**
+- Feeds cache-aware and power-of-two policies with live worker load statistics
+- Tracks pending requests, active sessions, and resource utilization
+- Updates policies in real-time based on current system state
+
+**4. Health Checker**
+- Continuously probes workers to verify availability
+- Updates worker readiness status and circuit breaker state
+- Maintains router metrics for observability
+- Supports configurable health check intervals and timeouts
+
+**5. Service Discovery (Kubernetes)**
+- Optional Kubernetes integration for automatic worker discovery
+- Keeps registry aligned with pod lifecycle
+- Supports independent selectors for regular and PD workloads
+
+#### Data Plane
+
+The data plane routes traffic across multiple protocols with shared reliability primitives:
+
+**1. HTTP Routers**
+- **Regular Router**: Handles classic single-stage workers with per-model policy overrides
+  - Implements `/generate`, `/v1/chat/completions`, `/v1/completions`, `/v1/responses`, `/v1/embeddings`, `/v1/rerank`
+  - Supports streaming and non-streaming modes
+  - Full OpenAI-compatible API surface
+
+- **Prefill/Decode Router**: Coordinates disaggregated prefill and decode workers
+  - Merges metadata from prefill and decode phases
+  - Manages streaming fan-in for token generation
+  - Handles KV cache transfer coordination
+
+**2. gRPC Router (Industry-First)**
+- Fully Rust implementation of OpenAI-compatible gRPC inference gateway
+- Native in-process tokenizer, reasoning parser, and tool parser execution
+- Streams tokenized requests directly to SRT gRPC workers
+- Supports both single-stage and PD (prefill/decode) topologies
+- Built-in reasoning parsers for DeepSeek, Qwen, Llama, Mistral, GPT-OSS, Step-3, GLM4, Kimi K2, and other structured-thought models
+- Tool-call parsers for JSON, Pythonic, XML, and custom schemas
+- Tokenizer factory supporting HuggingFace models, local tokenizer.json files, and chat template overrides
+- Provides same `/v1/*` APIs as HTTP router with higher throughput
+
+**3. OpenAI Router**
+- Proxies OpenAI-compatible endpoints to external vendors (OpenAI, xAI, Gemini, etc.)
+- Preserves headers and SSE streams end-to-end
+- Keeps chat history and multi-turn orchestration local
+- Supports `/v1/responses` background jobs with cancellation, deletion, and listing
+- Enables agentic, multi-turn orchestration without persisting data at remote vendor endpoints
+
+**4. Router Manager**
+- Coordinates multiple router implementations when Inference Gateway Mode (`--enable-igw`) is enabled
+- Dynamically instantiates multiple router stacks (HTTP regular/PD, gRPC)
+- Applies per-model policies for multi-tenant deployments
+- Manages router selection based on request headers and model ID
+
+#### Storage & Privacy
+
+**1. History Connectors**
+- Centralizes chat history inside the router tier
+- Supports multiple storage backends: in-memory, disabled (none), or Oracle ATP
+- Enables context reuse across models and MCP loops without leaking data to upstream vendors
+- Conversation and response history stored at router boundary for enterprise privacy
+
+**2. Enterprise Privacy Features**
+- Agentic multi-turn `/v1/responses` API
+- Native MCP client supporting all transport protocols (STDIO, HTTP, SSE, Streamable)
+- History storage operates within router boundary
+- Compliant data sharing across models/MCP loops
+
+**3. Data Connectors**
+- Conversation connectors for chat history management
+- Response connectors for multi-turn orchestration
+- Pluggable storage backends with pooling and credential support
+
+#### Reliability & Flow Control
+
+**1. Retry Mechanism**
+- Exponential backoff with jitter
+- Configurable retry counts and timeouts
+- Request-level retry tracking
+
+**2. Circuit Breakers**
+- Worker-scoped circuit breakers
+- Automatic failover when workers become unhealthy
+- Configurable failure thresholds
+
+**3. Rate Limiting**
+- Token-bucket rate limiting with queuing
+- Per-worker and global rate limits
+- Request queuing when rate limits are exceeded
+
+**4. Background Health Checks**
+- Continuous worker health monitoring
+- Automatic worker removal on persistent failures
+- Cache-aware load monitoring
+
+#### Observability
+
+**1. Prometheus Metrics**
+- Request-level metrics (latency, throughput, errors)
+- Worker-level metrics (load, health, cache hit rates)
+- Router-level metrics (queue depth, policy decisions)
+- Detailed job queue statistics
+
+**2. Structured Tracing**
+- OpenTelemetry trace support
+- Request ID propagation across router and workers
+- End-to-end request tracing
+
+**3. Logging**
+- Structured logging for all router operations
+- Request/response logging with configurable verbosity
+- Error tracking and debugging information
+
+#### Inference Gateway Mode (`--enable-igw`)
+
+When enabled, the gateway operates in multi-router mode:
+
+- Dynamically instantiates multiple router stacks (HTTP regular/PD, gRPC)
+- Applies per-model policies for multi-tenant deployments
+- Supports heterogeneous model fleets
+- Enables independent scaling per model type
 
 ### Why Router-Based Architecture?
 
@@ -652,7 +779,7 @@ Unlike vLLM's model parallelism (TP/PP/DP) which focuses on splitting model weig
 
 ## Prefill/Decode Disaggregation
 
-Prefill/Decode (PD) disaggregation is a key distributed architecture pattern in SGLang that separates the computationally intensive prefill phase from the decode phase, enabling independent scaling and better resource utilization.
+Prefill/Decode (PD) disaggregation is a key distributed architecture pattern in SGLang that separates the computationally intensive prefill phase from the decode phase, enabling independent scaling and better resource utilization. **Unlike vLLM's pipeline parallelism (PP) which splits model layers across stages and requires strict synchronization, SGLang's PD disaggregation separates workload types (prefill vs decode) rather than model layers**, allowing independent scaling of compute-intensive prefill workers and latency-optimized decode workers without the synchronization overhead of pipeline stages.
 
 ### Motivation for PD Disaggregation
 
@@ -757,7 +884,7 @@ python -m sglang_router.launch_router \
 
 ## Distributed Inference Architecture and Parallelism Strategies
 
-SGLang provides comprehensive support for distributed inference through multiple parallelism strategies. Understanding how these strategies work together is crucial for building scalable inference systems.
+SGLang provides comprehensive support for distributed inference through multiple parallelism strategies. Understanding how these strategies work together is crucial for building scalable inference systems. **While vLLM primarily relies on model parallelism (TP/PP) for distributed inference, SGLang combines model parallelism with router-based request routing**, offering both approaches: model parallelism for very large models and router-based routing for high-QPS scenarios where request-level distribution is more effective than weight sharding.
 
 ### Parallelism Strategy Overview
 
@@ -1100,7 +1227,7 @@ def dp_attention_mlp(attn_output, dp_rank, dp_size):
 
 ## Multi-Node SGLang Deployment
 
-SGLang supports multi-node deployment using tensor parallelism (TP) and expert parallelism (EP) for large models, similar to vLLM. For smaller models, router-based architecture with replicated workers provides an alternative approach.
+SGLang supports multi-node deployment using tensor parallelism (TP) and expert parallelism (EP) for large models, similar to vLLM. For smaller models, router-based architecture with replicated workers provides an alternative approach. **The key difference: while vLLM primarily uses model parallelism (TP/PP) for all multi-node scenarios, SGLang offers router-based request routing as the default approach for smaller models**, avoiding the communication overhead of model parallelism and achieving better latency for high-QPS workloads.
 
 ### Multi-Node Architecture with Tensor Parallelism
 
@@ -1154,7 +1281,7 @@ python3 -m sglang.launch_server \
 
 ### Router-Based Multi-Node Deployment
 
-For smaller models, router-based architecture with replicated workers provides better latency and flexibility than model parallelism.
+For smaller models, router-based architecture with replicated workers provides better latency and flexibility than model parallelism. **Unlike vLLM's model parallelism where workers must synchronize weights via all-reduce (TP) or pipeline stages (PP), SGLang's router routes requests to independent workers without weight synchronization**, eliminating inter-worker communication overhead and making it ideal for high-QPS, low-latency distributed inference scenarios.
 
 **Architecture:**
 
@@ -1198,6 +1325,7 @@ python -m sglang.launch_server \
 **2. Configure Router (SGLang Model Gateway):**
 
 ```bash
+# Basic configuration
 python -m sglang_router.launch_router \
     --worker-urls \
         http://node1:8000 \
@@ -1205,6 +1333,30 @@ python -m sglang_router.launch_router \
         http://node3:8000 \
         http://node4:8000 \
     --policy cache_aware \
+    --port 8080
+
+# With Inference Gateway Mode for multi-model deployments
+python -m sglang_router.launch_router \
+    --enable-igw \
+    --worker-urls \
+        http://node1:8000 \
+        http://node2:8000 \
+    --policy cache_aware \
+    --port 8080
+
+# With gRPC support
+python -m sglang_router.launch_router \
+    --worker-urls \
+        http://node1:8000 \
+        grpc://node2:50051 \
+    --policy cache_aware \
+    --port 8080
+
+# With history storage (Oracle ATP)
+python -m sglang_router.launch_router \
+    --worker-urls http://node1:8000 \
+    --history-storage oracle_atp \
+    --oracle-atp-connection-string "..." \
     --port 8080
 ```
 
@@ -1236,7 +1388,7 @@ response2 = requests.post(
 
 ### Router Policies and Load Balancing
 
-SGLang Router supports multiple routing policies optimized for different scenarios:
+SGLang Router supports multiple routing policies optimized for different scenarios. **Unlike vLLM's static model parallelism where workers are fixed and requests are distributed based on batch scheduling, SGLang's router dynamically selects workers based on cache locality, load, and session affinity**, enabling intelligent request routing that adapts to workload patterns.
 
 **1. Cache-Aware Policy (Recommended):**
 
@@ -1348,7 +1500,7 @@ class BucketPolicy:
 
 ### Session Affinity and Cache Locality
 
-**Session Affinity** is critical for maintaining cache locality in distributed inference.
+**Session Affinity** is critical for maintaining cache locality in distributed inference. **While vLLM's continuous batching optimizes throughput by batching requests together, SGLang's session affinity ensures that requests from the same conversation are routed to the same worker**, maintaining KV cache locality and achieving 2-3x latency reduction for follow-up requests. This request-level routing strategy is particularly effective for interactive chat applications where session persistence matters.
 
 **How It Works:**
 
@@ -1391,13 +1543,69 @@ class SessionAwareRouter:
 - **Lower Latency**: 2-3x latency reduction for conversational workloads
 - **Higher Throughput**: More requests processed per second
 
+### MCP (Model Context Protocol) Integration
+
+SGLang Model Gateway includes native MCP client integration for advanced tooling and agentic workflows:
+
+**1. MCP Transport Protocols**
+- **STDIO**: Standard input/output communication
+- **HTTP**: RESTful API communication
+- **SSE**: Server-Sent Events for streaming
+- **Streamable**: Custom streaming protocol
+
+**2. Tool Execution Loops**
+- Native tool-call parsers for JSON, Pythonic, XML, and custom schemas
+- Streaming and non-streaming execution modes
+- Tool result integration with model responses
+- Multi-turn tool execution within conversation context
+
+**3. Reasoning Parser Integration**
+- Built-in reasoning parsers for structured-thought models:
+  - DeepSeek, Qwen, Llama, Mistral, GPT-OSS
+  - Step-3, GLM4, Kimi K2, and other reasoning-capable models
+- Automatic parser selection based on model type
+- Supports both streaming and non-streaming reasoning extraction
+
+**4. Privacy-Preserving Tool Execution**
+- Tool execution occurs within router boundary
+- History and context remain local
+- No data leakage to external tool providers
+- Compliant multi-turn orchestration
+
+### Enterprise Features
+
+**1. Security & Authentication**
+- Configurable authentication mechanisms
+- Secure communication protocols
+- API key management
+- Role-based access control (RBAC)
+
+**2. Multi-Tenant Support**
+- Inference Gateway Mode (`--enable-igw`) for multi-model deployments
+- Per-model policy overrides
+- Isolated routing stacks per tenant
+- Resource quota management
+
+**3. Advanced API Endpoints**
+- `/v1/responses`: Agentic multi-turn orchestration
+- `/v1/conversations`: Conversation management
+- `/v1/rerank`: Reranking capabilities
+- `/v1/embeddings`: Embedding generation
+- Admin endpoints for worker management
+
+**4. Dynamic Scaling**
+- Worker lifecycle management
+- Automatic worker registration and removal
+- Kubernetes service discovery integration
+- Horizontal scaling based on load
+
 ### Fault Tolerance and High Availability
 
-SGLang's router-based architecture provides built-in fault tolerance:
+SGLang Model Gateway provides comprehensive fault tolerance:
 
 **1. Health Checking:**
 
-Router periodically checks worker health:
+Router continuously monitors worker health:
 
 ```python
 class HealthChecker:
@@ -1407,24 +1615,68 @@ class HealthChecker:
             return response.status_code == 200
         except:
             return False
+    
+    def background_health_check(self):
+        """Continuous background health monitoring"""
+        while True:
+            for worker in self.workers:
+                is_healthy = self.check_worker_health(worker)
+                worker.update_health_status(is_healthy)
+            time.sleep(self.check_interval)
 ```
 
-**2. Automatic Failover:**
+**2. Circuit Breakers:**
+
+Worker-scoped circuit breakers prevent cascading failures:
+
+```python
+class CircuitBreaker:
+    def __init__(self, failure_threshold=5, timeout=60):
+        self.failure_count = 0
+        self.failure_threshold = failure_threshold
+        self.timeout = timeout
+        self.state = "closed"  # closed, open, half-open
+    
+    def call(self, func):
+        if self.state == "open":
+            if time.time() - self.last_failure > self.timeout:
+                self.state = "half-open"
+            else:
+                raise CircuitBreakerOpenError()
+        
+        try:
+            result = func()
+            if self.state == "half-open":
+                self.state = "closed"
+                self.failure_count = 0
+            return result
+        except Exception as e:
+            self.failure_count += 1
+            if self.failure_count >= self.failure_threshold:
+                self.state = "open"
+                self.last_failure = time.time()
+            raise
+```
+
+**3. Automatic Failover:**
 
 When worker fails, router automatically routes around it:
 
 ```python
 def route_request(self, request):
-    healthy_workers = [w for w in self.workers if w.is_healthy()]
+    healthy_workers = [
+        w for w in self.workers 
+        if w.is_healthy() and not w.circuit_breaker.is_open()
+    ]
     
     if not healthy_workers:
         raise Exception("No healthy workers available")
     
-    # Route to healthy worker
-    return self.select_worker(healthy_workers, request)
+    # Route to healthy worker with retry
+    return self.select_worker_with_retry(healthy_workers, request)
 ```
 
-**3. Session Migration:**
+**4. Session Migration:**
 
 For failed workers, sessions can be migrated:
 
@@ -1441,15 +1693,18 @@ def handle_worker_failure(self, failed_worker_id):
         new_worker = self.select_worker(self.healthy_workers)
         self.session_map[session_id] = new_worker
         # Note: KV cache will be recomputed on new worker
+        self.notify_session_migration(session_id, new_worker)
 ```
 
-**4. Graceful Degradation:**
+**5. Graceful Degradation:**
 
 System continues operating with reduced capacity:
 
-- Failed workers removed from pool
+- Failed workers automatically removed from pool
 - Remaining workers handle increased load
-- Router automatically rebalances
+- Router automatically rebalances traffic
+- Circuit breakers prevent routing to unhealthy workers
+- Health checks continuously probe for recovery
 
 ### Performance Considerations
 
@@ -2438,7 +2693,7 @@ class TpModelWorkerClient:
 
 ## Continuous Batching
 
-SGLang implements **continuous batching** (also called **dynamic batching**) to efficiently handle variable-length sequences and dynamic request arrival.
+SGLang implements **continuous batching** (also called **dynamic batching**) to efficiently handle variable-length sequences and dynamic request arrival. **While vLLM's continuous batching optimizes throughput by dynamically batching requests together and processing them in parallel within model parallelism, SGLang's continuous batching is enhanced by router-based request routing and session affinity**, allowing requests to be batched while maintaining cache locality through intelligent worker selection. **The key difference: vLLM's batching focuses on maximizing GPU utilization within model parallelism, while SGLang's batching works with router-based routing to optimize both throughput and latency through cache-aware request distribution**.
 
 ### Traditional Static Batching
 
@@ -3499,19 +3754,19 @@ class DistributedTracer:
 
 3. **Zero-Overhead Scheduler** eliminates GPU idle time by overlapping CPU scheduling with GPU computation, achieving up to 2x throughput improvement
 
-4. **Router-based architecture** enables distributed inference without model sharding, optimized for high-QPS, low-latency workloads
+4. **Router-based architecture** enables distributed inference without model sharding, optimized for high-QPS, low-latency workloads. **Unlike vLLM's model parallelism (TP/PP) which requires weight synchronization between workers, SGLang's Router uses request-level routing to distribute requests across independent workers**, eliminating communication overhead and making it ideal for high-QPS, low-latency distributed inference scenarios.
 
-5. **Session affinity** provides 2-3x latency improvement for conversational workloads through cache locality
+5. **Session affinity** provides 2-3x latency improvement for conversational workloads through cache locality. **While vLLM's continuous batching optimizes throughput, SGLang's session affinity ensures requests from the same conversation are routed to the same worker**, maintaining KV cache locality for better latency.
 
-6. **PD disaggregation** allows independent scaling of prefill and decode workloads, optimizing resource utilization
+6. **PD disaggregation** allows independent scaling of prefill and decode workloads, optimizing resource utilization. **Unlike vLLM's pipeline parallelism (PP) which splits model layers and requires strict synchronization, SGLang's PD disaggregation separates workload types rather than model layers**, enabling independent scaling without pipeline stage synchronization.
 
-7. **Multi-node deployment** scales horizontally through tensor parallelism, pipeline parallelism, and router-based replication
+7. **Multi-node deployment** scales horizontally through tensor parallelism, pipeline parallelism, and router-based replication. **For smaller models, SGLang's router-based approach avoids the communication overhead of vLLM's model parallelism**, achieving better latency for high-QPS workloads.
 
 8. **Expert Parallelism** enables efficient scaling of MoE models with optimized all-to-all communication
 
 9. **Hybrid Parallelism** combines TP, PP, DP, and EP for maximum scalability and performance
 
-10. **Cache locality** is critical for performance in distributed settings, requiring careful routing and session management
+10. **Cache locality** is critical for performance in distributed settings, requiring careful routing and session management. **SGLang's router-based request routing maintains cache locality through session affinity, while vLLM's model parallelism focuses on weight distribution**, representing fundamentally different approaches to distributed inference.
 
 ### Production Deployment Best Practices
 
@@ -3586,6 +3841,8 @@ export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
 - Need structured output decoding
 - Require RadixAttention for prefix reuse
 
+**Key Advantage**: SGLang's router-based request routing eliminates the synchronization overhead of vLLM's model parallelism (TP/PP), making it better suited for high-QPS, low-latency distributed inference scenarios where request routing matters more than model weight distribution.
+
 **Use vLLM when:**
 - Very large models requiring TP/PP across many GPUs (16+)
 - Throughput-optimized workloads with large batches
@@ -3593,12 +3850,16 @@ export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
 - Model parallelism is the primary concern
 - Simple deployment without router complexity
 
+**Key Advantage**: vLLM's model parallelism (TP/PP) is optimized for very large models that require weight sharding across many GPUs, where the communication overhead of all-reduce operations is amortized over large batch sizes, making it ideal for throughput-optimized workloads.
+
 ### Complementary Approaches
 
 Both systems can coexist in production:
 
-- **vLLM**: For batch processing, large model serving, high-throughput workloads
-- **SGLang**: For interactive chat, low-latency APIs, high-QPS endpoints with session management
+- **vLLM**: For batch processing, large model serving, high-throughput workloads where model parallelism (TP/PP) is essential for fitting very large models
+- **SGLang**: For interactive chat, low-latency APIs, high-QPS endpoints with session management where router-based request routing provides better latency than model parallelism
+
+**Architectural Difference**: The fundamental difference is that vLLM uses model parallelism (TP/PP) to split model weights across GPUs, requiring synchronization between workers, while SGLang's Router uses request-level routing to distribute requests across independent workers without weight synchronization, making it more suitable for high-QPS, low-latency distributed inference scenarios.
 
 **Hybrid Deployment:**
 
