@@ -44,3 +44,4 @@ __pycache__/
 
 # Generated PDF files
 **/main.pdf
+**/chapter*.pdf

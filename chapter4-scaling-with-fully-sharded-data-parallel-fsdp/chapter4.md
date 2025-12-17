@@ -1538,5 +1538,6 @@ FSDP2 handles most large model training scenarios well. But what if you need to 
 - https://ggrigorev.me/posts/introduction-to-parallelism/
 - https://arxiv.org/pdf/2304.11277
 - https://arxiv.org/pdf/2411.00284
+- https://docs.pytorch.org/xla/master/spmd.html
 - /media/wukong/jackie/git.repo/distributed-ai/resources/torch-examples/distributed/FSDP2
 

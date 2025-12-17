@@ -1032,6 +1032,8 @@ Example: 128 GPUs
 
 Tensor parallelism splits model weights across multiple GPUs, similar to Megatron's approach.
 
+**Note on SGLang vs vLLM TP:** SGLang's tensor parallelism uses the same **algorithm** as vLLM (Megatron-style TP with column-parallel and row-parallel linear layers), but they are **separate implementations** with different codebases. Both achieve the same goal of splitting model weights across GPUs and using all-reduce for communication, but SGLang's implementation is tailored to its scheduler and RadixAttention architecture, while vLLM's is optimized for PagedAttention and continuous batching. The core concepts (weight sharding, communication patterns, memory distribution) are identical.
+
 **How TP Works:**
 
 1. **Weight Partitioning**: Each layer's weights split across TP ranks
@@ -1154,6 +1156,14 @@ python -m sglang.launch_server \
     --node-rank 0
 ```
 
+**Source Code Location:**
+
+- **PP scheduler**: `python/sglang/srt/managers/scheduler_pp_mixin.py` - `SchedulerPPMixin` class with `event_loop_pp()` method for pipeline parallel execution
+- **PP initialization**: `python/sglang/srt/distributed/parallel_state.py` - `initialize_model_parallel()` function that sets up PP communication groups
+- **PP utilities**: `python/sglang/srt/distributed/utils.py` - `get_pp_indices()` function for calculating layer ranges per pipeline stage
+- **PP communication**: `python/sglang/srt/managers/scheduler_pp_mixin.py` - Async send/receive operations between pipeline stages
+- **Dynamic chunking**: `python/sglang/srt/managers/scheduler_pp_mixin.py` - Dynamic chunk size calculation to minimize pipeline bubbles
+
 ### Data Parallelism: Request-Level Replication
 
 Data parallelism replicates the model across multiple workers, with each worker processing different requests.
@@ -1202,6 +1212,14 @@ python -m sglang_router.launch_router \
     --worker-urls http://worker1:30000 http://worker2:30000 \
     --policy cache_aware
 ```
+
+**Source Code Location:**
+
+- **DP controller**: `python/sglang/srt/managers/data_parallel_controller.py` - `DataParallelController` class that dispatches requests to multiple DP workers
+- **DP attention**: `python/sglang/srt/layers/dp_attention.py` - `initialize_dp_attention()` and DP attention layer implementation for MLA models
+- **DP load balancing**: `python/sglang/srt/managers/data_parallel_controller.py` - Load balancing methods (round-robin, shortest-queue, minimum-tokens)
+- **DP worker launch**: `python/sglang/srt/managers/data_parallel_controller.py` - `launch_dp_schedulers()` and `launch_dp_attention_schedulers()` methods
+- **DP communication**: `python/sglang/srt/layers/dp_attention.py` - `_dp_gather_via_all_reduce()` for synchronizing attention outputs before MLP
 
 ### Hybrid Parallelism: Combining Strategies
 
@@ -1259,6 +1277,13 @@ Structure:
 - 4-GPU TP group for MLP (all DP workers form one TP group)
 - Total: 8 DP workers × 4 TP = 32 GPUs
 ```
+
+**Source Code Location:**
+
+- **Parallel state initialization**: `python/sglang/srt/distributed/parallel_state.py` - `initialize_model_parallel()` function that sets up TP, PP, EP, and DP groups
+- **Hybrid parallelism coordination**: `python/sglang/srt/managers/data_parallel_controller.py` - `launch_tensor_parallel_group()` method that coordinates TP, PP, and DP
+- **MoE with EP**: `python/sglang/srt/layers/moe/` - MoE layer implementations with expert parallelism support
+- **DP Attention + TP**: `python/sglang/srt/layers/dp_attention.py` - Integration of DP attention with TP for MLP layers
 
 ### Communication Patterns and Optimization
 
@@ -1358,6 +1383,17 @@ def dp_attention_mlp(attn_output, dp_rank, dp_size):
    - **NCCL**: Standard for multi-GPU communication
    - **DeepEP**: Optimized for MoE all-to-all
    - **Mooncake**: RDMA-based for high-performance transfers
+
+**Source Code Location:**
+
+- **All-reduce operations**: `python/sglang/srt/distributed/parallel_state.py` - `GroupCoordinator.all_reduce()` method and various all-reduce implementations
+- **All-gather operations**: `python/sglang/srt/distributed/device_communicators/base_device_communicator.py` - `DeviceCommunicatorBase.all_gather()` method
+- **All-to-all operations**: `python/sglang/srt/distributed/device_communicators/base_device_communicator.py` - `DeviceCommunicatorBase.all_to_all_4D()` for expert parallelism
+- **Custom all-reduce kernels**: `sgl-kernel/csrc/allreduce/custom_all_reduce.cu` - Custom CUDA kernels for optimized all-reduce
+- **SHM-based communication**: `sgl-kernel/csrc/cpu/interface.cpp` - `shm_allreduce()` and `shm_allgather()` for low-latency intra-node communication
+- **PyNCCL communicator**: `python/sglang/multimodal_gen/runtime/distributed/device_communicators/pynccl.py` - `PyNcclCommunicator` class for NCCL-based communication
+- **Device communicators**: `python/sglang/srt/distributed/device_communicators/` - Various communicators (HPU, XPU, NPU, CPU) for different hardware
+- **TP communication context**: `python/sglang/srt/layers/communicator.py` - `AttnTpContext` and communication utilities for tensor parallelism
 
 ## Multi-Node SGLang Deployment
 
@@ -2639,7 +2675,7 @@ SGLang supports speculative decoding with:
 # Example: Use smaller Qwen model as draft for larger target model
 python -m sglang.launch_server \
     --model-path Qwen/Qwen2.5-7B-Instruct \
-    --speculative-draft-model-path Qwen/Qwen2.5-1.5B-Instruct \
+    --speculative-draft-model-path Qwen/Qwen2.5-0.5B-Instruct \
     --speculative-num-draft-tokens 4
 ```
 
