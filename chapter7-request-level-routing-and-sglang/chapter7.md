@@ -42,23 +42,33 @@ The SGLang server exposes an OpenAI-compatible API with the following endpoints:
 
 **Pull the Latest Image**
 
-Pull the latest Docker image. The image requires approximately 8GB of disk space.
+Pull the latest Docker image. The image requires approximately 16GB of disk space.
 
 ```bash
-docker pull lmsysorg/sglang:latest
+docker pull lmsysorg/sglang:latest-runtime
 ```
+
+`lmsysorg/sglang:latest` is actually development docker with build tools and development dependencies and around 35GB. SGLang is larger primarily because it includes Triton Inference Server and its dependencies, which provide more serving infrastructure but add significant size. vLLM uses a lighter base and focuses on a smaller dependency set, resulting in a smaller image.
 
 **Run the Docker Container**
 
-The Docker image runs an OpenAI-compatible server. To serve a small model like `Qwen/Qwen2.5-0.5B-Instruct`, run:
+The Docker image runs an OpenAI-compatible server. To avoid hardcoding the model name, set it as an environment variable:
+
+```bash
+export SGLANG_MODEL="Qwen/Qwen2.5-0.5B-Instruct"
+```
+
+Then run the container:
 
 ```bash
 docker run --runtime nvidia --gpus all \
-  -v $HOME/.cache/huggingface:/root/.cache/huggingface --env "HF_TOKEN=$HF_TOKEN" \
+  -v $HOME/.cache/huggingface:/root/.cache/huggingface \
+  --env "HF_TOKEN=$HF_TOKEN" \
+  --env "SGLANG_MODEL=$SGLANG_MODEL" \
   -p 8000:8000 --ipc=host --shm-size 32g \
-  lmsysorg/sglang:latest \
+  lmsysorg/sglang:latest-runtime \
   python3 -m sglang.launch_server \
-    --model-path Qwen/Qwen2.5-0.5B-Instruct \
+    --model-path $SGLANG_MODEL \
     --host 0.0.0.0 \
     --port 8000
 ```
@@ -99,7 +109,7 @@ The `--shm-size 32g` flag sets the shared memory size, which is important for SG
 Once the container is running, verify it's working correctly. First, check that the server is responding:
 
 ```bash
-curl http://localhost:8000/health
+curl -w "\nHTTP Status: %{http_code}\n" http://localhost:8000/health
 ```
 
 List the available models:
@@ -113,7 +123,7 @@ Test a base model completion:
 ```bash
 curl http://localhost:8000/v1/completions \
   -H "Content-Type: application/json" \
-  -d '{"model": "facebook/opt-125m", "prompt": "The result of 1+1 is", "max_tokens": 3}'
+  -d "{\"model\": \"$SGLANG_MODEL\", \"prompt\": \"The result of 1+1 is\", \"max_tokens\": 3}"
 ```
 
 Test a chat model:
@@ -121,12 +131,12 @@ Test a chat model:
 ```bash
 curl http://localhost:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -d '{
-    "model": "Qwen/Qwen2.5-0.5B-Instruct",
-    "messages": [
-      {"role": "user", "content": "Hello, how are you?"}
+  -d "{
+    \"model\": \"$SGLANG_MODEL\",
+    \"messages\": [
+      {\"role\": \"user\", \"content\": \"Hello, how are you?\"}
     ]
-  }'
+  }"
 ```
 
 For deterministic output (same result every time), add `"temperature": 0`:
@@ -134,26 +144,29 @@ For deterministic output (same result every time), add `"temperature": 0`:
 ```bash
 curl http://localhost:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -d '{
-    "model": "Qwen/Qwen2.5-0.5B-Instruct",
-    "messages": [
-      {"role": "user", "content": "Hello, how are you?"}
+  -d "{
+    \"model\": \"$SGLANG_MODEL\",
+    \"messages\": [
+      {\"role\": \"user\", \"content\": \"Hello, how are you?\"}
     ],
-    "temperature": 0
-  }'
+    \"temperature\": 0
+  }"
 ```
 
 **Note**: Setting `temperature=0` enables greedy sampling (always selects the highest probability token), which should produce the same output for the same input. However, SGLang does not guarantee complete reproducibility by default due to scheduling and batching optimizations.
 
-Test an embedding model:
+Test an embedding model (note: embedding models are different from language models, so you may want to set a separate variable):
 
 ```bash
+# For embedding models, you can use a different model or the same variable
+export SGLANG_EMBEDDING_MODEL="${SGLANG_EMBEDDING_MODEL:-sentence-transformers/all-MiniLM-L6-v2}"
+
 curl http://localhost:8000/v1/embeddings \
   -H "Content-Type: application/json" \
-  -d '{
-    "model": "sentence-transformers/all-MiniLM-L6-v2",
-    "input": "Hello, world!"
-  }'
+  -d "{
+    \"model\": \"$SGLANG_EMBEDDING_MODEL\",
+    \"input\": \"Hello, world!\"
+  }"
 ```
 
 #### Alternative Installation Methods
