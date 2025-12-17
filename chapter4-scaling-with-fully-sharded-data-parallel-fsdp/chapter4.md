@@ -6,7 +6,13 @@ This is where Fully Sharded Data Parallel (FSDP) comes in. FSDP extends DDP by s
 
 If you've been following along with the DDP examples in Chapter 3, you've seen how to scale training across multiple GPUs when the model fits on one GPU. Now we'll tackle the next challenge: training models that don't fit on a single GPU, even with mixed precision and activation checkpointing.
 
-PyTorch has two FSDP implementations: the original `FullyShardedDataParallel` wrapper class (which uses a flat-parameter approach), and the newer per-parameter-sharding design accessed via `fully_shard()`. This chapter focuses on the newer design—it's simpler, more flexible, and is the direction PyTorch is moving. The original FSDP still works, but for new projects, you should use the per-parameter-sharding API, often called FSDP2.
+PyTorch has three main FSDP implementations:
+
+1. **Original FSDP** (`FullyShardedDataParallel`): The wrapper class using a flat-parameter approach, primarily for CUDA/GPUs.
+2. **FSDP2** (`fully_shard()`): The newer per-parameter-sharding design for CUDA/GPUs, accessed via `fully_shard()`. This is simpler, more flexible, and is the direction PyTorch is moving for GPU training.
+3. **FSDP via SPMD** (`SpmdFullyShardedDataParallel`): An implementation for XLA/TPU devices that uses GSPMD (Generalized Single-Program Multiple-Data) for automatic parallelization.
+
+This chapter focuses on FSDP2 for GPU training—it's the recommended approach for new projects on CUDA devices. The original FSDP still works, but for new projects, you should use the per-parameter-sharding API. For TPU training, see the FSDP via SPMD section in Advanced Topics.
 
 ## Why FSDP Enables Larger-Than-Memory Models
 
@@ -1501,6 +1507,65 @@ Use these tools to monitor FSDP training:
 2. **NCCL logs**: Check NCCL debug output for communication issues
 3. **Memory profiler**: Track memory usage over time
 4. **Distributed logging**: Use `torch.distributed` logging utilities
+
+## FSDP via SPMD for TPU/XLA
+
+This chapter has focused on FSDP2 for GPU training using CUDA devices. However, PyTorch also provides FSDP via SPMD for TPU/XLA devices, which uses a different approach based on GSPMD (Generalized Single-Program Multiple-Data) for automatic parallelization.
+
+**Key differences from GPU FSDP2:**
+
+- **Uses SPMD mode**: The XLA compiler automatically partitions computation based on sharding annotations, rather than explicit all-gather/reduce-scatter operations.
+- **Mesh-based sharding**: Uses PyTorch/XLA's `Mesh` abstraction with named dimensions (e.g., `('fsdp', 'model')`).
+- **Compiler-driven**: The XLA compiler handles communication optimization, similar to how JAX's `pmap` works.
+
+Here's a basic example:
+
+```python
+import torch
+import torch_xla.core.xla_model as xm
+import torch_xla.runtime as xr
+import torch_xla.distributed.spmd as xs
+from torch_xla.experimental.spmd_fully_sharded_data_parallel import (
+    SpmdFullyShardedDataParallel as FSDPv2
+)
+
+# Enable XLA SPMD execution mode
+xr.use_spmd()
+
+# Define the mesh (must have an axis named 'fsdp')
+num_devices = xr.global_runtime_device_count()
+mesh_shape = (num_devices, 1)
+device_ids = np.array(range(num_devices))
+mesh = xs.Mesh(device_ids, mesh_shape, ('fsdp', 'model'))
+
+# Shard input tensors
+x = xs.mark_sharding(x, mesh, ('fsdp', None))
+
+# Apply FSDP via SPMD
+model = FSDPv2(my_module, mesh)
+optim = torch.optim.Adam(model.parameters(), lr=0.0001)
+
+output = model(x, y)
+loss = output.sum()
+loss.backward()
+optim.step()
+```
+
+**When to use FSDP via SPMD:**
+
+- You're training on TPU devices
+- You want compiler-optimized communication patterns
+- You're already using PyTorch/XLA for other features
+
+**When to use GPU FSDP2:**
+
+- You're training on CUDA/GPU devices (this chapter's focus)
+- You want explicit control over communication patterns
+- You're using standard PyTorch without XLA
+
+The SPMD approach is powerful because the XLA compiler can optimize communication patterns automatically, but it's specific to TPU/XLA devices. For GPU training, use the `fully_shard()` API covered in this chapter.
+
+For more details, see the [PyTorch/XLA SPMD documentation](https://docs.pytorch.org/xla/master/spmd.html).
 
 ## Conclusion
 
