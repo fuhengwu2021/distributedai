@@ -2,7 +2,7 @@
 
 # Script to convert markdown files to PDF using pandoc
 # Usage:
-#   ./convert_to_pdf.sh                    # Convert all chapter main.md files
+#   ./convert_to_pdf.sh                    # Convert all chapter chapterX.md files
 #   ./convert_to_pdf.sh 1                  # Convert chapter 1
 #   ./convert_to_pdf.sh 2                  # Convert chapter 2
 #   ./convert_to_pdf.sh chapter1           # Convert specific chapter (alternative)
@@ -96,8 +96,8 @@ if [ $# -gt 0 ]; then
     if [[ "$CHAPTER_ARG" =~ ^[0-9]+$ ]]; then
         # Find chapter directory starting with "chapter" + number
         FOUND_DIR=$(find . -maxdepth 1 -type d -name "chapter${CHAPTER_ARG}-*" | head -1)
-        if [ -n "$FOUND_DIR" ] && [ -f "$FOUND_DIR/main.md" ]; then
-            convert_md_to_pdf "$FOUND_DIR/main.md"
+        if [ -n "$FOUND_DIR" ] && [ -f "$FOUND_DIR/chapter${CHAPTER_ARG}.md" ]; then
+            convert_md_to_pdf "$FOUND_DIR/chapter${CHAPTER_ARG}.md"
         else
             echo "❌ Error: Could not find chapter $CHAPTER_ARG"
             echo "   Available chapters:"
@@ -105,15 +105,26 @@ if [ $# -gt 0 ]; then
             exit 1
         fi
     # Check if it's a direct directory path
-    elif [ -d "$CHAPTER_ARG" ] && [ -f "$CHAPTER_ARG/main.md" ]; then
-        # Full path provided
-        convert_md_to_pdf "$CHAPTER_ARG/main.md"
+    elif [ -d "$CHAPTER_ARG" ]; then
+        # Try to find chapterX.md file in the directory
+        CHAPTER_NUM=$(echo "$CHAPTER_ARG" | grep -oP 'chapter\K\d+' || echo "")
+        if [ -n "$CHAPTER_NUM" ] && [ -f "$CHAPTER_ARG/chapter${CHAPTER_NUM}.md" ]; then
+            convert_md_to_pdf "$CHAPTER_ARG/chapter${CHAPTER_NUM}.md"
+        elif [ -f "$CHAPTER_ARG/main.md" ]; then
+            # Fallback to main.md for backward compatibility
+            convert_md_to_pdf "$CHAPTER_ARG/main.md"
+        else
+            echo "❌ Error: Could not find chapter file in $CHAPTER_ARG"
+            exit 1
+        fi
     # Check if it starts with "chapter" followed by a number
     elif [[ "$CHAPTER_ARG" =~ ^chapter[0-9]+ ]]; then
+        # Extract chapter number
+        CHAPTER_NUM=$(echo "$CHAPTER_ARG" | grep -oP '\d+')
         # Find chapter directory matching the pattern
         FOUND_DIR=$(find . -maxdepth 1 -type d -name "${CHAPTER_ARG}*" | head -1)
-        if [ -n "$FOUND_DIR" ] && [ -f "$FOUND_DIR/main.md" ]; then
-            convert_md_to_pdf "$FOUND_DIR/main.md"
+        if [ -n "$FOUND_DIR" ] && [ -f "$FOUND_DIR/chapter${CHAPTER_NUM}.md" ]; then
+            convert_md_to_pdf "$FOUND_DIR/chapter${CHAPTER_NUM}.md"
         else
             echo "❌ Error: Could not find chapter matching '$CHAPTER_ARG'"
             echo "   Available chapters:"
@@ -123,8 +134,17 @@ if [ $# -gt 0 ]; then
     else
         # Try to find by pattern match
         FOUND_DIR=$(find . -maxdepth 1 -type d -name "*${CHAPTER_ARG}*" | head -1)
-        if [ -n "$FOUND_DIR" ] && [ -f "$FOUND_DIR/main.md" ]; then
-            convert_md_to_pdf "$FOUND_DIR/main.md"
+        if [ -n "$FOUND_DIR" ]; then
+            CHAPTER_NUM=$(echo "$FOUND_DIR" | grep -oP 'chapter\K\d+' || echo "")
+            if [ -n "$CHAPTER_NUM" ] && [ -f "$FOUND_DIR/chapter${CHAPTER_NUM}.md" ]; then
+                convert_md_to_pdf "$FOUND_DIR/chapter${CHAPTER_NUM}.md"
+            elif [ -f "$FOUND_DIR/main.md" ]; then
+                # Fallback to main.md for backward compatibility
+                convert_md_to_pdf "$FOUND_DIR/main.md"
+            else
+                echo "❌ Error: Could not find chapter file in '$FOUND_DIR'"
+                exit 1
+            fi
         else
             echo "❌ Error: Could not find chapter matching '$CHAPTER_ARG'"
             echo "   Available chapters:"
@@ -133,14 +153,14 @@ if [ $# -gt 0 ]; then
         fi
     fi
 else
-    # No argument provided, convert all chapter main.md files
-    echo "🔄 Converting all chapter main.md files to PDF..."
+    # No argument provided, convert all chapter chapterX.md files
+    echo "🔄 Converting all chapter chapterX.md files to PDF..."
     echo ""
     
     SUCCESS=0
     FAILED=0
     
-    # Find all chapter directories with main.md
+    # Find all chapter directories with chapterX.md files
     while IFS= read -r -d '' md_file; do
         if convert_md_to_pdf "$md_file"; then
             ((SUCCESS++))
@@ -148,7 +168,7 @@ else
             ((FAILED++))
         fi
         echo ""
-    done < <(find . -maxdepth 2 -name "main.md" -type f -print0 | sort -z)
+    done < <(find . -maxdepth 2 -name "chapter[0-9]*.md" -type f -print0 | sort -z)
     
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo "📊 Summary:"

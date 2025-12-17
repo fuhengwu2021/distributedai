@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Monitor script to watch main.md files and auto-convert to PDF
+# Monitor script to watch chapterX.md files and auto-convert to PDF
 # Usage:
 #   ./monitor.sh                    # Monitor all chapters
 #   ./monitor.sh 1                   # Monitor only chapter 1
@@ -55,21 +55,21 @@ monitor_files() {
         for chapter_num in "$@"; do
             # Find chapter directory
             chapter_dir=$(find . -maxdepth 1 -type d -name "chapter${chapter_num}-*" | head -1)
-            if [ -n "$chapter_dir" ] && [ -f "$chapter_dir/main.md" ]; then
+            if [ -n "$chapter_dir" ] && [ -f "$chapter_dir/chapter${chapter_num}.md" ]; then
                 watch_dirs+=("$chapter_dir")
-                echo -e "${GREEN}Monitoring:${NC} $chapter_dir/main.md"
+                echo -e "${GREEN}Monitoring:${NC} $chapter_dir/chapter${chapter_num}.md"
             else
-                echo -e "${YELLOW}Warning:${NC} Chapter $chapter_num not found or main.md missing"
+                echo -e "${YELLOW}Warning:${NC} Chapter $chapter_num not found or chapter${chapter_num}.md missing"
             fi
         done
     else
         # Monitor all chapters
         echo -e "${GREEN}Monitoring all chapters...${NC}"
         while IFS= read -r -d '' dir; do
-            if [ -f "$dir/main.md" ]; then
+            chapter_num=$(get_chapter_number "$dir")
+            if [ -n "$chapter_num" ] && [ -f "$dir/chapter${chapter_num}.md" ]; then
                 watch_dirs+=("$dir")
-                chapter_num=$(get_chapter_number "$dir")
-                echo -e "${GREEN}Monitoring:${NC} $dir/main.md (Chapter $chapter_num)"
+                echo -e "${GREEN}Monitoring:${NC} $dir/chapter${chapter_num}.md (Chapter $chapter_num)"
             fi
         done < <(find . -maxdepth 1 -type d -name "chapter*" -print0 | sort -z)
     fi
@@ -88,9 +88,9 @@ monitor_files() {
     
     # Use inotifywait to monitor file changes
     inotifywait -m -r -e close_write,moved_to --format '%w%f' "${watch_dirs[@]}" 2>/dev/null | while read -r file; do
-        # Only process main.md files
-        if [[ "$file" == */main.md ]]; then
-            chapter_num=$(get_chapter_number "$file")
+        # Process chapterX.md files
+        if [[ "$file" =~ /chapter([0-9]+)\.md$ ]]; then
+            chapter_num="${BASH_REMATCH[1]}"
             chapter_dir=$(dirname "$file")
             chapter_name=$(basename "$chapter_dir")
             

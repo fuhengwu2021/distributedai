@@ -37,3 +37,6 @@
 [submodule "resources/deepspeed-examples"]
 	path = resources/deepspeed-examples
 	url = https://github.com/deepspeedai/DeepSpeedExamples.git
+[submodule "resources/awesome-ml-sys-tutorial"]
+	path = resources/awesome-ml-sys-tutorial
+	url = https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial.git
