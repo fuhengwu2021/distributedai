@@ -26,7 +26,7 @@ SGLang can be installed using several methods. **Docker is the quickest way to t
 
 Docker provides the quickest way to get started with SGLang without installing dependencies locally. Pre-built images are available on the [SGLang Docker Hub page](https://hub.docker.com/r/lmsysorg/sglang).
 
-SGLang supports seven main types of models. Base models like `facebook/opt-125m` are pre-trained language models without instruction tuning, and they use the `/v1/completions` endpoint with a `prompt` parameter. Chat models such as `Qwen/Qwen2.5-0.5B-Instruct` are fine-tuned for conversational tasks and use `/v1/chat/completions` with a `messages` parameter. Embedding models like `Qwen/Qwen3-Embedding-0.6B` generate vector representations and use `/v1/embeddings` with an `input` parameter. Diffusion language models like `inclusionAI/LLaDA2.0-mini` enable non-autoregressive text generation with parallel decoding and use the `/generate` endpoint with a `text` parameter. Multimodal/vision language models (VLMs) like `meta-llama/Llama-3.2-11B-Vision-Instruct` accept multimodal inputs (images, videos, and text) and use `/v1/chat/completions` with multimodal content in the `messages` parameter. Rerank models like `BAAI/bge-reranker-v2-m3` rerank search results based on semantic relevance and use the `/v1/rerank` endpoint with a `query` and `documents` parameters. Reward models like `jason9693/Qwen2.5-1.5B-apeach` output scalar reward scores for reinforcement learning or content moderation and use `/v1/embeddings` with the `--is-embedding` flag. Additionally, SGLang also supports video and image generation through SGLang Diffusion, which accelerates diffusion models for tasks like text-to-image, image-to-image, and text-to-video generation.
+SGLang supports seven main types of models. Base models like `meta-llama/Llama-3.2-1B` are pre-trained language models without instruction tuning, and they use the `/v1/completions` endpoint with a `prompt` parameter. Chat models such as `Qwen/Qwen2.5-0.5B-Instruct` are fine-tuned for conversational tasks and use `/v1/chat/completions` with a `messages` parameter. Embedding models like `Qwen/Qwen3-Embedding-0.6B` generate vector representations and use `/v1/embeddings` with an `input` parameter. Diffusion language models like `inclusionAI/LLaDA2.0-mini` enable non-autoregressive text generation with parallel decoding and use the `/generate` endpoint with a `text` parameter. Multimodal/vision language models (VLMs) like `meta-llama/Llama-3.2-11B-Vision-Instruct` accept multimodal inputs (images, videos, and text) and use `/v1/chat/completions` with multimodal content in the `messages` parameter. Rerank models like `BAAI/bge-reranker-v2-m3` rerank search results based on semantic relevance and use the `/v1/rerank` endpoint with a `query` and `documents` parameters. Reward models like `jason9693/Qwen2.5-1.5B-apeach` output scalar reward scores for reinforcement learning or content moderation and use `/v1/embeddings` with the `--is-embedding` flag. Additionally, SGLang also supports video and image generation through SGLang Diffusion, which accelerates diffusion models for tasks like text-to-image, image-to-image, and text-to-video generation.
 
 The SGLang server exposes an OpenAI-compatible API with endpoints for completions, chat completions, embeddings, reranking, classification, and more. For a complete list of endpoints with detailed descriptions and usage examples, see the **OpenAI-Compatible API Endpoints** section in the Appendix.
 
@@ -189,21 +189,21 @@ SGLang's architecture follows a **frontend-backend** design pattern, as describe
     │         │                        │
     │         ↓                        │
     │  ┌──────────────┐                │
-    │  │  Scheduler    │ ← Intelligent batching
-    │  │               │   RadixAttention
+    │  │  Scheduler   │ ← Intelligent batching
+    │  │              │   RadixAttention
     │  └──────┬───────┘                │
     │         │                        │
     │         ↓                        │
     │  ┌──────────────────────┐        │
-    │  │   GPU Workers         │      │
-    │  │  W0 → W1 → W2 → W3    │ ← Model execution
-    │  └──────┬───────────────┘      │
+    │  │   GPU Workers        │        │
+    │  │  W0 → W1 → W2 → W3   │ ← Model execution
+    │  └──────┬───────────────┘        │
     │         │                        │
     │         ↓                        │
-    │  ┌──────────────┐               │
-    │  │ Detokenizer   │ ← Converts tokens to text
-    │  └──────┬───────┘               │
-    └─────────┼───────────────────────┘
+    │  ┌──────────────┐                │
+    │  │ Detokenizer  │ ← Converts tokens to text
+    │  └──────┬───────┘                │
+    └─────────┼────────────────────────┘
               │
               ↓
         ┌──────────────┐
@@ -646,7 +646,7 @@ while True:
 - **Schedule batch**: `python/sglang/srt/managers/schedule_batch.py` - Batch data structures and request management
 - **Overlap utilities**: `python/sglang/srt/managers/overlap_utils.py` - CPU/GPU overlap utilities
 
-**Token Placeholder Mechanism:**
+### Token Placeholder Mechanism
 
 To enable async execution, SGLang uses token placeholders:
 
@@ -971,7 +971,7 @@ pip install nixl
 ```bash
 # Prefill worker
 python -m sglang.launch_server \
-    --model-path facebook/opt-125m \
+    --model-path Qwen/Qwen2.5-0.5B-Instruct \
     --disaggregation-mode prefill \
     --port 30000 \
     --disaggregation-ib-device mlx5_roce0
@@ -982,7 +982,7 @@ python -m sglang.launch_server \
 ```bash
 # Decode worker
 python -m sglang.launch_server \
-    --model-path facebook/opt-125m \
+    --model-path Qwen/Qwen2.5-0.5B-Instruct \
     --disaggregation-mode decode \
     --port 30001 \
     --base-gpu-id 1 \
@@ -1076,13 +1076,13 @@ mlp_down_output = row_parallel_linear(mlp_up_output, tp_rank, tp_size)
 ```bash
 # Single node TP
 python -m sglang.launch_server \
-    --model-path facebook/opt-125m \
+    --model-path Qwen/Qwen2.5-0.5B-Instruct \
     --tp 8
 
 # Multi-node TP
 # Node 0
 python -m sglang.launch_server \
-    --model-path facebook/opt-125m \
+    --model-path Qwen/Qwen2.5-0.5B-Instruct \
     --tp 16 \
     --dist-init-addr 172.16.4.52:20000 \
     --nnodes 2 \
@@ -1090,12 +1090,22 @@ python -m sglang.launch_server \
 
 # Node 1
 python -m sglang.launch_server \
-    --model-path facebook/opt-125m \
+    --model-path Qwen/Qwen2.5-0.5B-Instruct \
     --tp 16 \
     --dist-init-addr 172.16.4.52:20000 \
     --nnodes 2 \
     --node-rank 1
 ```
+
+**Source Code Location:**
+
+- **Tensor parallelization**: `python/sglang/srt/layers/model_parallel.py` - Main `tensor_parallel()` function that applies TP plans to model layers
+- **TP group initialization**: `python/sglang/srt/distributed/parallel_state.py` - `initialize_model_parallel()` function that sets up TP communication groups
+- **Column parallel linear**: `python/sglang/srt/layers/linear.py` - `ColumnParallelLinear` class for column-wise weight sharding (QKV projections, MLP up projection)
+- **Row parallel linear**: `python/sglang/srt/layers/linear.py` - `RowParallelLinear` class for row-wise weight sharding (MLP down projection, output projection)
+- **TP communication**: `python/sglang/srt/layers/communicator.py` - All-reduce operations and TP communication context (`AttnTpContext`)
+- **TP worker**: `python/sglang/srt/managers/tp_worker.py` - Tensor parallel worker implementation with async execution
+- **Model runner TP support**: `python/sglang/srt/model_executor/model_runner.py` - `apply_torch_tp()` method and TP-aware forward passes
 
 ### Pipeline Parallelism: Layer Sharding
 
@@ -1136,7 +1146,7 @@ Time Step 5: [Decode] → [Decode] → [Decode] → [Decode] (steady state)
 
 ```bash
 python -m sglang.launch_server \
-    --model-path facebook/opt-125m \
+    --model-path Qwen/Qwen2.5-0.5B-Instruct \
     --tp 8 \
     --pp 4 \
     --dist-init-addr 172.16.4.52:20000 \
@@ -1168,7 +1178,7 @@ Data parallelism replicates the model across multiple workers, with each worker 
 
 ```bash
 python -m sglang.launch_server \
-    --model-path facebook/opt-125m \
+    --model-path Qwen/Qwen2.5-0.5B-Instruct \
     --dp-size 4
 ```
 
@@ -1179,12 +1189,12 @@ For distributed DP, use router-based architecture:
 ```bash
 # Worker 1
 python -m sglang.launch_server \
-    --model-path facebook/opt-125m \
+    --model-path Qwen/Qwen2.5-0.5B-Instruct \
     --port 30000
 
 # Worker 2
 python -m sglang.launch_server \
-    --model-path facebook/opt-125m \
+    --model-path Qwen/Qwen2.5-0.5B-Instruct \
     --port 30000
 
 # Router
@@ -1382,7 +1392,7 @@ For large models that don't fit on a single node, SGLang uses tensor parallelism
 ```bash
 # Node 0 (master node, replace 172.16.4.52:20000 with your master node IP:port)
 python3 -m sglang.launch_server \
-    --model-path facebook/opt-125m \
+    --model-path Qwen/Qwen2.5-0.5B-Instruct \
     --tp 16 \
     --dist-init-addr 172.16.4.52:20000 \
     --nnodes 2 \
@@ -1390,7 +1400,7 @@ python3 -m sglang.launch_server \
 
 # Node 1 (worker node)
 python3 -m sglang.launch_server \
-    --model-path facebook/opt-125m \
+    --model-path Qwen/Qwen2.5-0.5B-Instruct \
     --tp 16 \
     --dist-init-addr 172.16.4.52:20000 \
     --nnodes 2 \
@@ -1433,17 +1443,17 @@ For smaller models, router-based architecture with replicated workers provides b
 # Each node runs full model copy
 # Node 1
 python -m sglang.launch_server \
-    --model-path facebook/opt-125m \
+    --model-path Qwen/Qwen2.5-0.5B-Instruct \
     --port 30000
 
 # Node 2
 python -m sglang.launch_server \
-    --model-path facebook/opt-125m \
+    --model-path Qwen/Qwen2.5-0.5B-Instruct \
     --port 30000
 
 # Node 3
 python -m sglang.launch_server \
-    --model-path facebook/opt-125m \
+    --model-path Qwen/Qwen2.5-0.5B-Instruct \
     --port 30000
 ```
 
@@ -2626,11 +2636,20 @@ SGLang supports speculative decoding with:
 **Configuration:**
 
 ```bash
+# Example: Use smaller Qwen model as draft for larger target model
 python -m sglang.launch_server \
-    --model-path facebook/opt-125m \
-    --speculative-draft-model-path facebook/opt-125m \
+    --model-path Qwen/Qwen2.5-7B-Instruct \
+    --speculative-draft-model-path Qwen/Qwen2.5-1.5B-Instruct \
     --speculative-num-draft-tokens 4
 ```
+
+**Model Pairing Guidelines:**
+
+- **Target model**: Larger, more accurate model (e.g., Qwen2.5-7B-Instruct, Qwen2.5-14B-Instruct)
+- **Draft model**: **Must be a different, smaller, faster model** from the same family (e.g., Qwen2.5-1.5B-Instruct, Qwen2.5-0.5B-Instruct)
+- **Compatibility**: Draft and target models should share the same tokenizer and vocabulary for best results
+- **Important**: The draft model must be different from the target model. Using the same model defeats the purpose of speculative decoding.
+- **Self-speculative (advanced)**: As a special case, a quantized version of the target model can serve as its own draft model (e.g., INT4 quantized version as draft for FP16 target), but this still requires different model instances/weights.
 
 **Performance:**
 
@@ -2916,7 +2935,7 @@ This section covers common deployment patterns for different model sizes and use
 # Worker nodes (each runs full model)
 # Node 1
 python -m sglang.launch_server \
-    --model-path facebook/opt-125m \
+    --model-path Qwen/Qwen2.5-0.5B-Instruct \
     --port 30000
 
 # Node 2-4 (similar)
@@ -2955,7 +2974,7 @@ python -m sglang_router.launch_router \
 # Each node runs TP group
 # Node 1 (TP=8)
 python -m sglang.launch_server \
-    --model-path facebook/opt-125m \
+    --model-path Qwen/Qwen2.5-0.5B-Instruct \
     --tp 8 \
     --port 30000
 
@@ -2993,7 +3012,7 @@ python -m sglang_router.launch_router \
 ```bash
 # Node 0 (Master, PP Stage 0)
 python -m sglang.launch_server \
-    --model-path facebook/opt-125m \
+    --model-path Qwen/Qwen2.5-0.5B-Instruct \
     --tp 16 \
     --pp 4 \
     --dist-init-addr 172.16.4.52:20000 \
@@ -3002,7 +3021,7 @@ python -m sglang.launch_server \
 
 # Node 1 (PP Stage 1)
 python -m sglang.launch_server \
-    --model-path facebook/opt-125m \
+    --model-path Qwen/Qwen2.5-0.5B-Instruct \
     --tp 16 \
     --pp 4 \
     --dist-init-addr 172.16.4.52:20000 \
@@ -3064,14 +3083,14 @@ python -m sglang.launch_server \
 ```bash
 # Prefill workers (compute-intensive)
 python -m sglang.launch_server \
-    --model-path facebook/opt-125m \
+    --model-path Qwen/Qwen2.5-0.5B-Instruct \
     --disaggregation-mode prefill \
     --port 30000 \
     --disaggregation-ib-device mlx5_roce0
 
 # Decode workers (latency-optimized)
 python -m sglang.launch_server \
-    --model-path facebook/opt-125m \
+    --model-path Qwen/Qwen2.5-0.5B-Instruct \
     --disaggregation-mode decode \
     --port 30001 \
     --base-gpu-id 1 \
@@ -3242,7 +3261,7 @@ for batch_size in [1, 2, 4, 8, 16, 32]:
 # Node 1-4: Start workers
 for i in {1..4}; do
     ssh node$i "python -m sglang.launch_server \
-        --model facebook/opt-125m \
+        --model Qwen/Qwen2.5-0.5B-Instruct \
         --port 30000"
 done
 
@@ -3267,14 +3286,14 @@ uv pip install mooncake-transfer-engine
 
 # Prefill worker
 python -m sglang.launch_server \
-    --model-path facebook/opt-125m \
+    --model-path Qwen/Qwen2.5-0.5B-Instruct \
     --disaggregation-mode prefill \
     --port 30000 \
     --disaggregation-ib-device mlx5_roce0
 
 # Decode worker (in another terminal)
 python -m sglang.launch_server \
-    --model-path facebook/opt-125m \
+    --model-path Qwen/Qwen2.5-0.5B-Instruct \
     --disaggregation-mode decode \
     --port 30001 \
     --base-gpu-id 1 \
@@ -3329,7 +3348,7 @@ print(f"Cache hit improvement: {response1.elapsed / response2.elapsed:.2f}x")
 ```bash
 # Node 0 (PP Stage 0, TP ranks 0-15)
 python -m sglang.launch_server \
-    --model-path facebook/opt-125m \
+    --model-path Qwen/Qwen2.5-0.5B-Instruct \
     --tp 16 \
     --pp 4 \
     --dist-init-addr 172.16.4.52:20000 \
@@ -3339,7 +3358,7 @@ python -m sglang.launch_server \
 
 # Node 1 (PP Stage 1, TP ranks 16-31)
 python -m sglang.launch_server \
-    --model-path facebook/opt-125m \
+    --model-path Qwen/Qwen2.5-0.5B-Instruct \
     --tp 16 \
     --pp 4 \
     --dist-init-addr 172.16.4.52:20000 \
@@ -4099,13 +4118,13 @@ Many enterprises successfully use both frameworks for different parts of their i
 
 ```bash
 # vLLM for batch jobs and high-throughput completion
-vllm serve facebook/opt-125m \
+vllm serve Qwen/Qwen2.5-0.5B-Instruct \
     --tensor-parallel-size 8 \
     --port 30000
 
 # SGLang for interactive API and structured generation
 sglang.launch_server \
-    --model-path facebook/opt-125m \
+    --model-path Qwen/Qwen2.5-0.5B-Instruct \
     --port 8001
 
 # Router routes based on request type
