@@ -33,10 +33,11 @@ For development and testing, you can run multiple Slurm compute nodes (slurmd da
 
 ```bash
 # Enable multiple slurmd support
-NodeName=node6 NodeHostname=moirai-h200 Port=17016 \
+# Use $HOSTNAME or $(hostname) to get the actual hostname
+NodeName=node6 NodeHostname=$HOSTNAME Port=17016 \
     CPUs=112 RealMemory=240000 Gres=gpu:1 State=UNKNOWN
 
-NodeName=node7 NodeHostname=moirai-h200 Port=17017 \
+NodeName=node7 NodeHostname=$HOSTNAME Port=17017 \
     CPUs=112 RealMemory=240000 Gres=gpu:1 State=UNKNOWN
 ```
 
@@ -66,7 +67,8 @@ This script:
 
 ```bash
 # Set PATH to use compiled Slurm
-export PATH=/home/fuhwu/slurm/bin:$PATH
+# Replace $SLURM_PREFIX with your Slurm installation prefix (e.g., /opt/slurm or $HOME/slurm)
+export PATH=$SLURM_PREFIX/bin:$PATH
 
 # Check cluster status
 sinfo
@@ -90,14 +92,8 @@ srun -N 2 hostname
 The simplest way to run a distributed training job:
 
 ```bash
-# Single node, 2 GPUs
-srun -N 1 --gres=gpu:2 python train.py
-
 # Two nodes, 1 GPU each
-srun -N 2 --gres=gpu:1 python train.py
-
-# Two nodes, 2 GPUs each (4 GPUs total)
-srun -N 2 --gres=gpu:2 python train.py
+srun -N 2 --gres=gpu:1 --cpus-per-task=4 python train.py
 ```
 
 ### 3.2 Batch Jobs with `sbatch`
@@ -500,7 +496,8 @@ scontrol update NodeName=node6 State=DRAIN Reason="maintenance"
 scontrol show nodes | grep Gres
 
 # Verify GPU mapping
-cat /home/fuhwu/slurm/etc/gres.conf
+# Replace $SLURM_PREFIX with your Slurm installation prefix
+cat $SLURM_PREFIX/etc/gres.conf
 
 # Test GPU allocation
 srun -N 1 --gres=gpu:1 nvidia-smi -L
