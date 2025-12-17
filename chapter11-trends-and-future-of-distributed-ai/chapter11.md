@@ -15,12 +15,14 @@ But the field is rapidly evolving. New architectures, optimization techniques, a
 ### Current State (2024-2025)
 
 **Key Achievements:**
+
 - FSDP and DeepSpeed ZeRO enable training models with 100B+ parameters
 - vLLM and SGLang have made distributed inference production-ready
 - Kubernetes GPU scheduling is standard for cloud deployments
 - Continuous batching and PagedAttention optimize memory efficiency
 
 **Remaining Challenges:**
+
 - Scaling to trillion-parameter models efficiently
 - Reducing communication overhead in multi-node setups
 - Balancing latency and throughput in inference
@@ -55,6 +57,7 @@ But the field is rapidly evolving. New architectures, optimization techniques, a
 ### MoE Architecture Fundamentals
 
 **Why MoE Matters:**
+
 - Scales model capacity without proportional compute increase
 - Only activates subset of experts per token
 - Enables training larger models with same compute budget
@@ -778,12 +781,14 @@ class GradientCompression:
 ### Staying Current
 
 **Resources:**
+
 - Follow research papers (arXiv, conferences)
 - Monitor open-source projects (vLLM, SGLang, DeepSpeed)
 - Track industry developments (OpenAI, Anthropic, Google)
 - Participate in communities (Hugging Face, PyTorch)
 
 **Key Conferences:**
+
 - NeurIPS, ICML, ICLR (research)
 - MLSys, OSDI, SOSP (systems)
 - Industry conferences (GTC, PyTorch Conference)

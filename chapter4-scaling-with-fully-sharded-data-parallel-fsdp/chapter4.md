@@ -30,6 +30,7 @@ The memory savings come from three places: parameters, gradients, and optimizer 
 Let's look at a concrete example. Say you're training a transformer model with 7 billion parameters:
 
 **Without FSDP (DDP):**
+
 - Parameters (BF16): 7B × 2 bytes = 14 GB
 - Gradients (BF16): 14 GB
 - Optimizer states (Adam, FP32): 7B × 4 bytes × 2 (momentum + variance) = 56 GB
@@ -38,6 +39,7 @@ Let's look at a concrete example. Say you're training a transformer model with 7
 This won't fit on most GPUs, and you haven't even accounted for activations yet.
 
 **With FSDP on 8 GPUs:**
+
 - Parameters (BF16): 14 GB / 8 = 1.75 GB
 - Gradients (BF16): 14 GB / 8 = 1.75 GB
 - Optimizer states (FP32): 56 GB / 8 = 7 GB
@@ -116,6 +118,7 @@ This arranges GPUs in a 2D grid, which is useful for very large scale training w
 The default (`True`) is usually the right choice unless you have memory headroom and want to reduce communication. If you're memory-constrained, stick with `True`. If you have extra memory and communication is your bottleneck, try `False`.
 
 **`mp_policy`**: Mixed precision settings. You can specify:
+
 - `param_dtype`: Dtype for parameters (e.g., `torch.bfloat16`)
 - `reduce_dtype`: Dtype for gradient reduction (e.g., `torch.float32`)
 - `output_dtype`: Dtype for outputs (optional)
@@ -630,11 +633,13 @@ This prefetches parameters for previous layers while computing gradients for the
 ### When to Use Prefetching
 
 Prefetching helps when:
+
 - Your model has many layers (10+)
 - Communication bandwidth is limited
 - Layers are large enough that prefetching can overlap with computation
 
 Prefetching doesn't help much if:
+
 - Your model is small (few layers)
 - Communication is already fast (NVLink, high-bandwidth InfiniBand)
 - Layers are too small (prefetch overhead exceeds benefit)
@@ -731,6 +736,7 @@ fully_shard(
 ### When to Use Offloading
 
 Use CPU offloading only if:
+
 - You're still OOM after full-shard and activation checkpointing
 - You can't reduce batch size or sequence length further
 - You're willing to accept 20-50% slowdown
@@ -750,6 +756,7 @@ fully_shard(
 ```
 
 NVMe offloading is useful when:
+
 - Your model is too large even with CPU offloading
 - You have fast NVMe storage (PCIe 4.0 or better)
 - Training time is less important than being able to train at all
@@ -801,6 +808,7 @@ def train_with_profiling(model, dataloader, optimizer, num_iterations=10):
 ```
 
 Look for:
+
 - **All-gather operations**: Should overlap with computation. If they don't, prefetching might help.
 - **Reduce-scatter operations**: Should overlap with gradient computation.
 - **Activation memory**: Use `profile_memory=True` to see peak memory usage.
@@ -923,6 +931,7 @@ hostname -I
 For multi-node FSDP, network bandwidth and latency are critical. FSDP does more communication than DDP (all-gather and reduce-scatter), so fast interconnects are even more important.
 
 **InfiniBand is preferred** over Ethernet because:
+
 - Higher bandwidth: 200-400 Gb/s per link vs 10-100 Gb/s for Ethernet
 - Lower latency: Sub-microsecond vs microseconds
 - RDMA support: Direct GPU-to-GPU memory access
@@ -1167,12 +1176,14 @@ When choosing a distributed training strategy, you need to understand the tradeo
 **DDP** is the simplest—every GPU has a full copy of everything. Use it when your model fits on a single GPU.
 
 **Pros:**
+
 - Simple to use: just wrap your model with `DDP`
 - Well-optimized: mature, battle-tested, excellent performance
 - Low communication overhead: only gradient synchronization
 - Works with any PyTorch model
 
 **Cons:**
+
 - Requires model to fit on a single GPU
 - Doesn't help with very large models
 
@@ -1187,11 +1198,13 @@ When choosing a distributed training strategy, you need to understand the tradeo
 - **ZeRO-3**: Shards optimizer states + gradients + parameters
 
 **Pros:**
+
 - Part of DeepSpeed ecosystem: integrates with other DeepSpeed features (ZeRO-Offload, ZeRO-Infinity, etc.)
 - Well-documented: extensive documentation and examples
 - Production-tested: used by many organizations
 
 **Cons:**
+
 - Requires DeepSpeed: adds dependency, not pure PyTorch
 - More complex: DeepSpeed has many features, can be overwhelming
 - Less flexible: tied to DeepSpeed's APIs
@@ -1203,6 +1216,7 @@ When choosing a distributed training strategy, you need to understand the tradeo
 **FSDP2** is PyTorch-native and integrates tightly with autograd. The per-parameter-sharding design is simpler (about 3k lines of code versus 14k for the original) and more flexible.
 
 **Pros:**
+
 - PyTorch-native: no external dependencies, integrates with PyTorch ecosystem
 - Flexible: per-parameter sharding enables features like fp8 all-gather, frozen parameters
 - Simpler API: functional approach with `fully_shard()`, easier to compose
@@ -1210,6 +1224,7 @@ When choosing a distributed training strategy, you need to understand the tradeo
 - Active development: PyTorch team is actively improving it
 
 **Cons:**
+
 - Newer: less battle-tested than ZeRO, fewer examples
 - Limited offloading: CPU/NVMe offloading is available but less mature than DeepSpeed's ZeRO-Offload/Infinity
 
@@ -1220,12 +1235,14 @@ When choosing a distributed training strategy, you need to understand the tradeo
 Let's compare memory usage for a 7B parameter model with Adam optimizer on 8 GPUs:
 
 **DDP:**
+
 - Parameters: 14 GB (BF16) × 8 GPUs = 112 GB total
 - Gradients: 14 GB × 8 GPUs = 112 GB total
 - Optimizer states: 56 GB × 8 GPUs = 448 GB total
 - **Per GPU**: 84 GB (doesn't fit on most GPUs)
 
 **ZeRO-3 / FSDP2:**
+
 - Parameters: 14 GB / 8 = 1.75 GB per GPU
 - Gradients: 14 GB / 8 = 1.75 GB per GPU
 - Optimizer states: 56 GB / 8 = 7 GB per GPU
@@ -1254,16 +1271,19 @@ If you're using DDP and need to scale to larger models:
 ### Recommendation
 
 **Use DDP if:**
+
 - Your model fits on a single GPU
 - You want the simplest solution
 - You don't need to scale beyond single-node
 
 **Use FSDP2 if:**
+
 - Your model doesn't fit on a single GPU
 - You want PyTorch-native solution
 - You're starting a new project
 
 **Use ZeRO if:**
+
 - You're already using DeepSpeed
 - You need DeepSpeed-specific features (ZeRO-Offload, ZeRO-Infinity)
 - You prefer the DeepSpeed ecosystem
@@ -1279,6 +1299,7 @@ Here are practical tips from real-world FSDP usage:
 With FSDP2, sharded state dicts match the training representation, so saving and loading is straightforward. Each rank saves its shard.
 
 **Key points:**
+
 - Use DCP API for checkpointing (recommended) or handle sharded state dicts manually
 - Don't try to gather all shards to rank 0 unless you need a full checkpoint for inference
 - Loading is just reading shards back—no gathering needed
@@ -1294,6 +1315,7 @@ If you have shared parameters (same tensor used in multiple places), they need t
 Use `torch.profiler` or `nvidia-smi` to see where memory is actually being used. Sometimes the bottleneck isn't what you think—it could be activations, not parameters.
 
 **Common memory issues:**
+
 - Activations: Use activation checkpointing
 - Optimizer states: Already sharded with FSDP, but can offload to CPU if needed
 - Temporary tensors: Make sure you're not accumulating tensors across iterations
@@ -1304,11 +1326,13 @@ Use `torch.profiler` or `nvidia-smi` to see where memory is actually being used.
 The default (`True`) is usually right. But if you have memory headroom and want to reduce communication, try `False`. You can also use an intermediate size (like `int` for ZeRO++ hpZ style).
 
 **When to use `False`:**
+
 - You have extra GPU memory
 - Communication is your bottleneck (slow network)
 - You want to reduce all-gather operations in backward
 
 **When to use `True` (default):**
+
 - You're memory-constrained
 - Communication is fast (NVLink, fast InfiniBand)
 - You want maximum memory savings
@@ -1430,6 +1454,7 @@ fully_shard(model, mesh=mesh, mesh_dim=1)
 ```
 
 This shards parameters across 8 GPUs within each node, but replicates across 4 nodes. Useful when:
+
 - You have many nodes
 - Inter-node communication is slower than intra-node
 - You want to reduce inter-node communication
@@ -1462,6 +1487,7 @@ Most users won't need this, but it's available if you need fine-grained control.
 ### Integration with Other PyTorch Features
 
 FSDP2 integrates with:
+
 - **torch.compile**: As mentioned, works well together
 - **Automatic Mixed Precision (AMP)**: Use `MixedPrecisionPolicy` instead
 - **Gradient accumulation**: Works naturally with FSDP

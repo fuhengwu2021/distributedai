@@ -17,6 +17,7 @@ Benchmarking distributed AI systems is fundamentally different from benchmarking
 ### Why Benchmarking Matters
 
 **Key Reasons:**
+
 - **Performance Validation:** Ensure systems meet latency and throughput requirements
 - **Optimization Guidance:** Identify bottlenecks to prioritize optimization efforts
 - **Cost Analysis:** Understand resource utilization to optimize costs
@@ -26,12 +27,14 @@ Benchmarking distributed AI systems is fundamentally different from benchmarking
 ### Core Metrics for Distributed Systems
 
 **Throughput Metrics:**
+
 - **Samples per Second (Training):** Number of training samples processed per second
 - **Tokens per Second (Inference):** Number of tokens generated per second
 - **Requests per Second (Serving):** Number of API requests handled per second
 - **GPU Utilization:** Percentage of time GPUs are actively computing
 
 **Latency Metrics:**
+
 - **P50 (Median):** 50th percentile latency
 - **P95:** 95th percentile latency (captures tail latency)
 - **P99:** 99th percentile latency (worst-case scenarios)
@@ -39,6 +42,7 @@ Benchmarking distributed AI systems is fundamentally different from benchmarking
 - **Time per Token (TPT):** Average time between tokens
 
 **Efficiency Metrics:**
+
 - **Scaling Efficiency:** How well performance scales with number of devices
 - **Memory Efficiency:** Memory utilization vs available memory
 - **Communication Overhead:** Time spent on synchronization vs computation
@@ -69,16 +73,19 @@ def benchmark_with_warmup(model, dataloader, num_warmup=10, num_iterations=100):
 ```
 
 **2. Multiple Runs and Variance:**
+
 - Always run multiple independent runs (minimum 3-5 runs)
 - Report mean, standard deviation, and confidence intervals
 - Use statistical significance tests when comparing systems
 
 **3. Steady-State Measurement:**
+
 - Discard initial iterations (warmup)
 - Measure over sufficient duration to capture variance
 - Account for system-level effects (thermal throttling, background processes)
 
 **4. Reproducibility:**
+
 - Fix random seeds
 - Document hardware configuration
 - Version control benchmark scripts
@@ -205,6 +212,7 @@ nsys stats --report gputrace training_profile.nsys-rep
 ```
 
 **Key Metrics from Nsight:**
+
 - GPU kernel execution time
 - Memory transfer time (H2D, D2H)
 - CUDA API calls
@@ -350,6 +358,7 @@ print(f"Scaling efficiency: {efficiency:.1f}%")  # 81.25%
 ```
 
 **Scaling Efficiency Analysis:**
+
 - **>90%:** Excellent scaling
 - **70-90%:** Good scaling (typical for well-optimized systems)
 - **50-70%:** Moderate scaling (communication overhead significant)
@@ -366,6 +375,7 @@ Inference benchmarking has unique challenges: variable request patterns, caching
 ### genai-bench Overview
 
 **Key Features:**
+
 - CLI-based benchmarking tool (not a Python API)
 - Realistic prompt distributions via traffic scenarios
 - Configurable load patterns (concurrency, traffic scenarios)
@@ -404,6 +414,7 @@ genai-bench benchmark \
 ```
 
 **Key Parameters:**
+
 - `--api-backend`: Backend type (openai, vllm, sglang, aws-bedrock, azure-openai, gcp-vertex, oci-genai, oci-cohere)
 - `--api-base`: API endpoint URL
 - `--api-model-name`: Model name for requests
@@ -751,6 +762,7 @@ While performance benchmarking measures speed, throughput, and efficiency, **acc
 ### Why Accuracy Benchmarking Matters
 
 **Key Reasons:**
+
 - **Quality Assurance:** Ensure distributed optimizations don't degrade model accuracy
 - **Model Comparison:** Fairly compare different models, quantization levels, or serving engines
 - **Regression Detection:** Catch accuracy regressions in CI/CD pipelines
@@ -760,6 +772,7 @@ While performance benchmarking measures speed, throughput, and efficiency, **acc
 ### Accuracy Metrics for LLMs
 
 **Text Generation Quality Metrics:**
+
 - **BLEU Score:** Measures n-gram overlap with reference text (common for translation)
 - **ROUGE Score:** Measures overlap of n-grams, longest common subsequence (common for summarization)
 - **METEOR:** Considers synonyms and word order
@@ -767,12 +780,14 @@ While performance benchmarking measures speed, throughput, and efficiency, **acc
 - **Human Evaluation:** Gold standard but expensive (Likert scales, pairwise comparisons)
 
 **Task-Specific Metrics:**
+
 - **Classification Accuracy:** For classification tasks
 - **F1 Score:** For tasks with precision/recall trade-offs
 - **Exact Match (EM):** For question answering
 - **Code Execution Accuracy:** For code generation (run code and check output)
 
 **Compositional Reasoning Metrics:**
+
 - **VQAScore:** Uses VQA models to evaluate image-text alignment
 - **CLIPScore:** Measures image-text similarity using CLIP
 - **PickScore:** Human preference prediction for image generation
@@ -783,6 +798,7 @@ While performance benchmarking measures speed, throughput, and efficiency, **acc
 **GenAI-Bench** ([linzhiqiu.github.io/papers/genai_bench/](https://linzhiqiu.github.io/papers/genai_bench/)) is a comprehensive benchmark for evaluating compositional text-to-visual generation. Unlike performance benchmarks, it focuses on **model output quality** and alignment with complex prompts.
 
 **Key Features:**
+
 - **1,600 professionally-designed prompts** covering compositional reasoning
 - **Human ratings** (38,400+ ratings) for benchmarking automated metrics
 - **Compositional skills evaluation:** Objects, attributes, relationships, counting, logic, comparison
@@ -790,6 +806,7 @@ While performance benchmarking measures speed, throughput, and efficiency, **acc
 - **VQAScore integration:** Automated evaluation metric that correlates well with human judgments
 
 **Compositional Skills Evaluated:**
+
 - **Basic Compositions:** Objects, scenes, attributes, spatial/action/part relationships
 - **Advanced Reasoning:** Counting, comparison, differentiation, logic (negation/universality)
 
@@ -876,6 +893,7 @@ print(f"Accuracy: {results['accuracy']:.3f}")
 ```
 
 **2. SuperGLUE:**
+
 - More challenging tasks than GLUE
 - Includes reading comprehension, natural language inference, etc.
 
@@ -920,6 +938,7 @@ def evaluate_humaneval(model, problems):
 ```
 
 **5. HELM (Holistic Evaluation of Language Models):**
+
 - Comprehensive evaluation across multiple scenarios
 - Includes accuracy, robustness, fairness, efficiency
 
@@ -1079,16 +1098,19 @@ def evaluate_quantization_impact(model_fp32, model_int8, test_dataset):
 ### Best Practices for Accuracy Benchmarking
 
 **1. Use Representative Datasets:**
+
 - Test on production-like data distributions
 - Include edge cases and failure modes
 - Ensure sufficient sample size for statistical significance
 
 **2. Multiple Metrics:**
+
 - Don't rely on a single metric
 - Use task-appropriate metrics
 - Include human evaluation when possible
 
 **3. Baseline Comparison:**
+
 - Always compare against a baseline (previous model, centralized training, etc.)
 - Track accuracy over time to detect regressions
 
@@ -1110,6 +1132,7 @@ def compare_models_statistically(model1_scores, model2_scores):
 ```
 
 **5. Document Everything:**
+
 - Dataset versions and splits
 - Evaluation methodology
 - Model versions and configurations
@@ -1622,6 +1645,7 @@ if __name__ == "__main__":
 ### 1. Avoiding Incorrect Benchmarking Methods
 
 **Common Mistakes:**
+
 - **Measuring cold start as typical performance:** Always warmup before measurement
 - **Single measurement:** Always run multiple iterations and report statistics
 - **Including setup time:** Measure only the operation of interest
@@ -1658,6 +1682,7 @@ def correct_benchmark(func, num_warmup=10, num_iterations=100):
 ### 2. Measuring Variance Correctly
 
 **Why Variance Matters:**
+
 - Performance can vary significantly between runs
 - Tail latency (P95, P99) is critical for production systems
 - Variance helps identify instability issues
@@ -1692,6 +1717,7 @@ def measure_with_variance(func, num_runs=5, num_iterations=100):
 ### 3. Understanding Warmup Behavior
 
 **Warmup Effects:**
+
 - First iteration is often slower (kernel compilation, memory allocation)
 - CUDA kernels are JIT compiled on first use
 - Memory allocation patterns stabilize after warmup
@@ -1751,6 +1777,7 @@ TensorRT    200 tok/s    0.10s          0.25s          26GB
 4. **Re-measure:** Validate improvements
 
 **Optimization Steps:**
+
 - **If communication is bottleneck:** Use gradient compression, optimize topology
 - **If data loading is bottleneck:** Increase num_workers, use prefetching
 - **If compute is bottleneck:** Check GPU utilization, optimize kernels
@@ -1830,6 +1857,7 @@ Throughout this book, we've covered the current state of distributed AI: DDP and
 ## Further Reading
 
 **Performance Benchmarking:**
+
 - genai-bench Documentation: https://github.com/sgl-project/genai-bench
 - PyTorch Profiler: https://pytorch.org/tutorials/recipes/recipes/profiler_recipe.html
 - Nsight Systems: https://developer.nvidia.com/nsight-systems
@@ -1837,6 +1865,7 @@ Throughout this book, we've covered the current state of distributed AI: DDP and
 - Amdahl's Law: https://en.wikipedia.org/wiki/Amdahl%27s_law
 
 **Accuracy Benchmarking:**
+
 - GenAI-Bench (Text-to-Visual Evaluation): https://linzhiqiu.github.io/papers/genai_bench/
 - GLUE Benchmark: https://gluebenchmark.com/
 - MMLU Benchmark: https://github.com/hendrycks/test

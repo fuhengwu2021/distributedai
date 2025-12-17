@@ -242,6 +242,7 @@ GPU 3: params[132B:175B]+grads[132B:175B]+opt[132B:175B] = 262 GB
    - Free the full parameters
 
 **Optimizer Step:**
+
 - Each GPU updates only its parameter shard (local operation)
 
 ### Communication Pattern
@@ -311,6 +312,7 @@ with CommunicationStream():
 ```
 
 **Key parameters:**
+
 - `overlap_comm`: Overlap communication with computation for better throughput
 - `stage3_prefetch_bucket_size`: Controls prefetching for parameter all-gather (larger = more overlap, more memory)
 - `stage3_max_live_parameters`: Maximum parameters kept unsharded at once (controls memory peak)
@@ -414,6 +416,7 @@ NVMe SSD:     Slow (7 GB/s), Cheap, Large (4 TB+)
 DeepSpeed's Infinity Engine manages data movement across the hierarchy:
 
 **Key features:**
+
 - **Prefetching**: Loads parameters from NVMe → CPU → GPU before they're needed
 - **Overlap**: Data movement overlaps with computation
 - **Smart caching**: Keeps frequently-used parameters in faster memory
@@ -483,6 +486,7 @@ ZeRO-Infinity:
 ```
 
 **Important parameters:**
+
 - `nvme_path`: Path to NVMe mount point
 - `buffer_count` × `buffer_size`: Total CPU buffer for NVMe staging
 - `aio` section: Async I/O tuning for NVMe performance
@@ -616,6 +620,7 @@ ZeRO++ (all): 175 GB/iter     220%  (qwZ + hpZ + qgZ)
 ```
 
 **Parameters:**
+
 - `zero_quantized_weights`: Enable qwZ
 - `zero_hpz_partition_size`: GPUs per replica group (= GPUs per node for HSDP)
 - `zero_quantized_gradients`: Enable qgZ
@@ -2142,12 +2147,14 @@ The modern standard is to combine state sharding with computation sharding:
 **Practical guidance**: When training large models, practitioners typically begin with state sharding techniques (FSDP2 or ZeRO-3) and add Megatron-style computation parallelism when per-layer computation becomes the bottleneck. DeepSpeed ZeRO offers additional capabilities for CPU and NVMe offloading, which can be valuable when GPU memory is constrained. Common patterns include **FSDP2 + Megatron Tensor Parallelism** and **ZeRO-3 + Megatron Tensor Parallelism**, with the choice depending on your infrastructure and requirements.
 
 **State sharding (FSDP2 / ZeRO):**
+
 - **FSDP2**: PyTorch-native, well-integrated, suitable for many large-model training scenarios
 - **ZeRO stages**: Progressive sharding from optimizer states (ZeRO-1) to full parameter sharding (ZeRO-3)
 - **DeepSpeed extensions**: ZeRO-Offload (CPU), ZeRO-Infinity (NVMe), ZeRO++ (multi-node communication) for scenarios where GPU-only sharding is insufficient
 - **Key insight**: These techniques eliminate memory redundancy but assume each layer can be computed on a single GPU
 
 **Computation sharding (Megatron):**
+
 - **Tensor Parallelism (TP)**: Splits large matrix operations across GPUs when individual layers exceed single-GPU limits
 - **Pipeline Parallelism (PP)**: Shards model depth across GPUs/nodes for very deep models, with virtual pipeline support
 - **Context Parallelism (CP)**: Advanced long-context solution that partitions sequences, eliminating recompute overhead
@@ -2156,6 +2163,7 @@ The modern standard is to combine state sharding with computation sharding:
 - **Key insight**: Megatron addresses a fundamentally different problem—computation itself, not just memory
 
 **Hybrid parallelism:**
+
 - **FSDP2 + Megatron TP**: Common pattern for 50B-200B+ models
   - FSDP2 handles state sharding across all GPUs
   - Megatron TP handles computation sharding for large layers

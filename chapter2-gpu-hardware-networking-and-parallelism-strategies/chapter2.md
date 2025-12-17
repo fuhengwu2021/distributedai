@@ -373,23 +373,27 @@ The torus topology is different from GPU clusters' Clos/fat-tree networks. Torus
 ### TPU vs GPU: When to Use Which
 
 **Use TPUs if:**
+
 - You're at Google or using Google Cloud Platform
 - Your workload is mostly dense matrix multiplication (transformers, CNNs)
 - You want maximum performance for specific models (Google optimizes TPU software stack for their models)
 - You're training at Google scale (thousands of chips)
 
 **Use GPUs if:**
+
 - You need flexibility (different model architectures, research)
 - You're using PyTorch (TPU support exists but GPU is first-class)
 - You need to run on-premise or multi-cloud
 - Your workload has sparse operations or irregular patterns
 
 **Performance characteristics:**
+
 - TPUs excel at dense matrix ops. A TPU v4 chip delivers about 275 TOPS for BF16, comparable to an H100's FP16 performance.
 - GPUs are more general-purpose. They handle sparse operations, custom kernels, and mixed workloads better.
 - TPU software stack (XLA compiler) is highly optimized but less flexible. You compile your model to XLA, and the compiler generates optimized code. This can be faster than GPU for supported operations but harder to debug.
 
 **Cost and availability:**
+
 - TPUs are only available on Google Cloud. You can't buy them.
 - GPU pricing varies by cloud provider and availability. H100s are expensive but available from multiple vendors.
 - TPU pricing is per-hour on GCP. For large-scale training, TPUs can be cost-effective if your workload fits.
@@ -472,12 +476,14 @@ However, some frameworks are trying to abstract this. PyTorch has experimental s
 ### NPU vs GPU: When to Choose Which
 
 **Choose NPUs if:**
+
 - You're in China and need domestic alternatives to NVIDIA GPUs (export restrictions)
 - You have specific workloads that NPUs optimize for (e.g., Ascend's optimizations for certain model types)
 - You're building edge devices where power efficiency matters more than flexibility
 - You're working with vendors who provide NPU-optimized solutions
 
 **Choose GPUs if:**
+
 - You need flexibility (research, different model architectures)
 - You want the largest ecosystem (PyTorch, TensorFlow, JAX all have first-class GPU support)
 - You need to run on multiple clouds or on-premise
@@ -819,6 +825,7 @@ If you're still memory-limited or want better throughput, you might need to spli
 **Step 5: Hybrid combinations**
 
 Most large models use combinations:
+
 - **DP + TP**: Data parallelism across nodes, tensor parallelism within nodes
 - **DP + PP**: Data parallelism with pipeline stages
 - **DP + TP + PP**: All three combined for very large models
@@ -827,6 +834,7 @@ Most large models use combinations:
 **Step 6: System-level optimizations**
 
 If memory is still insufficient:
+
 - **Activation checkpointing**: Recompute activations during backward (almost always used with FSDP)
 - **CPU/NVMe offloading**: Move optimizer states or parameters off GPU (slower but enables larger models)
 
@@ -839,6 +847,7 @@ Inference has different constraints than training. You don't need to store gradi
 **Step 1: Are you scaling a single request or multiple requests?**
 
 If you're serving multiple requests, start with **request-level parallelism**:
+
 - **Batching**: Group multiple requests into batches for better GPU utilization
 - **Multiple model replicas**: Run multiple copies of the model to serve more concurrent requests
 - **Load-balanced serving**: Distribute requests across replicas
@@ -848,6 +857,7 @@ If you're scaling a single request (e.g., very large model or long context), mov
 **Step 2: Does the model computation fit on one device?**
 
 If yes, use **single-GPU inference** with optimized kernels:
+
 - **FlashAttention**: Optimized attention kernels that reduce memory and improve speed
 - **Quantization**: INT8/INT4 quantization to reduce memory and increase throughput
 - **Kernel fusion**: Combine operations to reduce kernel launch overhead

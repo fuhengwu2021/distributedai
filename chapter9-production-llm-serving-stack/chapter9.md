@@ -1313,6 +1313,7 @@ While production deployments often use managed Kubernetes services, setting up a
 ### Why k3d for Local Development?
 
 **Advantages:**
+
 - **Lightweight:** Runs in Docker, no need for VMs or complex setup
 - **Fast setup:** Create a cluster in minutes
 - **Real Kubernetes API:** Fully compatible with standard Kubernetes manifests
@@ -1321,6 +1322,7 @@ While production deployments often use managed Kubernetes services, setting up a
 - **No root required:** Runs in user space (with proper Docker permissions)
 
 **Use cases:**
+
 - Local development and testing of GPU workloads
 - Learning Kubernetes concepts
 - Prototyping production deployments
@@ -1630,6 +1632,7 @@ You should see `nvidia-smi` output showing GPU information.
 This section demonstrates deploying vLLM using the official `vllm/vllm-openai:latest` Docker image with models downloaded from Hugging Face. This is the recommended approach for production deployments as it uses the official, tested vLLM image.
 
 **Prerequisites:**
+
 - GPU-enabled Kubernetes cluster (as set up in previous sections)
 - Access to Hugging Face (for model downloads)
 - Optional: Hugging Face token for gated models
@@ -1751,6 +1754,7 @@ spec:
 ```
 
 **Key Configuration Points:**
+
 - **Image:** `vllm/vllm-openai:latest` - Official vLLM OpenAI-compatible API server
 - **Model:** `mistralai/Mistral-7B-Instruct-v0.3` - Downloaded from Hugging Face on first startup
 - **GPU Memory Utilization:** `0.4` (40% of GPU memory) - Adjust based on available GPU memory and other workloads
@@ -1917,6 +1921,7 @@ args:
 ```
 
 **Memory Configuration Notes:**
+
 - `--gpu-memory-utilization`: Fraction (0.0-1.0) of total GPU memory to use. Lower values (e.g., 0.4 = 40%) allow sharing GPU with other processes. For a 140GB GPU, 0.4 means ~56GB total allocation.
 - `--kv-cache-memory-bytes`: Absolute KV cache size in human-readable format (`20G`, `30G`, etc.). When specified, overrides percentage-based KV cache allocation from `gpu-memory-utilization`. Useful for precise memory control in multi-tenant environments.
 - **Memory breakdown example** (140GB GPU, 0.4 utilization, 20G KV cache):
@@ -1945,6 +1950,7 @@ resources:
 ```
 
 **Reference:**
+
 - Official vLLM Kubernetes documentation: https://docs.vllm.ai/en/stable/deployment/k8s/#deployment-with-gpus
 - vLLM configuration options: https://docs.vllm.ai/en/stable/serving/server_args.html
 
@@ -2932,6 +2938,7 @@ helm install llm-d llm-d/llm-d \
 ```
 
 **Benefits:**
+
 - Reduced latency through predicted latency balancing
 - Higher throughput with prefix-cache aware routing
 - Customizable scheduling policies
@@ -2947,6 +2954,7 @@ helm install llm-d llm-d/llm-d \
 ```
 
 **Benefits:**
+
 - Reduced TTFT (Time to First Token)
 - More predictable TPOT (Time Per Output Token)
 - Better resource utilization for large models and long prompts
@@ -2963,6 +2971,7 @@ helm install llm-d llm-d/llm-d \
 ```
 
 **Benefits:**
+
 - Reduced end-to-end latency for MoE models
 - Increased throughput
 - Efficient scaling over fast accelerator networks
@@ -3027,6 +3036,7 @@ monitoring:
 ### When to Use llm-d
 
 **Use llm-d when:**
+
 - You need production-ready deployment quickly
 - You're deploying on Kubernetes
 - You want standardized best practices
@@ -3034,6 +3044,7 @@ monitoring:
 - You want prefill/decode disaggregation
 
 **Consider custom stack when:**
+
 - You need very specific customizations
 - You're not using Kubernetes
 - You have unique requirements not covered by llm-d
@@ -3193,6 +3204,7 @@ async def generate(request: dict):
 ### 1. Handling Cold Starts
 
 **Strategies:**
+
 - Pre-warm models on startup
 - Use keepalive requests to prevent idle shutdown
 - Implement graceful degradation (fallback to cached responses)
@@ -3215,6 +3227,7 @@ async def keepalive_loop():
 ### 2. Designing Multi-Model Routing
 
 **Guidelines:**
+
 - Use consistent hashing for user-based routing
 - Implement health checks for all model endpoints
 - Support feature-based routing (code, chat, etc.)
@@ -3231,6 +3244,7 @@ def route_user(user_id: str) -> str:
 ### 3. Monitoring End-to-End Latency
 
 **Approach:**
+
 - Instrument all components (gateway, tokenizer, model)
 - Use distributed tracing to see full request path
 - Track percentiles (P50, P95, P99)
@@ -3257,6 +3271,7 @@ with tracer.start_as_current_span("request"):
 **Scenario:** Provide LLM API service to external customers
 
 **Requirements:**
+
 - High availability (99.9%+)
 - Rate limiting per customer
 - Multi-model support
@@ -3264,6 +3279,7 @@ with tracer.start_as_current_span("request"):
 - Observability
 
 **Implementation:**
+
 - API gateway with authentication
 - Per-customer rate limiting
 - Model routing based on customer tier
@@ -3275,12 +3291,14 @@ with tracer.start_as_current_span("request"):
 **Scenario:** Internal platform for company-wide AI services
 
 **Requirements:**
+
 - Integration with internal systems
 - A/B testing for model improvements
 - Cost tracking and optimization
 - Security and compliance
 
 **Implementation:**
+
 - Single sign-on integration
 - Canary deployments for new models
 - Cost tracking per department

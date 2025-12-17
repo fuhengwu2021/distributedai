@@ -243,6 +243,7 @@ Root
     └─ "Write code." (Request 3)
 
 KV Cache:
+
 - "You are helpful. " computed once, shared by all 3 requests
 - Each unique suffix computed separately
 ```
@@ -487,6 +488,7 @@ Pre-schedule → Compute batch → Sample → Post-schedule
 ```
 
 **Problems:**
+
 - GPU idle time while CPU schedules next batch
 - Scheduler overhead can consume 50%+ of total time
 - Poor GPU utilization
@@ -602,11 +604,13 @@ Unlike vLLM's model parallelism (TP/PP/DP) which focuses on splitting model weig
 ### Key Architectural Differences from vLLM
 
 **vLLM (Chapter 6) focuses on:**
+
 - **Model-level parallelism**: How to split model weights (TP/PP/DP/EP)
 - **Memory efficiency**: PagedAttention for KV cache
 - **Throughput optimization**: Continuous batching for large batches
 
 **SGLang (This chapter) focuses on:**
+
 - **Request-level routing**: How to route requests to optimize latency and cache locality
 - **Workload disaggregation**: Separating prefill and decode workloads
 - **Session management**: Maintaining KV cache locality through routing
@@ -617,7 +621,11 @@ Unlike vLLM's model parallelism (TP/PP/DP) which focuses on splitting model weig
 
 **Comparison with vLLM**: Unlike vLLM's model parallelism approach where workers must synchronize model weights via all-reduce operations (TP) or pipeline stages (PP), SGLang's Model Gateway routes requests to independent workers without requiring weight synchronization. This request-level routing approach eliminates communication overhead between workers, making it ideal for high-QPS scenarios where latency matters more than maximizing single-request throughput.
 
-The gateway architecture consists of three main planes:
+The gateway architecture is organized into **Core Runtime Features** and **Enterprise Extensions**:
+
+#### Core Runtime Features
+
+The core runtime provides essential distributed inference capabilities:
 
 #### Control Plane
 
@@ -688,24 +696,34 @@ The data plane routes traffic across multiple protocols with shared reliability 
 - Applies per-model policies for multi-tenant deployments
 - Manages router selection based on request headers and model ID
 
-#### Storage & Privacy
+#### Enterprise Extensions
 
-**1. History Connectors**
+The following features are enterprise extensions that extend the core runtime with advanced capabilities:
+
+**1. History Connectors (Enterprise Extension)**
 - Centralizes chat history inside the router tier
-- Supports multiple storage backends: in-memory, disabled (none), or Oracle ATP
+- Supports multiple storage backends: in-memory, disabled (none), or **Oracle ATP (enterprise extension)**
 - Enables context reuse across models and MCP loops without leaking data to upstream vendors
 - Conversation and response history stored at router boundary for enterprise privacy
 
-**2. Enterprise Privacy Features**
-- Agentic multi-turn `/v1/responses` API
+**2. MCP Integration (Enterprise Extension)**
+- **MCP (Model Context Protocol)** integration for advanced tooling and agentic workflows
 - Native MCP client supporting all transport protocols (STDIO, HTTP, SSE, Streamable)
+- Tool execution loops with reasoning parser integration
+- Privacy-preserving tool execution within router boundary
+
+**3. Inference Gateway Mode (Enterprise Extension)**
+- **Inference Gateway Mode (`--enable-igw`)** for multi-model, multi-tenant deployments
+- Dynamically instantiates multiple router stacks (HTTP regular/PD, gRPC)
+- Applies per-model policies for multi-tenant deployments
+- Supports heterogeneous model fleets
+- Enables independent scaling per model type
+
+**4. Enterprise Privacy Features (Enterprise Extension)**
+- Agentic multi-turn `/v1/responses` API
 - History storage operates within router boundary
 - Compliant data sharing across models/MCP loops
-
-**3. Data Connectors**
-- Conversation connectors for chat history management
-- Response connectors for multi-turn orchestration
-- Pluggable storage backends with pooling and credential support
+- Advanced security and authentication mechanisms
 
 #### Reliability & Flow Control
 
@@ -747,14 +765,6 @@ The data plane routes traffic across multiple protocols with shared reliability 
 - Request/response logging with configurable verbosity
 - Error tracking and debugging information
 
-#### Inference Gateway Mode (`--enable-igw`)
-
-When enabled, the gateway operates in multi-router mode:
-
-- Dynamically instantiates multiple router stacks (HTTP regular/PD, gRPC)
-- Applies per-model policies for multi-tenant deployments
-- Supports heterogeneous model fleets
-- Enables independent scaling per model type
 
 ### Why Router-Based Architecture?
 
@@ -767,12 +777,14 @@ When enabled, the gateway operates in multi-router mode:
 5. **Lower Latency**: Avoids synchronization overhead of model parallelism for small-to-medium models
 
 **When Router-Based Works Best:**
+
 - Models fit on single GPU or small TP group (2-4 GPUs)
 - High QPS with many concurrent sessions
 - Latency-sensitive workloads (chat, interactive applications)
 - Need for session persistence and cache locality
 
 **When Model Parallelism (vLLM) is Better:**
+
 - Very large models requiring TP/PP across many GPUs
 - Throughput-optimized workloads with large batches
 - Memory-constrained environments needing PagedAttention
@@ -784,12 +796,14 @@ Prefill/Decode (PD) disaggregation is a key distributed architecture pattern in 
 ### Motivation for PD Disaggregation
 
 **The Problem:**
+
 - Prefill (initial prompt processing) is compute-intensive and can block decode workers
 - Decode (token generation) requires low latency and high throughput
 - In unified scheduling, prefill batches frequently interrupt ongoing decode batches, causing substantial delays
 - In data-parallel attention, one DP worker may process prefill while another handles decode, leading to increased decode latency
 
 **The Solution:**
+
 - Separate prefill workers handle initial prompt processing
 - Dedicated decode workers handle token generation
 - Router intelligently routes requests to appropriate workers
@@ -1084,6 +1098,7 @@ Total: 32 GPUs
 TP=8, PP=4
 
 Structure:
+
 - 4 pipeline stages
 - Each stage has 8-GPU TP group
 - Total: 4 stages × 8 GPUs = 32 GPUs
@@ -1096,6 +1111,7 @@ Total: 16 GPUs
 TP=4, DP=4
 
 Structure:
+
 - 4 data parallel replicas
 - Each replica has 4-GPU TP group
 - Total: 4 replicas × 4 GPUs = 16 GPUs
@@ -1108,6 +1124,7 @@ Total: 128 GPUs
 TP=4, PP=2, EP=16
 
 Structure:
+
 - 2 pipeline stages
 - Each stage: 4-GPU TP group
 - 16 expert parallel groups
@@ -1121,6 +1138,7 @@ Total: 32 GPUs
 DP=8, TP=4 (for MLP only)
 
 Structure:
+
 - 8 data parallel workers for attention
 - 4-GPU TP group for MLP (all DP workers form one TP group)
 - Total: 8 DP workers × 4 TP = 32 GPUs
@@ -1274,6 +1292,7 @@ python3 -m sglang.launch_server \
 ```
 
 **Key Parameters:**
+
 - `--dist-init-addr`: Master node IP address and port for NCCL initialization
 - `--nnodes`: Total number of nodes
 - `--node-rank`: Rank of this node (0 for master, 1, 2, ... for workers)
@@ -1335,7 +1354,7 @@ python -m sglang_router.launch_router \
     --policy cache_aware \
     --port 8080
 
-# With Inference Gateway Mode for multi-model deployments
+# With Inference Gateway Mode (Enterprise Extension) for multi-model deployments
 python -m sglang_router.launch_router \
     --enable-igw \
     --worker-urls \
@@ -1352,7 +1371,7 @@ python -m sglang_router.launch_router \
     --policy cache_aware \
     --port 8080
 
-# With history storage (Oracle ATP)
+# With history storage (Enterprise Extension: Oracle ATP)
 python -m sglang_router.launch_router \
     --worker-urls http://node1:8000 \
     --history-storage oracle_atp \
@@ -1417,6 +1436,7 @@ class CacheAwarePolicy:
 ```
 
 **Features:**
+
 - **Approximate Radix Tree**: Maintains approximate prefix tree per worker
 - **Dynamic Switching**: Switches between cache-aware and load balancing based on load
 - **LRU Eviction**: Periodically evicts least recently used prefixes
@@ -1448,6 +1468,7 @@ class RoundRobinPolicy:
 ```
 
 **Use Cases:**
+
 - Uniform request distribution
 - No session affinity needed
 - Simple load balancing
@@ -1476,6 +1497,7 @@ class PowerOfTwoPolicy:
 ```
 
 **Benefits:**
+
 - Better load distribution than random
 - Lower overhead than checking all workers
 - Good balance between performance and simplicity
@@ -1543,7 +1565,11 @@ class SessionAwareRouter:
 - **Lower Latency**: 2-3x latency reduction for conversational workloads
 - **Higher Throughput**: More requests processed per second
 
-### MCP (Model Context Protocol) Integration
+### Enterprise Extensions
+
+The following sections cover enterprise extensions that extend SGLang's core runtime capabilities:
+
+#### MCP (Model Context Protocol) Integration (Enterprise Extension)
 
 SGLang Model Gateway includes native MCP client integration for advanced tooling and agentic workflows:
 
@@ -1572,7 +1598,7 @@ SGLang Model Gateway includes native MCP client integration for advanced tooling
 - No data leakage to external tool providers
 - Compliant multi-turn orchestration
 
-### Enterprise Features
+#### Enterprise Features (Enterprise Extension)
 
 **1. Security & Authentication**
 - Configurable authentication mechanisms
@@ -1740,6 +1766,7 @@ SGLang supports Expert Parallelism (EP) for Mixture-of-Experts (MoE) models, dis
 ### Expert Parallelism Overview
 
 **Key Features:**
+
 - Distributes expert weights across multiple GPUs
 - Optimized all-to-all communication for token routing
 - Supports multiple backends: DeepEP, Mooncake, and native implementations
@@ -1868,6 +1895,7 @@ python -m sglang.launch_server \
 ```
 
 **Key Parameters:**
+
 - `--ep` or `--expert-parallel-size`: Number of GPUs for expert parallelism
 - `--moe-a2a-backend`: Backend for all-to-all communication
 - `--moe-runner-backend`: Backend for MoE computation
@@ -1918,6 +1946,7 @@ Batch 2:              Attention → A2A → Experts → A2A → Combine
 ```
 
 **Benefits:**
+
 - Up to 2x throughput improvement
 - Hides A2A communication latency
 - Better GPU utilization
@@ -1957,12 +1986,14 @@ Total: 32 GPUs
 EP=8, TP=4
 
 Structure:
+
 - 8 expert parallel groups
 - Each EP group has 4-GPU TP group
 - Total: 8 EP × 4 TP = 32 GPUs
 ```
 
 **Communication:**
+
 - EP: All-to-all for token routing
 - TP: All-reduce after each layer
 - Overlap: TBO can overlap both communication types
@@ -1974,6 +2005,7 @@ Total: 64 GPUs
 EP=8, PP=2
 
 Structure:
+
 - 2 pipeline stages
 - Each stage: 8-GPU EP group
 - Total: 2 PP × 8 EP = 16 GPUs per stage
@@ -1986,6 +2018,7 @@ Total: 128 GPUs
 EP=8, TP=4, PP=2
 
 Structure:
+
 - 2 pipeline stages
 - Each stage: 8 EP groups × 4 TP = 32 GPUs
 - Total: 2 PP × 8 EP × 4 TP = 64 GPUs per stage
@@ -2000,6 +2033,7 @@ Total: 32 GPUs
 EP=8, DP=4 (for attention)
 
 Structure:
+
 - 8 expert parallel groups
 - 4 data parallel workers for attention
 - MLP uses EP
@@ -2021,6 +2055,7 @@ for expert_id in range(num_experts):
 ```
 
 **Solutions:**
+
 - Use auxiliary loss for load balancing
 - Adjust routing temperature
 - Use capacity factor for token dropping
@@ -2374,11 +2409,13 @@ await engine.update_weights_from_tensor(
 In router-based distributed inference, KV cache is distributed across worker nodes. Each worker maintains its own KV cache, and the router ensures session affinity to maximize cache hit rates.
 
 **Per-Worker KV Cache:**
+
 - Each worker node maintains independent KV cache
 - No cross-node KV cache synchronization needed
 - Session affinity ensures requests hit cached data
 
 **Cache Locality Optimization:**
+
 - Router routes requests to workers with matching session KV cache
 - Minimizes cache misses and expensive recomputation
 - Improves latency for conversational workloads
@@ -2428,28 +2465,34 @@ Each decode step requires a full forward pass, making it memory-bound.
 Speculative decoding introduces a draft model to generate multiple tokens in parallel:
 
 **1. Draft Prefill/Extend:**
+
 - Draft model processes prefill tokens
 - Typically 2-4x smaller than target model
 
 **2. Draft Decoding:**
+
 - Draft model generates N draft tokens sequentially
 - Fast due to smaller model size
 
 **3. Target Verification:**
+
 - Target model verifies all N draft tokens in a single forward pass
 - Three possible outcomes:
 
 **a. Full Match (Best Case):**
+
 - All N draft tokens accepted
 - Returns N tokens in one round
 - Achieves N-fold speedup
 
 **b. No Match (Worst Case):**
+
 - None of draft tokens accepted
 - Returns only one token from target model
 - Performance equivalent to traditional decoding
 
 **c. Prefix Match (Common Case):**
+
 - Some initial draft tokens accepted
 - Rejected tokens' KV cache evicted
 - Partial speedup based on accepted tokens
@@ -2509,6 +2552,7 @@ Model with MLA architecture (num_kv_heads = 1)
 TP size = 8
 
 Traditional approach:
+
 - Each of 8 GPUs stores full KV cache
 - 8x memory waste
 - Batch size limited by memory
@@ -2755,6 +2799,7 @@ This section covers common deployment patterns for different model sizes and use
 **Use Case**: High QPS, low latency, many concurrent sessions
 
 **Configuration:**
+
 - Model fits on single GPU
 - Router-based architecture with data parallelism
 - Session affinity for cache locality
@@ -2783,6 +2828,7 @@ python -m sglang_router.launch_router \
 ```
 
 **Performance:**
+
 - **Latency**: 50-100ms TTFT
 - **Throughput**: 1000+ QPS
 - **Cache Hit Rate**: 60-80% for conversational workloads
@@ -2792,6 +2838,7 @@ python -m sglang_router.launch_router \
 **Use Case**: Models requiring 2-8 GPUs per node
 
 **Configuration:**
+
 - Tensor parallelism within nodes
 - Router across nodes for load balancing
 - Session affinity maintained
@@ -2820,6 +2867,7 @@ python -m sglang_router.launch_router \
 ```
 
 **Performance:**
+
 - **Latency**: 100-200ms TTFT
 - **Throughput**: 200-500 QPS
 - **Scalability**: Linear scaling with number of nodes
@@ -2829,6 +2877,7 @@ python -m sglang_router.launch_router \
 **Use Case**: Very large models requiring multiple nodes
 
 **Configuration:**
+
 - Tensor parallelism within nodes
 - Pipeline parallelism across nodes
 - Total: TP × PP GPUs
@@ -2859,6 +2908,7 @@ python -m sglang.launch_server \
 ```
 
 **Performance:**
+
 - **Latency**: 200-500ms TTFT (pipeline startup)
 - **Throughput**: 50-200 QPS
 - **Memory**: Distributed across 64+ GPUs
@@ -2868,6 +2918,7 @@ python -m sglang.launch_server \
 **Use Case**: Large MoE models like Phi-tiny-MoE, Phi-tiny-MoE
 
 **Configuration:**
+
 - Expert parallelism for MoE layers
 - Tensor parallelism for dense layers
 - Optional DP Attention for MLA models
@@ -2887,6 +2938,7 @@ python -m sglang.launch_server \
 ```
 
 **Performance:**
+
 - **Latency**: 150-300ms TTFT
 - **Throughput**: 100-400 QPS
 - **Memory Efficiency**: Reduced KV cache duplication
@@ -2896,6 +2948,7 @@ python -m sglang.launch_server \
 **Use Case**: Separating prefill-heavy and decode-heavy workloads
 
 **Configuration:**
+
 - Dedicated prefill workers for initial processing
 - Dedicated decode workers for token generation
 - High-performance transfer engine (Mooncake/NIXL)
@@ -2927,6 +2980,7 @@ python -m sglang_router.launch_router \
 ```
 
 **Benefits:**
+
 - **Independent Scaling**: Scale prefill and decode separately
 - **Better Utilization**: Optimize each worker type for its workload
 - **Fault Isolation**: Failure in one type doesn't affect the other
@@ -3192,6 +3246,7 @@ python -m sglang.launch_server \
 ```
 
 **Key Points:**
+
 - Total: 4 nodes × 16 GPUs = 64 GPUs
 - TP=16 within each PP stage
 - PP=4 across nodes
@@ -3215,6 +3270,7 @@ python -m sglang.launch_server \
 ```
 
 **Architecture:**
+
 - 8-GPU TP groups for dense layers
 - 16-GPU EP groups for MoE layers
 - DP Attention for MLA attention
@@ -3830,27 +3886,90 @@ export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
 - **Hybrid Scaling**: Combine both approaches
 - **Auto-scaling**: Scale based on load metrics
 
-### When to Use SGLang vs vLLM
+### Decision Matrix: SGLang vs vLLM
 
-**Use SGLang when:**
-- Latency (especially TTFT) is critical
-- High QPS with many concurrent sessions
-- Models fit on single GPU or small TP group (2-8 GPUs)
-- Need for session persistence and cache locality
-- Want router-based distributed inference
-- Need structured output decoding
-- Require RadixAttention for prefix reuse
+The following decision matrix provides a clear guide for choosing between SGLang and vLLM based on your specific requirements:
 
-**Key Advantage**: SGLang's router-based request routing eliminates the synchronization overhead of vLLM's model parallelism (TP/PP), making it better suited for high-QPS, low-latency distributed inference scenarios where request routing matters more than model weight distribution.
+| Decision Factor | SGLang | vLLM | Notes |
+|----------------|------------|----------|---------------|
+| **Primary Architecture** | Request-level routing (Router-based) | Model parallelism (TP/PP/DP/EP) | SGLang routes requests; vLLM splits weights |
+| **Worker Synchronization** | None (independent workers) | Required (all-reduce for TP, pipeline for PP) | SGLang eliminates communication overhead |
+| **Model Size** | Single GPU to small TP (2-8 GPUs) | Large models requiring 16+ GPUs | vLLM better for very large models |
+| **QPS Requirements** | High QPS (1000+) | Moderate to high QPS | SGLang optimized for high request rates |
+| **Latency Priority** | Ultra-low latency critical | Throughput prioritized | SGLang: <50ms TTFT; vLLM: maximize throughput |
+| **Session Management** | Session affinity & cache locality | Continuous batching | SGLang maintains session state |
+| **Cache Optimization** | RadixAttention (cross-request) | PagedAttention (per-request) | Different optimization strategies |
+| **Distributed Strategy** | Router-based request routing | Model weight sharding | Fundamental architectural difference |
+| **Deployment Complexity** | Router + workers | Direct model parallelism | SGLang requires router setup |
+| **Structured Output** | Native X-Grammar support | Limited | SGLang excels at constrained decoding |
+| **Memory Efficiency** | RadixAttention for prefix reuse | PagedAttention for variable sequences | Both optimize differently |
+| **Fault Tolerance** | Router routes around failures | Requires model re-sharding | SGLang more flexible |
+| **Use Case** | Interactive chat, high-QPS APIs | Batch processing, large model serving | Different workload patterns |
 
-**Use vLLM when:**
-- Very large models requiring TP/PP across many GPUs (16+)
-- Throughput-optimized workloads with large batches
-- Memory-constrained environments needing PagedAttention
-- Model parallelism is the primary concern
-- Simple deployment without router complexity
+#### Quick Decision Guide
 
-**Key Advantage**: vLLM's model parallelism (TP/PP) is optimized for very large models that require weight sharding across many GPUs, where the communication overhead of all-reduce operations is amortized over large batch sizes, making it ideal for throughput-optimized workloads.
+**Choose SGLang if:**
+
+- ✅ Latency (especially TTFT) is critical (<50ms)
+- ✅ High QPS with many concurrent sessions (1000+)
+- ✅ Models fit on single GPU or small TP group (2-8 GPUs)
+- ✅ Need session persistence and cache locality
+- ✅ Interactive chat applications
+- ✅ Need structured output decoding
+- ✅ Require RadixAttention for prefix reuse
+
+**Choose vLLM if:**
+
+- ✅ Very large models requiring TP/PP across many GPUs (16+)
+- ✅ Throughput-optimized workloads with large batches
+- ✅ Memory-constrained environments needing PagedAttention
+- ✅ Model parallelism is the primary concern
+- ✅ Simple deployment without router complexity
+- ✅ Batch processing workloads
+
+#### Decision Flow
+
+```
+Start: Need distributed inference
+│
+├─ Model size?
+│  ├─ Fits on 1-8 GPUs → Consider SGLang
+│  └─ Requires 16+ GPUs → Consider vLLM
+│
+├─ Latency requirement?
+│  ├─ <50ms TTFT critical → SGLang (router-based routing)
+│  └─ Throughput prioritized → vLLM (model parallelism)
+│
+├─ QPS requirement?
+│  ├─ 1000+ QPS → SGLang (request routing optimized)
+│  └─ Moderate QPS → Either (depends on other factors)
+│
+├─ Session management needed?
+│  ├─ Yes (conversational apps) → SGLang (session affinity)
+│  └─ No (stateless requests) → Either
+│
+└─ Structured output needed?
+   ├─ Yes → SGLang (X-Grammar)
+   └─ No → Either
+```
+
+#### Key Architectural Difference
+
+**vLLM's Model Parallelism (TP/PP)**:
+
+- Splits model weights across GPUs
+- Requires synchronization (all-reduce for TP, pipeline stages for PP)
+- Communication overhead between workers
+- Optimized for large models and high throughput
+
+**SGLang's Request-Level Routing**:
+
+- Routes requests to independent workers
+- No weight synchronization needed
+- Eliminates inter-worker communication overhead
+- Optimized for high QPS and low latency
+
+**Bottom Line**: If your primary concern is **high QPS and low latency** with request routing, choose **SGLang**. If your primary concern is **fitting very large models** with weight sharding, choose **vLLM**.
 
 ### Complementary Approaches
 
