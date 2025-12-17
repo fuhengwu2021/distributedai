@@ -26,7 +26,7 @@ SGLang can be installed using several methods. **Docker is the quickest way to t
 
 Docker provides the quickest way to get started with SGLang without installing dependencies locally. Pre-built images are available on the [SGLang Docker Hub page](https://hub.docker.com/r/lmsysorg/sglang).
 
-SGLang supports seven main types of models. Base models like `facebook/opt-125m` are pre-trained language models without instruction tuning, and they use the `/v1/completions` endpoint with a `prompt` parameter. Chat models such as `Qwen/Qwen2.5-0.5B-Instruct` are fine-tuned for conversational tasks and use `/v1/chat/completions` with a `messages` parameter. Embedding models like `Qwen/Qwen3-Embedding-0.6B` generate vector representations and use `/v1/embeddings` with an `input` parameter. Diffusion language models like `inclusionAI/LLaDA2.0-mini` enable non-autoregressive text generation with parallel decoding and use the `/generate` endpoint with a `text` parameter. Multimodal/vision language models (VLMs) like `meta-llama/Llama-3.2-11B-Vision-Instruct` accept multimodal inputs (images, videos, and text) and use `/v1/chat/completions` with multimodal content in the `messages` parameter. Rerank models like `BAAI/bge-reranker-v2-m3` rerank search results based on semantic relevance and use the `/v1/rerank` endpoint with a `query` and `documents` parameters. Reward models like `jason9693/Qwen2.5-1.5B-apeach` output scalar reward scores for reinforcement learning or content moderation and use `/v1/embeddings` with the `--is-embedding` flag.
+SGLang supports seven main types of models. Base models like `facebook/opt-125m` are pre-trained language models without instruction tuning, and they use the `/v1/completions` endpoint with a `prompt` parameter. Chat models such as `Qwen/Qwen2.5-0.5B-Instruct` are fine-tuned for conversational tasks and use `/v1/chat/completions` with a `messages` parameter. Embedding models like `Qwen/Qwen3-Embedding-0.6B` generate vector representations and use `/v1/embeddings` with an `input` parameter. Diffusion language models like `inclusionAI/LLaDA2.0-mini` enable non-autoregressive text generation with parallel decoding and use the `/generate` endpoint with a `text` parameter. Multimodal/vision language models (VLMs) like `meta-llama/Llama-3.2-11B-Vision-Instruct` accept multimodal inputs (images, videos, and text) and use `/v1/chat/completions` with multimodal content in the `messages` parameter. Rerank models like `BAAI/bge-reranker-v2-m3` rerank search results based on semantic relevance and use the `/v1/rerank` endpoint with a `query` and `documents` parameters. Reward models like `jason9693/Qwen2.5-1.5B-apeach` output scalar reward scores for reinforcement learning or content moderation and use `/v1/embeddings` with the `--is-embedding` flag. Additionally, SGLang also supports video and image generation through SGLang Diffusion, which accelerates diffusion models for tasks like text-to-image, image-to-image, and text-to-video generation.
 
 The SGLang server exposes an OpenAI-compatible API with the following endpoints:
 
@@ -90,7 +90,7 @@ Here are some small models suitable for learning purposes:
 | `inclusionAI/LLaDA2.0-mini` | Diffusion/MOE | 16B total, ~1.4B active |
 | `Qwen/Qwen2-VL-2B-Instruct` | VLM/Multimodal | 2B |
 | `BAAI/bge-reranker-v2-m3` | Rerank | 0.6B |
-| `jason9693/Qwen2.5-1.5B-apeach` | Reward | 1.5B |
+| `jason9693/Qwen2.5-1.5B-apeach` | Reward/Classify | 1.5B |
 
 To use any of these models, replace the model name in the Docker command:
 
@@ -164,208 +164,7 @@ curl http://localhost:30000/v1/chat/completions \
   }'
 ```
 
-**Note**: Setting `temperature=0` enables greedy sampling (always selects the highest probability token), which should produce the same output for the same input. However, SGLang does not guarantee complete reproducibility by default due to scheduling and batching optimizations.
-
-Test an embedding model:
-
-> **Note:** Embedding models are different from language models. To serve an embedding model, you must launch the server with the `--is-embedding` flag. Some embedding models may also require `--trust-remote-code`. For example, to use `Qwen/Qwen3-Embedding-0.6B`:
-
-```bash
-export SGLANG_MODEL="Qwen/Qwen3-Embedding-0.6B"
-
-docker run --runtime nvidia --gpus all \
-  -v $HOME/.cache/huggingface:/root/.cache/huggingface \
-  --env "HF_TOKEN=$HF_TOKEN" \
-  --env "SGLANG_MODEL=$SGLANG_MODEL" \
-  -p 30000:30000 --ipc=host --shm-size 32g \
-  lmsysorg/sglang:latest-runtime \
-  python3 -m sglang.launch_server \
-    --model-path $SGLANG_MODEL \
-    --is-embedding \
-    --trust-remote-code \
-    --host 0.0.0.0 \
-    --port 30000
-```
-
-Then test the embeddings endpoint:
-
-```bash
-curl http://localhost:30000/v1/embeddings \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "'"$SGLANG_MODEL"'",
-    "input": "Hello, world!",
-    "encoding_format": "float"
-  }'
-```
-
-Test a diffusion language model:
-
-> **Note:** Diffusion language models enable non-autoregressive text generation with parallel decoding. They require the `--dllm-algorithm` flag (e.g., `LowConfidence`) and use the `/generate` endpoint instead of the OpenAI-compatible endpoints.
-
-For diffusion models, launch the server with the `--dllm-algorithm` flag:
-
-```bash
-export SGLANG_MODEL="inclusionAI/LLaDA2.0-mini"
-
-docker run --runtime nvidia --gpus all \
-  -v $HOME/.cache/huggingface:/root/.cache/huggingface \
-  --env "HF_TOKEN=$HF_TOKEN" \
-  --env "SGLANG_MODEL=$SGLANG_MODEL" \
-  -p 30000:30000 --ipc=host --shm-size 32g \
-  lmsysorg/sglang:latest-runtime \
-  python3 -m sglang.launch_server \
-    --model-path $SGLANG_MODEL \
-    --dllm-algorithm LowConfidence \
-    --host 0.0.0.0 \
-    --port 30000
-```
-
-Then test the diffusion model endpoint:
-
-```bash
-curl -X POST http://localhost:30000/generate \
-  -H "Content-Type: application/json" \
-  -d '{
-    "text": [
-      "<role>SYSTEM</role>detailed thinking off<|role_end|><role>HUMAN</role> Write a brief introduction of the great wall <|role_end|><role>ASSISTANT</role>"
-    ],
-    "stream": false,
-    "sampling_params": {
-      "temperature": 0,
-      "max_new_tokens": 1024
-    }
-  }'
-```
-
-You can optionally provide a configuration file for the diffusion algorithm using `--dllm-algorithm-config ./config.yaml`. The config file can specify parameters like `threshold` (confidence threshold, 0.0-1.0) and `block_size` (default: 32 for LLaDA2MoeModelLM).
-
-Test a multimodal/vision language model (VLM):
-
-> **Note:** Vision language models (VLMs) accept multimodal inputs including images, videos, and text. They use the `/v1/chat/completions` endpoint with multimodal content in the `messages` parameter. Some models may require `--trust-remote-code`, specific chat templates (e.g., `--chat-template glm-4v` for GLM-4.5V), or other flags like `--max-mamba-cache-size` for NVIDIA Nemotron Nano 2.0 VL. Some models like DotsVLM-OCR should NOT use `--trust-remote-code`.
-
-For VLM models, launch the server normally (add flags as needed for your specific model):
-
-```bash
-export SGLANG_MODEL="meta-llama/Llama-3.2-11B-Vision-Instruct"
-
-docker run --runtime nvidia --gpus all \
-  -v $HOME/.cache/huggingface:/root/.cache/huggingface \
-  --env "HF_TOKEN=$HF_TOKEN" \
-  --env "SGLANG_MODEL=$SGLANG_MODEL" \
-  -p 30000:30000 --ipc=host --shm-size 32g \
-  lmsysorg/sglang:latest-runtime \
-  python3 -m sglang.launch_server \
-    --model-path $SGLANG_MODEL \
-    --host 0.0.0.0 \
-    --port 30000
-```
-
-Then test the VLM endpoint with an image:
-
-```bash
-curl http://localhost:30000/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "'"$SGLANG_MODEL"'",
-    "messages": [
-      {
-        "role": "user",
-        "content": [
-          {"type": "text", "text": "What is in this image?"},
-          {
-            "type": "image_url",
-            "image_url": {
-              "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/d/dd/Gfp-wisconsin-madison-the-nature-boardwalk.jpg/2560px-Gfp-wisconsin-madison-the-nature-boardwalk.jpg"
-            }
-          }
-        ]
-      }
-    ],
-    "max_tokens": 300
-  }'
-```
-
-For video input, use `video_url` instead of `image_url` in the content array. You can optimize VLM performance with `--keep-mm-feature-on-device` to keep multimodal features on GPU (reduces latency but uses more GPU memory).
-
-Test a rerank model:
-
-> **Note:** Rerank models rerank search results based on semantic relevance. They require the `--is-embedding` flag and additional optimization flags: `--disable-radix-cache`, `--chunked-prefill-size -1`, and `--attention-backend triton`. Some models may require `--trust-remote-code`.
-
-For rerank models, launch the server with the required flags:
-
-```bash
-export SGLANG_MODEL="BAAI/bge-reranker-v2-m3"
-
-docker run --runtime nvidia --gpus all \
-  -v $HOME/.cache/huggingface:/root/.cache/huggingface \
-  --env "HF_TOKEN=$HF_TOKEN" \
-  --env "SGLANG_MODEL=$SGLANG_MODEL" \
-  -p 30000:30000 --ipc=host --shm-size 32g \
-  lmsysorg/sglang:latest-runtime \
-  python3 -m sglang.launch_server \
-    --model-path $SGLANG_MODEL \
-    --is-embedding \
-    --disable-radix-cache \
-    --chunked-prefill-size -1 \
-    --attention-backend triton \
-    --host 0.0.0.0 \
-    --port 30000
-```
-
-Then test the rerank endpoint:
-
-```bash
-curl http://localhost:30000/v1/rerank \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "'"$SGLANG_MODEL"'",
-    "query": "what is panda?",
-    "documents": [
-      "hi",
-      "The giant panda (Ailuropoda melanoleuca), sometimes called a panda bear or simply panda, is a bear species endemic to China."
-    ]
-  }'
-```
-
-The response will include scores for each document, with higher scores indicating better relevance to the query.
-
-Test a reward model:
-
-> **Note:** Reward models output scalar reward scores or classification results, often used in reinforcement learning or content moderation tasks. They require the `--is-embedding` flag and use the `/v1/embeddings` endpoint. Some models may require `--trust-remote-code`. Large models (e.g., 72B) may benefit from tensor parallelism with `--tp-size`.
-
-For reward models, launch the server with the `--is-embedding` flag (add `--trust-remote-code` if needed):
-
-```bash
-export SGLANG_MODEL="jason9693/Qwen2.5-1.5B-apeach"
-
-docker run --runtime nvidia --gpus all \
-  -v $HOME/.cache/huggingface:/root/.cache/huggingface \
-  --env "HF_TOKEN=$HF_TOKEN" \
-  --env "SGLANG_MODEL=$SGLANG_MODEL" \
-  -p 30000:30000 --ipc=host --shm-size 32g \
-  lmsysorg/sglang:latest-runtime \
-  python3 -m sglang.launch_server \
-    --model-path $SGLANG_MODEL \
-    --is-embedding \
-    --host 0.0.0.0 \
-    --port 30000
-```
-
-Then test the reward model using the embeddings endpoint:
-
-```bash
-curl http://localhost:30000/v1/embeddings \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "'"$SGLANG_MODEL"'",
-    "input": "Your text to score here"
-  }'
-```
-
-The response will include a reward score indicating the quality or preference rating of the input text.
-
-> **Note on Classification Models:** Classification models use the same setup as reward models (with `--is-embedding` flag) but use the `/v1/classify` endpoint instead. They accept an `input` parameter and return classification results with labels and probabilities.
+SGLang supports various types of models as listed in the table, even video generation models. For each type, there are slightly different parameters for the server and client. For detailed launch commands, API usage, and model-specific requirements, refer to the [SGLang documentation](https://docs.sglang.io/) under the "Supported Models" section.
 
 #### Alternative Installation Methods
 
