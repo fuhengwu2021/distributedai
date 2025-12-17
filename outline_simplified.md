@@ -194,7 +194,7 @@ By the end of this chapter, readers will be able to:
 
 ---
 
-### Chapter 7: SGLang and Advanced Inference Architectures
+### Chapter 7: Request-Level Routing and SGLang
 **Approximate Length:** 26 pages
 
 **Chapter Overview:**

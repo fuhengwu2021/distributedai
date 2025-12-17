@@ -1,4 +1,4 @@
-# Chapter 7: SGLang and Advanced Inference Architectures
+# Chapter 7: Request-Level Routing and SGLang
 
 In the previous chapter, we covered vLLM, which uses model parallelism (TP/PP/DP/EP) to distribute large models across GPUs. vLLM excels at high-throughput workloads with large batches and is optimized for models that require multiple GPUs just to fit in memory.
 

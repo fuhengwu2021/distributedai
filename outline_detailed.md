@@ -238,7 +238,7 @@ Skills learned:
 
 ---
 
-### Chapter 7: SGLang and Advanced Inference Architectures
+### Chapter 7: Request-Level Routing and SGLang
 26 pages
 
 Description:

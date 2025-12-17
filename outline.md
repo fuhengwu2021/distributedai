@@ -225,7 +225,7 @@ A foundational chapter explaining distributed inference, followed by a deep dive
 
 ---
 
-### Chapter 7 — SGLang and Advanced Inference Architectures
+### Chapter 7 — Request-Level Routing and SGLang
 
 **Summary:**
 Covers SGLang's lightweight runtime, efficient operator fusion, and multi-node inference. Also explores DeepSeek-style architectures and CPU-based inference options.

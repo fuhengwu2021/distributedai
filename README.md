@@ -40,7 +40,7 @@ This repository contains runnable code examples extracted from the book chapters
 - **Chapter 4** (`chapter4-scaling-with-fully-sharded-data-parallel-fsdp/code/`) — FSDP checkpointing schematic (conceptual).
 - **Chapter 5** (`chapter5-beyond-state-sharding/code/`) — DeepSpeed ZeRO Stage 3 config example (JSON).
 - **Chapter 6** (`chapter6-distributed-inference-fundamentals-and-vllm/code/`) — continuous batching scheduler pseudo-code.
-- **Chapter 7** (`chapter7-sglang-and-advanced-inference-architectures/code/`) — SGLang examples and advanced inference architectures.
+- **Chapter 7** (`chapter7-request-level-routing-and-sglang/code/`) — Request-level routing and SGLang examples.
 - **Chapter 8** (`chapter8-distributed-ai-training-in-action/code/`) — Distributed training examples.
 - **Chapter 9** (`chapter9-production-llm-serving-stack/code/`) — production LLM serving stack (tokenizer, model runner, API gateway, canary deployment, tracing).
 - **Chapter 10** (`chapter10-distributed-benchmarking-and-performance-optimization/code/`) — distributed benchmarking tools (genai-bench, scaling efficiency, network diagnostics).
