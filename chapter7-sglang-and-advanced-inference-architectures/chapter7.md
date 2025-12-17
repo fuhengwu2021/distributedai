@@ -15,14 +15,158 @@ Before installing SGLang, ensure you have:
 
 - **OS**: Linux (required for GPU support)
 - **Python**: 3.10+
-- **NVIDIA GPU**: With CUDA support
+- **NVIDIA GPU**: With CUDA support (for CUDA-based installation)
 - **CUDA**: Compatible CUDA version installed
 
 ### Installation
 
-SGLang can be installed using multiple methods. It is recommended to use `uv` for faster installation.
+SGLang can be installed using several methods. **Docker is the quickest way to try SGLang** without installing dependencies locally.
 
-#### Method 1: Install with uv (Recommended)
+#### Docker Setup
+
+Docker provides the quickest way to get started with SGLang without installing dependencies locally. Pre-built images are available on the [SGLang Docker Hub page](https://hub.docker.com/r/lmsysorg/sglang).
+
+SGLang supports three main types of models. Base models like `facebook/opt-125m` are pre-trained language models without instruction tuning, and they use the `/v1/completions` endpoint with a `prompt` parameter. Chat models such as `Qwen/Qwen2.5-0.5B-Instruct` are fine-tuned for conversational tasks and use `/v1/chat/completions` with a `messages` parameter. Embedding models like `sentence-transformers/all-MiniLM-L6-v2` generate vector representations and use `/v1/embeddings` with an `input` parameter.
+
+The SGLang server exposes an OpenAI-compatible API with the following endpoints:
+
+| Endpoint | Method | Description | Usage |
+|------------------|--------|-----------------------|---------------------------|
+| `/v1/models` | GET | List available models | `curl http://localhost:8000/v1/models` |
+| `/v1/completions` | POST | Text completion for base models | Use with `prompt` parameter for base models |
+| `/v1/chat/completions` | POST | Chat completion for instruction-tuned models | Use with `messages` parameter for chat models |
+| `/v1/embeddings` | POST | Generate embeddings from text | Use with `input` parameter for embedding models |
+| `/health` | GET | Health check endpoint | `curl http://localhost:8000/health` |
+| `/metrics` | GET | Prometheus metrics | `curl http://localhost:8000/metrics` |
+| `/docs` | GET | API documentation (Swagger UI) | Open in browser: `http://localhost:8000/docs` |
+
+**Pull the Latest Image**
+
+Pull the latest Docker image. The image requires approximately 8GB of disk space.
+
+```bash
+docker pull lmsysorg/sglang:latest
+```
+
+**Run the Docker Container**
+
+The Docker image runs an OpenAI-compatible server. To serve a base model like `facebook/opt-125m`, run:
+
+```bash
+docker run --runtime nvidia --gpus all \
+  -v $HOME/.cache/huggingface:/root/.cache/huggingface --env "HF_TOKEN=$HF_TOKEN" \
+  -p 8000:8000 --ipc=host --shm-size 32g \
+  lmsysorg/sglang:latest \
+  python3 -m sglang.launch_server \
+    --model-path facebook/opt-125m \
+    --host 0.0.0.0 \
+    --port 8000
+```
+
+Here are some small models suitable for learning purposes:
+
+| Model Name | Type | Parameter Size |
+|------------|------|----------------|
+| `facebook/opt-125m` | Base | 125M |
+| `Qwen/Qwen2.5-0.5B-Instruct` | Chat/Instruct | 0.5B |
+| `meta-llama/Llama-3.2-1B-Instruct` | Chat/Instruct | 1B |
+| `meta-llama/Llama-3.2-1B` | Base | 1B |
+| `microsoft/Phi-tiny-MoE-instruct` | MoE/Instruct | ~500M (active) |
+| `sentence-transformers/all-MiniLM-L6-v2` | Embedding | 22M |
+
+To use any of these models, replace the model name in the Docker command:
+
+```bash
+... --model-path <MODEL_NAME> ...
+```
+
+For example:
+```bash
+... --model-path meta-llama/Llama-3.2-1B-Instruct ...
+```
+
+The `--runtime nvidia --gpus all` flag enables GPU access. To use specific GPUs, replace `--gpus all` with `--gpus '"device=0"'` for a single GPU or `--gpus '"device=0,1"'` for multiple GPUs. You can also set `--env "CUDA_VISIBLE_DEVICES=0,1"` to limit visible GPUs.
+
+The `-v $HOME/.cache/huggingface:/root/.cache/huggingface` volume mount shares your local Hugging Face cache with the container, avoiding repeated model downloads. The container path `/root/.cache/huggingface` assumes the container runs as root. Adjust this path if your container uses a different user, or set the `HF_HOME` environment variable to customize the cache location.
+
+The `--ipc=host` flag allows the container to access the host's shared memory, which PyTorch uses for efficient data sharing during tensor parallel inference.
+
+The `--shm-size 32g` flag sets the shared memory size, which is important for SGLang's KV cache management and RadixAttention features.
+
+**Verify the Setup**
+
+Once the container is running, verify it's working correctly. First, check that the server is responding:
+
+```bash
+curl http://localhost:8000/health
+```
+
+List the available models:
+
+```bash
+curl http://localhost:8000/v1/models
+```
+
+Test a base model completion:
+
+```bash
+curl http://localhost:8000/v1/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model": "facebook/opt-125m", "prompt": "The result of 1+1 is", "max_tokens": 3}'
+```
+
+Test a chat model:
+
+```bash
+curl http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "Qwen/Qwen2.5-0.5B-Instruct",
+    "messages": [
+      {"role": "user", "content": "Hello, how are you?"}
+    ]
+  }'
+```
+
+For deterministic output (same result every time), add `"temperature": 0`:
+
+```bash
+curl http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "Qwen/Qwen2.5-0.5B-Instruct",
+    "messages": [
+      {"role": "user", "content": "Hello, how are you?"}
+    ],
+    "temperature": 0
+  }'
+```
+
+**Note**: Setting `temperature=0` enables greedy sampling (always selects the highest probability token), which should produce the same output for the same input. However, SGLang does not guarantee complete reproducibility by default due to scheduling and batching optimizations.
+
+Test an embedding model:
+
+```bash
+curl http://localhost:8000/v1/embeddings \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "sentence-transformers/all-MiniLM-L6-v2",
+    "input": "Hello, world!"
+  }'
+```
+
+#### Alternative Installation Methods
+
+If you prefer not to use Docker, SGLang can also be installed directly:
+
+**Install with pip:**
+
+```bash
+pip install --upgrade pip
+pip install "sglang[all]"
+```
+
+**Install with uv (faster):**
 
 ```bash
 pip install --upgrade pip
@@ -30,14 +174,7 @@ pip install uv
 uv pip install "sglang" --prerelease=allow
 ```
 
-#### Method 2: Install with pip
-
-```bash
-pip install --upgrade pip
-pip install "sglang[all]"
-```
-
-#### Method 3: Install from Source
+**Install from Source:**
 
 ```bash
 # Clone the repository
@@ -49,56 +186,9 @@ pip install --upgrade pip
 pip install -e "python"
 ```
 
-#### Method 4: Using Docker
-
-```bash
-docker run --gpus all \
-    --shm-size 32g \
-    -p 30000:30000 \
-    -v ~/.cache/huggingface:/root/.cache/huggingface \
-    --env "HF_TOKEN=<your-token>" \
-    --ipc=host \
-    lmsysorg/sglang:latest \
-    python3 -m sglang.launch_server \
-        --model-path facebook/opt-125m \
-        --host 0.0.0.0 \
-        --port 30000
-```
-
 **Note:** If you encounter `OSError: CUDA_HOME environment variable is not set`, set it with:
 ```bash
 export CUDA_HOME=/usr/local/cuda-<your-cuda-version>
-```
-
-#### Verify Installation
-
-```bash
-# Check SGLang version
-python -c "import sglang; print(sglang.__version__)"
-
-# Test basic functionality
-python -m sglang.launch_server --help
-```
-
-### Basic Usage
-
-**Start SGLang Server:**
-
-```bash
-python -m sglang.launch_server \
-    --model-path facebook/opt-125m \
-    --port 8000
-```
-
-**Test with curl:**
-
-```bash
-curl http://localhost:8000/v1/chat/completions \
-    -H "Content-Type: application/json" \
-    -d '{
-        "model": "facebook/opt-125m",
-        "messages": [{"role": "user", "content": "Hello!"}]
-    }'
 ```
 
 ## SGLang Core Theory
