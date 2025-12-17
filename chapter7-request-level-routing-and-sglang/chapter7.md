@@ -28,20 +28,7 @@ Docker provides the quickest way to get started with SGLang without installing d
 
 SGLang supports seven main types of models. Base models like `facebook/opt-125m` are pre-trained language models without instruction tuning, and they use the `/v1/completions` endpoint with a `prompt` parameter. Chat models such as `Qwen/Qwen2.5-0.5B-Instruct` are fine-tuned for conversational tasks and use `/v1/chat/completions` with a `messages` parameter. Embedding models like `Qwen/Qwen3-Embedding-0.6B` generate vector representations and use `/v1/embeddings` with an `input` parameter. Diffusion language models like `inclusionAI/LLaDA2.0-mini` enable non-autoregressive text generation with parallel decoding and use the `/generate` endpoint with a `text` parameter. Multimodal/vision language models (VLMs) like `meta-llama/Llama-3.2-11B-Vision-Instruct` accept multimodal inputs (images, videos, and text) and use `/v1/chat/completions` with multimodal content in the `messages` parameter. Rerank models like `BAAI/bge-reranker-v2-m3` rerank search results based on semantic relevance and use the `/v1/rerank` endpoint with a `query` and `documents` parameters. Reward models like `jason9693/Qwen2.5-1.5B-apeach` output scalar reward scores for reinforcement learning or content moderation and use `/v1/embeddings` with the `--is-embedding` flag. Additionally, SGLang also supports video and image generation through SGLang Diffusion, which accelerates diffusion models for tasks like text-to-image, image-to-image, and text-to-video generation.
 
-The SGLang server exposes an OpenAI-compatible API with the following endpoints:
-
-| Endpoint | Method | Description | Usage |
-|------------------|--------|-----------------------|---------------------------|
-| `/v1/models` | GET | List available models | `curl http://localhost:30000/v1/models` |
-| `/v1/completions` | POST | Text completion for base models | Use with `prompt` parameter for base models |
-| `/v1/chat/completions` | POST | Chat completion for instruction-tuned models | Use with `messages` parameter for chat models |
-| `/v1/embeddings` | POST | Generate embeddings from text | Use with `input` parameter for embedding models |
-| `/generate` | POST | Generate text using diffusion models | Use with `text` parameter for diffusion language models |
-| `/v1/rerank` | POST | Rerank documents by relevance to a query | Use with `query` and `documents` parameters for rerank models |
-| `/v1/classify` | POST | Classify text inputs | Use with `input` parameter for classification models (same as reward models) |
-| `/health` | GET | Health check endpoint | `curl http://localhost:30000/health` |
-| `/metrics` | GET | Prometheus metrics | `curl http://localhost:30000/metrics` |
-| `/docs` | GET | API documentation (Swagger UI) | Open in browser: `http://localhost:30000/docs` |
+The SGLang server exposes an OpenAI-compatible API with endpoints for completions, chat completions, embeddings, reranking, classification, and more. For a complete list of endpoints with detailed descriptions and usage examples, see the **OpenAI-Compatible API Endpoints** section in the Appendix.
 
 **Pull the Latest Image**
 
@@ -87,7 +74,6 @@ Here are some small models suitable for learning purposes:
 | `meta-llama/Llama-3.2-1B` | Base | 1B |
 | `microsoft/Phi-tiny-MoE-instruct` | MoE/Instruct | 3.8B total, ~1.1B active |
 | `Qwen/Qwen3-Embedding-0.6B` | Embedding | 0.6B |
-| `inclusionAI/LLaDA2.0-mini` | Diffusion/MOE | 16B total, ~1.4B active |
 | `Qwen/Qwen2-VL-2B-Instruct` | VLM/Multimodal | 2B |
 | `BAAI/bge-reranker-v2-m3` | Rerank | 0.6B |
 | `jason9693/Qwen2.5-1.5B-apeach` | Reward/Classify | 1.5B |
@@ -164,43 +150,10 @@ curl http://localhost:30000/v1/chat/completions \
   }'
 ```
 
-SGLang supports various types of models as listed in the table, even video generation models. For each type, there are slightly different parameters for the server and client. For detailed launch commands, API usage, and model-specific requirements, refer to the [SGLang documentation](https://docs.sglang.io/) under the "Supported Models" section.
+In addition to the models listed in the table, SGLang also supports video and image generation through SGLang Diffusion (though these models are not shown in the small models table above). For each model type, there are slightly different parameters for the server and client. For detailed launch commands, API usage, and model-specific requirements, refer to the [SGLang documentation](https://docs.sglang.io/) under the "Supported Models" section.
 
-#### Alternative Installation Methods
+For alternative installation methods (pip, uv, or from source), please refer to the [SGLang installation guide](https://docs.sglang.io/get_started/install.html).
 
-If you prefer not to use Docker, SGLang can also be installed directly:
-
-**Install with pip:**
-
-```bash
-pip install --upgrade pip
-pip install "sglang[all]"
-```
-
-**Install with uv (faster):**
-
-```bash
-pip install --upgrade pip
-pip install uv
-uv pip install "sglang" --prerelease=allow
-```
-
-**Install from Source:**
-
-```bash
-# Clone the repository
-git clone -b v0.5.6 https://github.com/sgl-project/sglang.git
-cd sglang
-
-# Install from source
-pip install --upgrade pip
-pip install -e "python"
-```
-
-**Note:** If you encounter `OSError: CUDA_HOME environment variable is not set`, set it with:
-```bash
-export CUDA_HOME=/usr/local/cuda-<your-cuda-version>
-```
 
 ## SGLang Core Theory
 

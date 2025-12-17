@@ -46,9 +46,33 @@ convert_chapter() {
     echo ""
 }
 
+# Function to convert appendix
+convert_appendix() {
+    echo -e "${BLUE}[$(date +'%Y-%m-%d %H:%M:%S')]${NC} Detected change in ${YELLOW}chapterx/chapterx.md${NC}"
+    echo -e "${BLUE}[$(date +'%Y-%m-%d %H:%M:%S')]${NC} Converting appendix to PDF..."
+    
+    if [ -f "chapterx/chapterx.md" ]; then
+        if "$CONVERT_SCRIPT" chapterx/chapterx.md > /tmp/convert_appendix.log 2>&1; then
+            echo -e "${GREEN}[$(date +'%Y-%m-%d %H:%M:%S')]${NC} ✓ Successfully converted appendix"
+        else
+            echo -e "${YELLOW}[$(date +'%Y-%m-%d %H:%M:%S')]${NC} ✗ Conversion failed for appendix"
+            echo -e "${YELLOW}Check log: /tmp/convert_appendix.log${NC}"
+        fi
+    else
+        echo -e "${YELLOW}[$(date +'%Y-%m-%d %H:%M:%S')]${NC} ✗ Appendix file not found: chapterx/chapterx.md"
+    fi
+    echo ""
+}
+
 # Function to monitor files
 monitor_files() {
     local watch_dirs=()
+    
+    # Always include chapterx directory for appendix
+    if [ -d "chapterx" ]; then
+        watch_dirs+=("chapterx")
+        echo -e "${GREEN}Monitoring:${NC} chapterx/chapterx.md (Appendix)"
+    fi
     
     # If specific chapters are provided, monitor only those
     if [ $# -gt 0 ]; then
@@ -88,8 +112,13 @@ monitor_files() {
     
     # Use inotifywait to monitor file changes
     inotifywait -m -r -e close_write,moved_to --format '%w%f' "${watch_dirs[@]}" 2>/dev/null | while read -r file; do
+        # Process appendix file
+        if [[ "$file" =~ /chapterx/chapterx\.md$ ]]; then
+            # Small delay to ensure file is fully written
+            sleep 0.5
+            convert_appendix
         # Process chapterX.md files
-        if [[ "$file" =~ /chapter([0-9]+)\.md$ ]]; then
+        elif [[ "$file" =~ /chapter([0-9]+)\.md$ ]]; then
             chapter_num="${BASH_REMATCH[1]}"
             chapter_dir=$(dirname "$file")
             chapter_name=$(basename "$chapter_dir")

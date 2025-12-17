@@ -29,17 +29,7 @@ Docker provides the quickest way to get started with vLLM without installing dep
 
 vLLM supports three main types of models. Base models like `facebook/opt-125m` are pre-trained language models without instruction tuning, and they use the `/v1/completions` endpoint with a `prompt` parameter. Chat models such as `Qwen/Qwen2.5-0.5B-Instruct` are fine-tuned for conversational tasks and use `/v1/chat/completions` with a `messages` parameter. Embedding models like `sentence-transformers/all-MiniLM-L6-v2` generate vector representations and use `/v1/embeddings` with an `input` parameter.
 
-The vLLM server exposes an OpenAI-compatible API with the following endpoints:
-
-| Endpoint | Method | Description | Usage |
-|------------------|--------|-----------------------|---------------------------|
-| `/v1/models` | GET | List available models | `curl http://localhost:8000/v1/models` |
-| `/v1/completions` | POST | Text completion for base models | Use with `prompt` parameter for base models |
-| `/v1/chat/completions` | POST | Chat completion for instruction-tuned models | Use with `messages` parameter for chat models |
-| `/v1/embeddings` | POST | Generate embeddings from text | Use with `input` parameter for embedding models |
-| `/health` | GET | Health check endpoint | `curl http://localhost:8000/health` |
-| `/metrics` | GET | Prometheus metrics | `curl http://localhost:8000/metrics` |
-| `/docs` | GET | API documentation (Swagger UI) | Open in browser: `http://localhost:8000/docs` |
+The vLLM server exposes an OpenAI-compatible API with endpoints for completions, chat completions, embeddings, and more. For a complete list of endpoints with detailed descriptions and usage examples, see the **OpenAI-Compatible API Endpoints** section in the Appendix.
 
 **Pull the Latest Image**
 

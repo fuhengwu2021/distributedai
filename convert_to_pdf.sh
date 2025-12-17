@@ -92,8 +92,16 @@ EOF
 if [ $# -gt 0 ]; then
     CHAPTER_ARG="$1"
     
+    # Check if it's the appendix file
+    if [[ "$CHAPTER_ARG" == "chapterx/chapterx.md" ]] || [[ "$CHAPTER_ARG" == "chapterx" ]]; then
+        if [ -f "chapterx/chapterx.md" ]; then
+            convert_md_to_pdf "chapterx/chapterx.md"
+        else
+            echo "❌ Error: Appendix file not found: chapterx/chapterx.md"
+            exit 1
+        fi
     # Check if argument is a simple number (e.g., "1", "2", "10")
-    if [[ "$CHAPTER_ARG" =~ ^[0-9]+$ ]]; then
+    elif [[ "$CHAPTER_ARG" =~ ^[0-9]+$ ]]; then
         # Find chapter directory starting with "chapter" + number
         FOUND_DIR=$(find . -maxdepth 1 -type d -name "chapter${CHAPTER_ARG}-*" | head -1)
         if [ -n "$FOUND_DIR" ] && [ -f "$FOUND_DIR/chapter${CHAPTER_ARG}.md" ]; then
@@ -153,12 +161,22 @@ if [ $# -gt 0 ]; then
         fi
     fi
 else
-    # No argument provided, convert all chapter chapterX.md files
-    echo "🔄 Converting all chapter chapterX.md files to PDF..."
+    # No argument provided, convert all chapter chapterX.md files and appendix
+    echo "🔄 Converting all chapter chapterX.md files and appendix to PDF..."
     echo ""
     
     SUCCESS=0
     FAILED=0
+    
+    # Convert appendix if it exists
+    if [ -f "chapterx/chapterx.md" ]; then
+        if convert_md_to_pdf "chapterx/chapterx.md"; then
+            ((SUCCESS++))
+        else
+            ((FAILED++))
+        fi
+        echo ""
+    fi
     
     # Find all chapter directories with chapterX.md files
     while IFS= read -r -d '' md_file; do
