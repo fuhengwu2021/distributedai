@@ -1080,14 +1080,14 @@ If you want to create a standalone wheel that includes `megatron.training`, see 
 - [Slurm Documentation](https://slurm.schedmd.com/)
 - [PyTorch Distributed Training](https://pytorch.org/tutorials/beginner/dist_overview.html)
 - [PyTorch FSDP](https://pytorch.org/tutorials/intermediate/FSDP_tutorial.html)
-- Configuration files: `code/config/`
 - [Single-Node Slurm Cluster Docker](https://github.com/minyang-chen/single-node-slurm-cluster-docker) - Fully dockerized single-node Slurm cluster with GPU support
 - [ZenFlow: Enabling Stall-Free Offloading Training via Asynchronous Updates](https://arxiv.org/html/2505.12242v3) - Importance-aware offloading framework that decouples GPU and CPU updates to eliminate GPU stalls
 - [Domino: Eliminating Communication in LLM Training via Generic Tensor Slicing and Overlapping](https://arxiv.org/html/2409.15241v1) - Generic approach to hide communication behind computation in tensor parallelism training
 - [Optimizing Language Model Training: A Practical Guide to SLURM](https://medium.com/@viktorciroski/optimizing-language-model-training-a-practical-guide-to-slurm-a6621d3c1bf2) - Practical guide to using SLURM for fine-tuning large language models across multiple GPUs
-- [arXiv:2405.00030](https://arxiv.org/pdf/2405.00030) - Research paper on distributed training (check arXiv for latest version)
+- [DeepOps & SLURM: Your GPU Cluster Guide](https://arxiv.org/pdf/2405.00030) - Research paper on distributed training (check arXiv for latest version)
 - [Deploy an Auto-Scaling HPC Cluster with Slurm on GCP](https://codelabs.developers.google.com/codelabs/hpc-slurm-on-gcp#0) - Step-by-step guide to deploying Slurm clusters on Google Cloud Platform
 - [Slurm Workload Manager (Official GitHub Repository)](https://github.com/SchedMD/slurm) - Official source code repository for Slurm maintained by SchedMD
 - [Running Multiple Worker Daemons in Slurm](https://stackoverflow.com/questions/40695348/running-multiple-worker-daemons-slurm) - Stack Overflow discussion on configuring multiple slurmd daemons on a single machine
+- https://github.com/NVIDIA-NeMo/Megatron-Bridge
 
 
