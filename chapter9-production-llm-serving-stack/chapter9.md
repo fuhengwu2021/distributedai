@@ -3379,3 +3379,4 @@ Once you've built your distributed training and inference systems, you need to k
 - llm-d: https://github.com/llm-d/llm-d - Production-ready Kubernetes deployment for LLM inference
 - llm-d Documentation: https://www.llm-d.ai/ - Complete guides and well-lit paths
 - Inference Gateway: https://github.com/kserve/inference-gateway - Request scheduler and balancer
+- https://github.com/vllm-project/production-stack.git

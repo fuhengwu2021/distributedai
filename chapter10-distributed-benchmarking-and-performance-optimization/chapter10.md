@@ -1863,6 +1863,13 @@ Throughout this book, we've covered the current state of distributed AI: DDP and
 - Nsight Systems: https://developer.nvidia.com/nsight-systems
 - MLPerf: https://mlcommons.org/en/inference-edge-21/
 - Amdahl's Law: https://en.wikipedia.org/wiki/Amdahl%27s_law
+- [MLPerf Inference Benchmark](https://arxiv.org/pdf/1911.02549)
+- [LLM-Inference-Bench: Inference Benchmarking of Large Language Models on AI Accelerators](https://arxiv.org/html/2411.00136v1)
+- [Meta-Metrics and Best Practices for System-Level Inference Performance Benchmarking
+](https://arxiv.org/html/2508.10251)
+- https://github.com/IBM/fmwork
+
+
 
 **Accuracy Benchmarking:**
 
@@ -1872,4 +1879,10 @@ Throughout this book, we've covered the current state of distributed AI: DDP and
 - HumanEval (Code Generation): https://github.com/openai/human-eval
 - HELM (Holistic Evaluation): https://crfm.stanford.edu/helm/
 - Hugging Face Evaluate: https://huggingface.co/docs/evaluate/
+- https://github.com/NVIDIA-NeMo/Evaluator
+- https://huggingface.co/blog/nvidia/nemotron-3-nano-evaluation-recipe
+- https://docs.nvidia.com/nim/benchmarking/llm/latest/index.html
+
+
+
 

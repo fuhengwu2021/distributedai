@@ -40,3 +40,9 @@
 [submodule "resources/awesome-ml-sys-tutorial"]
 	path = resources/awesome-ml-sys-tutorial
 	url = https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial.git
+[submodule "resources/genai-bench"]
+	path = resources/genai-bench
+	url = https://github.com/sgl-project/genai-bench.git
+[submodule "resources/guidellm"]
+	path = resources/guidellm
+	url = https://github.com/vllm-project/guidellm.git

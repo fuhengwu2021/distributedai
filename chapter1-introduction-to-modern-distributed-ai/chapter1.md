@@ -1,7 +1,5 @@
 # Chapter 1: Introduction to Modern Distributed AI
 
-**Chapter Length:** 28 pages
-
 ## Overview
 
 Modern AI models have grown beyond what single GPUs can handle. Large language models now range from several billion to over a trillion parameters. Training models with tens of billions of parameters on a single GPU would take months, if they even fit in memory. Serving these models at scale requires distributed architectures.
