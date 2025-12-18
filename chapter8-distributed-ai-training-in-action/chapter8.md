@@ -1088,6 +1088,7 @@ If you want to create a standalone wheel that includes `megatron.training`, see 
 - [Deploy an Auto-Scaling HPC Cluster with Slurm on GCP](https://codelabs.developers.google.com/codelabs/hpc-slurm-on-gcp#0) - Step-by-step guide to deploying Slurm clusters on Google Cloud Platform
 - [Slurm Workload Manager (Official GitHub Repository)](https://github.com/SchedMD/slurm) - Official source code repository for Slurm maintained by SchedMD
 - [Running Multiple Worker Daemons in Slurm](https://stackoverflow.com/questions/40695348/running-multiple-worker-daemons-slurm) - Stack Overflow discussion on configuring multiple slurmd daemons on a single machine
-- https://github.com/NVIDIA-NeMo/Megatron-Bridge
+- [Megatron-Bridge](https://github.com/NVIDIA-NeMo/Megatron-Bridge) - Bidirectional converter for interoperability between Hugging Face and Megatron checkpoints, featuring production-ready recipes for popular models
+- [DeepOps](https://github.com/NVIDIA/deepops) - Open-source tools for deploying and managing GPU-accelerated clusters using Kubernetes and Slurm
 
 
