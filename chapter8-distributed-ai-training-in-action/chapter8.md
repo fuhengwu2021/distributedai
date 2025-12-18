@@ -980,6 +980,96 @@ Yes, this is expected behavior:
 - For production, implement checkpoint rotation to keep only recent checkpoints
 - Use distributed storage (e.g., shared filesystem) for checkpoint directories
 
+**Checkpoint Format Conversion:**
+
+Megatron-LM checkpoints are saved in a distributed format (`.distcp` files) that requires Megatron-LM to load. For use with other frameworks or standalone PyTorch models, you can convert checkpoints to standard formats.
+
+**Converting to PyTorch Format:**
+
+Use the provided conversion script (`code/megatron/convert_megatron_checkpoint.py`):
+
+```bash
+# Convert Megatron checkpoint to standard PyTorch format
+python convert_megatron_checkpoint.py \
+    --checkpoint-dir checkpoints/gpt_8b/iter_0000010 \
+    --output-dir exported_checkpoint \
+    --format pytorch \
+    --num-layers 32 \
+    --hidden-size 4096 \
+    --num-attention-heads 32 \
+    --vocab-size 128256 \
+    --max-position-embeddings 2048 \
+    --use-mcore-models \
+    --bf16
+```
+
+**Converting to HuggingFace Format:**
+
+```bash
+# Convert to HuggingFace format (simplified)
+python convert_megatron_checkpoint.py \
+    --checkpoint-dir checkpoints/gpt_8b/iter_0000010 \
+    --output-dir huggingface_checkpoint \
+    --format huggingface \
+    --num-layers 32 \
+    --hidden-size 4096 \
+    --num-attention-heads 32 \
+    --vocab-size 128256 \
+    --max-position-embeddings 2048 \
+    --use-mcore-models \
+    --bf16
+```
+
+**Using Converted Checkpoints:**
+
+The exported PyTorch checkpoint is **completely independent** and does NOT require Megatron-LM to load:
+
+```python
+import torch
+
+# Load checkpoint - NO MEGATRON NEEDED!
+checkpoint = torch.load('exported_checkpoint/model.pt', map_location='cpu')
+
+# View model configuration
+print(checkpoint['model_config'])
+
+# Access state dict
+state_dict = checkpoint['model_state_dict']
+print(f"Total keys: {len(state_dict)}")
+print(f"First key: {list(state_dict.keys())[0]}")
+```
+
+**Checkpoint Structure:**
+
+The exported checkpoint contains:
+
+```python
+{
+    'model_state_dict': {
+        # All model weights in standard PyTorch format
+        'embedding.word_embeddings.weight': tensor(...),
+        'decoder.layers.0.self_attention.linear_proj.weight': tensor(...),
+        # ... etc
+    },
+    'model_config': {
+        'num_layers': 32,
+        'hidden_size': 4096,
+        'num_attention_heads': 32,
+        'vocab_size': 128256,
+        'max_position_embeddings': 2048,
+    }
+}
+```
+
+**Key Benefits of Conversion:**
+
+- ✅ **Standalone**: No Megatron-LM required to load the checkpoint
+- ✅ **Standard format**: Can be used with any PyTorch model
+- ✅ **Smaller size**: Exported checkpoints only contain model weights (no optimizer state)
+- ✅ **Compatible**: Can be loaded by other frameworks (vLLM, SGLang, etc.) with proper model initialization
+
+**Note**: Full HuggingFace format conversion may require additional layer name mapping and tensor reshaping. For production use, consider using tools like [Megatron-Bridge](https://github.com/NVIDIA-NeMo/Megatron-Bridge) for complete format conversion.
+
 **Building a wheel package** (optional):
 
 If you want to create a standalone wheel that includes `megatron.training`, see `code/megatron/BUILD_PACKAGE.md` for instructions on building a custom package.
