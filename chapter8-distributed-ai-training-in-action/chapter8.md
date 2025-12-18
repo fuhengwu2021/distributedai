@@ -1074,23 +1074,6 @@ The exported checkpoint contains:
 
 If you want to create a standalone wheel that includes `megatron.training`, see `code/megatron/BUILD_PACKAGE.md` for instructions on building a custom package.
 
-## 10. Configuration Files Reference
-
-All configuration files are available in `code/config/`:
-
-- **`slurm.conf`**: Main Slurm configuration
-- **`gres.conf`**: GPU resource mapping
-- **`cgroup.conf`**: Cgroup settings (disabled for simplicity)
-- **`slurm_setup.sh`**: Automated setup script
-- **`README.md`**: Detailed configuration documentation
-
-## 10. Next Steps
-
-- **Scale to more nodes**: Add more physical nodes to the cluster
-- **Enable cgroup constraints**: For production resource limits
-- **Set up fair-share scheduling**: For multi-user environments
-- **Integrate with MLflow/Weights & Biases**: For experiment tracking
-- **Implement job preemption**: For better resource utilization
 
 ## References
 
@@ -1101,12 +1084,10 @@ All configuration files are available in `code/config/`:
 - [Single-Node Slurm Cluster Docker](https://github.com/minyang-chen/single-node-slurm-cluster-docker) - Fully dockerized single-node Slurm cluster with GPU support
 - [ZenFlow: Enabling Stall-Free Offloading Training via Asynchronous Updates](https://arxiv.org/html/2505.12242v3) - Importance-aware offloading framework that decouples GPU and CPU updates to eliminate GPU stalls
 - [Domino: Eliminating Communication in LLM Training via Generic Tensor Slicing and Overlapping](https://arxiv.org/html/2409.15241v1) - Generic approach to hide communication behind computation in tensor parallelism training
-- https://medium.com/@viktorciroski/optimizing-language-model-training-a-practical-guide-to-slurm-a6621d3c1bf2
-- https://arxiv.org/pdf/2405.00030
-- https://codelabs.developers.google.com/codelabs/hpc-slurm-on-gcp#0
-- https://github.com/SchedMD/slurm
-- https://stackoverflow.com/questions/40695348/running-multiple-worker-daemons-slurm?utm_source=chatgpt.com
+- [Optimizing Language Model Training: A Practical Guide to SLURM](https://medium.com/@viktorciroski/optimizing-language-model-training-a-practical-guide-to-slurm-a6621d3c1bf2) - Practical guide to using SLURM for fine-tuning large language models across multiple GPUs
+- [arXiv:2405.00030](https://arxiv.org/pdf/2405.00030) - Research paper on distributed training (check arXiv for latest version)
+- [Deploy an Auto-Scaling HPC Cluster with Slurm on GCP](https://codelabs.developers.google.com/codelabs/hpc-slurm-on-gcp#0) - Step-by-step guide to deploying Slurm clusters on Google Cloud Platform
+- [Slurm Workload Manager (Official GitHub Repository)](https://github.com/SchedMD/slurm) - Official source code repository for Slurm maintained by SchedMD
+- [Running Multiple Worker Daemons in Slurm](https://stackoverflow.com/questions/40695348/running-multiple-worker-daemons-slurm) - Stack Overflow discussion on configuring multiple slurmd daemons on a single machine
 
-**Summary**: This chapter demonstrated how to use Slurm for distributed AI training, covering setup, job submission, PyTorch DDP/FSDP integration, and best practices. The provided configuration files and examples serve as a practical starting point for running distributed training workloads.
 
-So far, we've covered training systems (DDP, FSDP, DeepSpeed) and inference engines (vLLM, SGLang), and how to run them with Slurm. But building a production LLM serving system requires more than just running an inference engine—you need a complete stack: model runners, tokenizers, API gateways, rate limiting, observability, A/B testing, and canary deployments. The next chapter builds a complete end-to-end production LLM serving stack, showing how all these components work together to create reliable, scalable, and maintainable systems.
