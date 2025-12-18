@@ -924,6 +924,62 @@ tail -f logs/train_*.out
 - **Mock data**: The example uses mock data (`--mock-data`). For real training, provide data paths and tokenizer
 - **Memory requirements**: Large models may require adjusting batch sizes and sequence lengths
 
+**Checkpoint File Size Analysis:**
+
+When training with Megatron-LM, checkpoint files can be quite large. For an 8B parameter model, you might see checkpoint directories like:
+
+```
+code/megatron/checkpoints/gpt_8b/iter_0000010/
+27G     __0_0.distcp
+27G     __0_1.distcp
+27G     __1_0.distcp
+27G     __1_1.distcp
+24K     common.pt
+4.0K    metadata.json
+```
+
+**Why are checkpoints so large?**
+
+**Theoretical size calculation:**
+- **Model parameters (bf16)**: 8.03B × 2 bytes = 16.06 GB
+- **Optimizer states (Adam, fp32)**: 8.03B × 8 bytes = 64.24 GB
+  - Momentum (exp_avg): 4 bytes/param
+  - Variance (exp_avg_sq): 4 bytes/param
+- **Theoretical total**: 80.30 GB
+- **Actual size**: ~108 GB (4 files × 27 GB)
+
+**Additional overhead (~27.70 GB) explained:**
+
+1. **Distributed optimizer sharding:**
+   - Using `--use-distributed-optimizer` shards parameters and optimizer states across multiple ranks
+   - Each rank saves its own shard, which may include some redundancy for efficient loading
+
+2. **File format overhead:**
+   - PyTorch distributed checkpoint format includes metadata
+   - Index and mapping information for distributed loading
+   - Alignment and padding for efficient I/O
+
+3. **Shard structure:**
+   - `__0_0.distcp`: rank 0, shard 0
+   - `__0_1.distcp`: rank 0, shard 1
+   - `__1_0.distcp`: rank 1, shard 0
+   - `__1_1.distcp`: rank 1, shard 1
+   - Each rank has multiple shards to enable parallel save/load operations
+
+**Is this normal?**
+
+Yes, this is expected behavior:
+- 8B model + Adam optimizer ≈ 80GB is the theoretical minimum
+- Distributed checkpoints have additional overhead for parallel I/O
+- Optimizer states are typically 4× larger than model parameters (fp32 vs bf16)
+- The distributed checkpoint format enables efficient multi-node checkpointing and resuming
+
+**Tips for managing checkpoint size:**
+- Use `--save-interval` to control checkpoint frequency
+- Consider using optimizer state offloading if available
+- For production, implement checkpoint rotation to keep only recent checkpoints
+- Use distributed storage (e.g., shared filesystem) for checkpoint directories
+
 **Building a wheel package** (optional):
 
 If you want to create a standalone wheel that includes `megatron.training`, see `code/megatron/BUILD_PACKAGE.md` for instructions on building a custom package.
