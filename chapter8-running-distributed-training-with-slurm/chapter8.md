@@ -715,7 +715,7 @@ srun --chdir="$SLURM_SUBMIT_DIR" --label \
 
 ```bash
 # Submit job
-cd chapter8-distributed-ai-training-in-action/code/deepspeed
+cd chapter8-running-distributed-training-with-slurm/code/deepspeed
 sbatch run.slurm
 
 # Monitor job
@@ -898,7 +898,7 @@ srun --chdir="$SCRIPT_DIR" --label \
 
 ```bash
 # Submit job
-cd chapter8-distributed-ai-training-in-action/code/megatron
+cd chapter8-running-distributed-training-with-slurm/code/megatron
 sbatch run.slurm
 
 # Monitor job
