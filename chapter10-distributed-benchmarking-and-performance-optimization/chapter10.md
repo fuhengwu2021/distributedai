@@ -1868,6 +1868,7 @@ Throughout this book, we've covered the current state of distributed AI: DDP and
 - [Meta-Metrics and Best Practices for System-Level Inference Performance Benchmarking
 ](https://arxiv.org/html/2508.10251)
 - https://github.com/IBM/fmwork
+- https://docs.nvidia.com/deeplearning/triton-inference-server/user-guide/docs/perf_analyzer/genai-perf/README.html 
 
 
 
