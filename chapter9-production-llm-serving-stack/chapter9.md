@@ -66,8 +66,8 @@ A production LLM serving system is more than just a model running on a GPU. It's
                       │
                       ▼
               ┌──────────────┐
-              │ Monitoring  │
-              │ & Tracing   │
+              │ Monitoring   │
+              │ & Tracing    │
               └──────────────┘
 ```
 
@@ -3051,153 +3051,488 @@ monitoring:
 
 
 
-## Hands-On Examples
+## Hands-On Example: Deploying Two Models in Kubernetes with API Gateway Routing
 
-### Example 1: API Gateway with Routing
+This example demonstrates how to deploy multiple vLLM models in a Kubernetes cluster and use an API Gateway to provide a unified interface that automatically routes requests to the correct model based on the `model` field in the request.
 
-**File:** `examples/ch09_api_gateway.py`
+### Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Client Applications                      │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+                            │ HTTP Request with 'model' field
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│              API Gateway (Unified Entry Point)              │
+│  - Parses 'model' field from request body                   │
+│  - Routes to appropriate vLLM service                       │
+│  - Returns response to client                               │
+└───────────────┬───────────────────────────┬─────────────────┘
+                │                           │
+                │                           │
+    ┌───────────▼──────────┐    ┌──────────▼──────────┐
+    │  vLLM Service 1      │    │  vLLM Service 2     │
+    │  (Llama-3.2-1B)      │    │  (Phi-tiny-MoE)     │
+    │                      │    │                     │
+    │ Pod: vllm-llama-32-1b│    │  Pod: vllm-phi-tiny │
+    │ Service: vllm-llama- │    │  Service: vllm-phi- │
+    │    32-1b:8000        │    │    tiny-moe:8000    │
+    └──────────────────────┘    └─────────────────────┘
+```
+
+### Step 1: Deploy First Model (Llama-3.2-1B-Instruct)
+
+**File:** `code/vllm/llama-3.2-1b.yaml`
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: vllm-llama-32-1b
+  labels:
+    app: vllm
+    model: llama-32-1b
+spec:
+  runtimeClassName: nvidia
+  containers:
+  - name: vllm-server
+    image: vllm/vllm-openai:v0.12.0
+    command:
+    - python3
+    - -m
+    - vllm.entrypoints.openai.api_server
+    args:
+    - --model
+    - meta-llama/Llama-3.2-1B-Instruct
+    - --host
+    - "0.0.0.0"
+    - --port
+    - "8000"
+    - --tensor-parallel-size
+    - "1"
+    - --gpu-memory-utilization
+    - "0.9"
+    env:
+    - name: HF_TOKEN
+      valueFrom:
+        secretKeyRef:
+          name: hf-token-secret
+          key: token
+    resources:
+      limits:
+        nvidia.com/gpu: 1
+        memory: 8Gi
+      requests:
+        nvidia.com/gpu: 1
+        memory: 6Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-llama-32-1b
+spec:
+  type: ClusterIP
+  selector:
+    app: vllm
+    model: llama-32-1b
+  ports:
+  - port: 8000
+    targetPort: 8000
+```
+
+**Deploy:**
+
+```bash
+# Create HuggingFace token secret
+kubectl create secret generic hf-token-secret \
+  --from-literal=token="$HF_TOKEN"
+
+# Deploy model
+kubectl apply -f code/vllm/llama-3.2-1b.yaml
+
+# Wait for pod to be ready
+kubectl wait --for=condition=Ready pod/vllm-llama-32-1b --timeout=300s
+```
+
+### Step 2: Deploy Second Model (Phi-tiny-MoE-instruct)
+
+**File:** `code/vllm/phi-tiny-moe.yaml`
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-phi-tiny-moe
+  labels:
+    app: vllm
+    model: phi-tiny-moe
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vllm
+      model: phi-tiny-moe
+  template:
+    metadata:
+      labels:
+        app: vllm
+        model: phi-tiny-moe
+    spec:
+      runtimeClassName: nvidia
+      containers:
+      - name: vllm-server
+        image: vllm/vllm-openai:v0.12.0
+        command:
+        - python3
+        - -m
+        - vllm.entrypoints.openai.api_server
+        args:
+        - --model
+        - /models/Phi-tiny-MoE-instruct
+        - --host
+        - "0.0.0.0"
+        - --port
+        - "8000"
+        - --tensor-parallel-size
+        - "1"
+        - --gpu-memory-utilization
+        - "0.9"
+        resources:
+          limits:
+            nvidia.com/gpu: 1
+            memory: 32Gi
+          requests:
+            nvidia.com/gpu: 1
+            memory: 16Gi
+        volumeMounts:
+        - name: models
+          mountPath: /models
+      volumes:
+      - name: models
+        hostPath:
+          path: /models
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-phi-tiny-moe-service
+spec:
+  type: ClusterIP
+  selector:
+    app: vllm
+    model: phi-tiny-moe
+  ports:
+  - port: 8000
+    targetPort: 8000
+```
+
+**Deploy:**
+
+```bash
+# Deploy model
+kubectl apply -f code/vllm/phi-tiny-moe.yaml
+
+# Wait for pod to be ready
+kubectl wait --for=condition=Ready pod -l app=vllm,model=phi-tiny-moe --timeout=600s
+```
+
+### Step 3: Deploy API Gateway
+
+The API Gateway provides a unified entry point that automatically routes requests to the correct vLLM service based on the `model` field in the request body.
+
+**File:** `code/vllm/api-gateway.yaml`
+
+The gateway consists of:
+1. **ConfigMap** containing the Python gateway code
+2. **Pod** running the FastAPI gateway service
+3. **Service** exposing the gateway
+
+**Key Features:**
+- **Automatic Routing**: Routes requests based on `model` field in request body
+- **Unified Interface**: Single endpoint for all models (`/v1/chat/completions`)
+- **Model Discovery**: Aggregates model lists from all services (`/v1/models`)
+- **Streaming Support**: Supports streaming responses
+- **Error Handling**: Graceful error handling with informative messages
+
+**Model-to-Service Mapping:**
 
 ```python
-"""
-Complete API gateway implementation with routing and rate limiting.
-"""
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.middleware.cors import CORSMiddleware
-import httpx
-import time
-from collections import defaultdict
-
-app = FastAPI()
-
-# Rate limiter
-class RateLimiter:
-    def __init__(self, max_requests=100, window=60):
-        self.max_requests = max_requests
-        self.window = window
-        self.requests = defaultdict(list)
-    
-    def is_allowed(self, client_id: str) -> bool:
-        now = time.time()
-        client_reqs = self.requests[client_id]
-        client_reqs[:] = [t for t in client_reqs if now - t < self.window]
-        
-        if len(client_reqs) >= self.max_requests:
-            return False
-        
-        client_reqs.append(now)
-        return True
-
-rate_limiter = RateLimiter()
-
-# Model routing
-MODEL_ENDPOINTS = {
-    "llama-2-7b": "http://localhost:8002",
-    "mistral-7b": "http://localhost:8003"
+MODEL_TO_SERVICE = {
+    "meta-llama/Llama-3.2-1B-Instruct": "vllm-llama-32-1b",
+    "/models/Phi-tiny-MoE-instruct": "vllm-phi-tiny-moe-service",
+    "Phi-tiny-MoE-instruct": "vllm-phi-tiny-moe-service",
 }
-
-@app.post("/generate")
-async def generate(request: dict, client_id: str = "default"):
-    # Rate limiting
-    if not rate_limiter.is_allowed(client_id):
-        raise HTTPException(429, "Rate limit exceeded")
-    
-    # Route to model
-    model = request.get("model", "llama-2-7b")
-    endpoint = MODEL_ENDPOINTS.get(model)
-    if not endpoint:
-        raise HTTPException(404, f"Model {model} not found")
-    
-    # Forward request
-    async with httpx.AsyncClient() as client:
-        response = await client.post(f"{endpoint}/generate", json=request)
-        return response.json()
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
 ```
 
-### Example 2: Canary Deployment
+**Deploy:**
 
-**File:** `examples/ch09_canary_deployment.py`
+```bash
+# Deploy API Gateway
+kubectl apply -f code/vllm/api-gateway.yaml
+
+# Wait for gateway to be ready
+kubectl wait --for=condition=Ready pod/vllm-api-gateway --timeout=60s
+
+# Check status
+kubectl get pod,svc -l app=vllm-gateway
+```
+
+### Step 4: Using the Unified Interface
+
+Once deployed, all requests go through the API Gateway, which automatically routes to the correct model service.
+
+**1. List Available Models:**
+
+```bash
+# Port forward gateway
+kubectl port-forward svc/vllm-api-gateway 8000:8000
+
+# List all models
+curl http://localhost:8000/v1/models
+```
+
+**Response:**
+```json
+{
+  "object": "list",
+  "data": [
+    {
+      "id": "meta-llama/Llama-3.2-1B-Instruct",
+      "object": "model",
+      "created": 0,
+      "owned_by": "vllm"
+    },
+    {
+      "id": "/models/Phi-tiny-MoE-instruct",
+      "object": "model",
+      "created": 0,
+      "owned_by": "vllm"
+    }
+  ]
+}
+```
+
+**2. Chat Completion with Llama Model:**
+
+```bash
+curl http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "meta-llama/Llama-3.2-1B-Instruct",
+    "messages": [
+      {"role": "user", "content": "What is machine learning?"}
+    ],
+    "max_tokens": 100
+  }'
+```
+
+**3. Chat Completion with Phi-tiny-MoE Model:**
+
+```bash
+curl http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "/models/Phi-tiny-MoE-instruct",
+    "messages": [
+      {"role": "user", "content": "What is a mixture of experts?"}
+    ],
+    "max_tokens": 100
+  }'
+```
+
+**4. Streaming Response:**
+
+```bash
+curl http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "meta-llama/Llama-3.2-1B-Instruct",
+    "messages": [
+      {"role": "user", "content": "Explain quantum computing"}
+    ],
+    "stream": true
+  }'
+```
+
+### How Routing Works
+
+1. **Client sends request** to API Gateway with `model` field in request body:
+   ```json
+   {
+     "model": "meta-llama/Llama-3.2-1B-Instruct",
+     "messages": [...]
+   }
+   ```
+
+2. **Gateway parses request** and extracts the `model` field from the JSON body.
+
+3. **Gateway looks up service** using the `MODEL_TO_SERVICE` mapping:
+   - `"meta-llama/Llama-3.2-1B-Instruct"` → `"vllm-llama-32-1b"`
+   - `"/models/Phi-tiny-MoE-instruct"` → `"vllm-phi-tiny-moe-service"`
+
+4. **Gateway forwards request** to the target service:
+   ```
+   POST http://vllm-llama-32-1b:8000/v1/chat/completions
+   ```
+
+5. **Gateway returns response** to client (with streaming support if requested).
+
+### Adding a New Model
+
+To add a third model:
+
+1. **Deploy the new model** (create Pod/Deployment and Service):
+   ```yaml
+   apiVersion: v1
+   kind: Service
+   metadata:
+     name: vllm-mistral-7b-service
+   spec:
+     selector:
+       app: vllm
+       model: mistral-7b
+     ports:
+     - port: 8000
+   ```
+
+2. **Update API Gateway ConfigMap** to add the new model mapping:
+   ```python
+   MODEL_TO_SERVICE = {
+       "meta-llama/Llama-3.2-1B-Instruct": "vllm-llama-32-1b",
+       "/models/Phi-tiny-MoE-instruct": "vllm-phi-tiny-moe-service",
+       "mistralai/Mistral-7B-Instruct-v0.1": "vllm-mistral-7b-service",  # New
+   }
+   ```
+
+3. **Redeploy the gateway**:
+   ```bash
+   kubectl apply -f code/vllm/api-gateway.yaml
+   kubectl rollout restart pod/vllm-api-gateway
+   ```
+
+### Production Considerations
+
+**1. Expose Gateway Externally:**
+
+For production, expose the gateway using Ingress:
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: vllm-api-gateway-ingress
+spec:
+  rules:
+  - host: api.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: vllm-api-gateway
+            port:
+              number: 8000
+```
+
+**2. Add Authentication:**
+
+Add API key authentication to the gateway:
 
 ```python
-"""
-Canary deployment with automated rollback.
-"""
-import random
+API_KEYS = {"client-1": "key-abc123", "client-2": "key-def456"}
+
+@app.middleware("http")
+async def authenticate(request: Request, call_next):
+    api_key = request.headers.get("X-API-Key")
+    if not api_key or api_key not in API_KEYS.values():
+        raise HTTPException(401, "Invalid API key")
+    return await call_next(request)
+```
+
+**3. Add Rate Limiting:**
+
+Implement per-client rate limiting:
+
+```python
 from collections import defaultdict
+import time
 
-class CanaryDeployment:
-    def __init__(self, stable="stable-v1", canary="canary-v2", traffic=0.1):
-        self.stable = stable
-        self.canary = canary
-        self.traffic_percent = traffic
-        self.metrics = defaultdict(lambda: {"requests": 0, "errors": 0})
-    
-    def route(self) -> str:
-        return self.canary if random.random() < self.traffic_percent else self.stable
-    
-    def record(self, model: str, error: bool):
-        self.metrics[model]["requests"] += 1
-        if error:
-            self.metrics[model]["errors"] += 1
-    
-    def should_rollback(self) -> bool:
-        canary_error_rate = self.metrics[self.canary]["errors"] / max(
-            self.metrics[self.canary]["requests"], 1
-        )
-        stable_error_rate = self.metrics[self.stable]["errors"] / max(
-            self.metrics[self.stable]["requests"], 1
-        )
-        return canary_error_rate > stable_error_rate * 2.0
+rate_limiter = defaultdict(list)
 
-# Usage
-canary = CanaryDeployment(traffic=0.1)
-model = canary.route()
-# ... process request ...
-canary.record(model, error=False)
-
-if canary.should_rollback():
-    canary.traffic_percent = 0.0  # Rollback
+@app.middleware("http")
+async def rate_limit(request: Request, call_next):
+    client_id = request.headers.get("X-Client-ID", "default")
+    now = time.time()
+    # Clean old requests
+    rate_limiter[client_id] = [t for t in rate_limiter[client_id] if now - t < 60]
+    if len(rate_limiter[client_id]) >= 100:
+        raise HTTPException(429, "Rate limit exceeded")
+    rate_limiter[client_id].append(now)
+    return await call_next(request)
 ```
 
-### Example 3: OpenTelemetry Tracing
+**4. Add Monitoring:**
 
-**File:** `examples/ch09_tracing.py`
+Add Prometheus metrics:
 
 ```python
-"""
-OpenTelemetry instrumentation example.
-"""
-from opentelemetry import trace
-from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from prometheus_client import Counter, Histogram
 
-# Setup
-provider = TracerProvider()
-processor = BatchSpanProcessor(OTLPSpanExporter(endpoint="localhost:4317"))
-provider.add_span_processor(processor)
-trace.set_tracer_provider(provider)
+request_count = Counter('gateway_requests_total', 'Total requests', ['model', 'status'])
+request_latency = Histogram('gateway_request_duration_seconds', 'Request latency')
 
-tracer = trace.get_tracer(__name__)
-
-# Instrument code
-@app.post("/generate")
-async def generate(request: dict):
-    with tracer.start_as_current_span("generate") as span:
-        span.set_attribute("model", request["model"])
-        
-        with tracer.start_as_current_span("tokenize"):
-            tokens = tokenize(request["prompt"])
-        
-        with tracer.start_as_current_span("inference") as inf_span:
-            result = await model_inference(tokens)
-            inf_span.set_attribute("tokens", result["tokens"])
-        
-        return result
+@app.middleware("http")
+async def metrics(request: Request, call_next):
+    start = time.time()
+    response = await call_next(request)
+    duration = time.time() - start
+    model = extract_model_from_request(request)
+    request_count.labels(model=model, status=response.status_code).inc()
+    request_latency.observe(duration)
+    return response
 ```
+
+### Troubleshooting
+
+**1. Gateway can't reach model services:**
+
+```bash
+# Check if services exist
+kubectl get svc | grep vllm
+
+# Check service endpoints
+kubectl get endpoints vllm-llama-32-1b
+kubectl get endpoints vllm-phi-tiny-moe-service
+
+# Test connectivity from gateway pod
+kubectl exec -it vllm-api-gateway -- curl http://vllm-llama-32-1b:8000/health
+```
+
+**2. Model not found error:**
+
+- Verify the model name in request matches the mapping in `MODEL_TO_SERVICE`
+- Check gateway logs: `kubectl logs vllm-api-gateway`
+- Verify model service is running: `kubectl get pods -l app=vllm`
+
+**3. Routing to wrong model:**
+
+- Check gateway logs for routing decisions
+- Verify `MODEL_TO_SERVICE` mapping is correct
+- Ensure model field is correctly extracted from request body
+
+### Benefits of This Architecture
+
+1. **Unified Interface**: Clients only need to know one endpoint
+2. **Automatic Routing**: No need to manage multiple service endpoints
+3. **Easy Scaling**: Add new models by updating the mapping
+4. **Centralized Control**: Rate limiting, authentication, and monitoring in one place
+5. **Service Isolation**: Each model runs in its own pod/service
+6. **Flexible Deployment**: Models can be deployed on different nodes for resource isolation
+
+**Note:** For comprehensive examples of canary deployments, traffic shifting, and automated rollback, see the "Canary Deployments and A/B Testing" section earlier in this chapter (around line 572), which includes complete implementations with latency tracking, promotion logic, and traffic shifting.
 
 ## Best Practices
 
