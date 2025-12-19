@@ -3159,7 +3159,7 @@ monitoring:
 
 
 
-## Hands-On Example: LLM serving in Kubernetes
+## Hands-On Examples: LLM serving in Kubernetes with k3d
 
 This section demonstrates two practical examples of deploying LLM serving systems in Kubernetes with API Gateway routing:
 
@@ -3890,6 +3890,352 @@ async def metrics(request: Request, call_next):
     request_latency.observe(duration)
     return response
 ```
+
+
+## Hands-On Examples: LLM serving in Kubernetes with llm-d
+
+This section demonstrates how to achieve the same architecture as Example 1 (different models, same inference engine) using llm-d's production-ready Helm charts and intelligent inference scheduling.
+
+### Architecture Overview
+
+llm-d provides a production-grade solution using:
+- **Inference Gateway (IGW)**: Kubernetes-native gateway with intelligent load balancing
+- **InferencePool**: Routes requests to appropriate ModelService instances
+- **ModelService**: Helm chart for deploying vLLM model servers
+- **Intelligent Scheduler**: Load-aware and prefix-cache aware routing
+
+**Architecture:**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Client Applications                      │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+                            │ HTTP Request with 'model' field
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│         Inference Gateway (Kubernetes Gateway API)          │
+│  - Load balancing with prefix-cache awareness               │
+│  - Intelligent request scheduling                           │
+│  - Traffic routing to InferencePool                         │
+└───────────────┬─────────────────────────────────────────────┘
+                │
+                ▼
+┌─────────────────────────────────────────────────────────────┐
+│              InferencePool (Routing Layer)                  │
+│  - Routes requests to appropriate ModelService              │
+│  - Model-aware request distribution                         │
+│  - Health checking and load balancing                       │
+└───────────────┬───────────────────────────┬─────────────────┘
+                │                           │
+                │                           │
+    ┌───────────▼──────────┐    ┌──────────▼──────────┐
+    │  ModelService 1      │    │  ModelService 2     │
+    │  (Llama-3.2-1B)      │    │  (Phi-tiny-MoE)     │
+    │                      │    │                     │
+    │  vLLM Pods (2x)      │    │  vLLM Pods (2x)     │
+    │  - Intelligent       │    │  - Intelligent      │
+    │    load balancing    │    │    load balancing   │
+    │  - Prefix cache      │    │  - Prefix cache     │
+    │    aware routing     │    │    aware routing    │
+    └──────────────────────┘    └─────────────────────┘
+```
+
+### Prerequisites
+
+1. **Install Client Tools:**
+   ```bash
+   cd resources/llm-d/guides/prereq/client-setup
+   ./install-deps.sh
+   ```
+   This installs: `helm`, `helmfile`, `kubectl`, `yq`, `git`
+
+2. **Create Namespace:**
+   ```bash
+   export NAMESPACE=llm-d-multi-model
+   kubectl create namespace ${NAMESPACE}
+   ```
+
+3. **Create HuggingFace Token Secret:**
+   ```bash
+   export HF_TOKEN='your_huggingface_token_here'
+   kubectl create secret generic llm-d-hf-token \
+     --from-literal="HF_TOKEN=${HF_TOKEN}" \
+     --namespace "${NAMESPACE}" \
+     --dry-run=client -o yaml | kubectl apply -f -
+   ```
+
+4. **Deploy Gateway Provider:**
+   ```bash
+   cd resources/llm-d/guides/prereq/gateway-provider
+   ./install-gateway-provider-dependencies.sh
+   
+   # For Istio (default)
+   helmfile apply -f istio.helmfile.yaml
+   
+   # Or for kGateway
+   # helmfile apply -f kgateway.helmfile.yaml
+   ```
+
+### Step 1: Deploy First Model (Llama-3.2-1B-Instruct)
+
+Create a custom values file for the first model:
+
+**File:** `llama-3.2-1b-values.yaml`
+
+```yaml
+multinode: false
+
+modelArtifacts:
+  uri: "hf://meta-llama/Llama-3.2-1B-Instruct"
+  name: "meta-llama/Llama-3.2-1B-Instruct"
+  size: 20Gi
+  authSecretName: "llm-d-hf-token"
+
+routing:
+  servicePort: 8000
+  proxy:
+    image: ghcr.io/llm-d/llm-d-routing-sidecar:v0.4.0-rc.1
+    connector: nixlv2
+    secure: false
+
+decode:
+  create: true
+  replicas: 2
+  containers:
+  - name: "vllm"
+    image: ghcr.io/llm-d/llm-d-cuda:v0.3.1
+    modelCommand: vllmServe
+    args:
+      - "--disable-uvicorn-access-log"
+    resources:
+      limits:
+        nvidia.com/gpu: "1"
+        memory: 8Gi
+      requests:
+        nvidia.com/gpu: "1"
+        memory: 6Gi
+    mountModelVolume: true
+
+prefill:
+  create: false
+```
+
+**Deploy:**
+
+```bash
+cd resources/llm-d/guides/inference-scheduling
+
+# Deploy first model with custom release name
+RELEASE_NAME_POSTFIX=llama-3.2-1b \
+helmfile apply -n ${NAMESPACE} \
+  --set-file ms-llama-3.2-1b.values[0]=llama-3.2-1b-values.yaml
+```
+
+### Step 2: Deploy Second Model (Phi-tiny-MoE-instruct)
+
+Create a custom values file for the second model:
+
+**File:** `phi-tiny-moe-values.yaml`
+
+```yaml
+multinode: false
+
+modelArtifacts:
+  uri: "hf://microsoft/Phi-3.5-MoE-instruct"  # Or local path: "/models/Phi-tiny-MoE-instruct"
+  name: "/models/Phi-tiny-MoE-instruct"
+  size: 30Gi
+  authSecretName: "llm-d-hf-token"
+
+routing:
+  servicePort: 8000
+  proxy:
+    image: ghcr.io/llm-d/llm-d-routing-sidecar:v0.4.0-rc.1
+    connector: nixlv2
+    secure: false
+
+decode:
+  create: true
+  replicas: 2
+  containers:
+  - name: "vllm"
+    image: ghcr.io/llm-d/llm-d-cuda:v0.3.1
+    modelCommand: vllmServe
+    args:
+      - "--disable-uvicorn-access-log"
+    resources:
+      limits:
+        nvidia.com/gpu: "1"
+        memory: 32Gi
+      requests:
+        nvidia.com/gpu: "1"
+        memory: 16Gi
+    mountModelVolume: true
+
+prefill:
+  create: false
+```
+
+**Deploy:**
+
+```bash
+# Deploy second model with different release name
+RELEASE_NAME_POSTFIX=phi-tiny-moe \
+helmfile apply -n ${NAMESPACE} \
+  --set-file ms-phi-tiny-moe.values[0]=phi-tiny-moe-values.yaml
+```
+
+### Step 3: Configure InferencePool for Multi-Model Routing
+
+The InferencePool automatically discovers ModelService instances and routes requests based on the `model` field. Create or update the InferencePool configuration:
+
+**File:** `inferencepool-multi-model-values.yaml`
+
+```yaml
+provider:
+  name: istio  # or kgateway, gke, etc.
+
+inferencePool:
+  apiVersion: inference.networking.k8s.io/v1
+  metadata:
+    name: multi-model-pool
+  spec:
+    # InferencePool automatically discovers ModelService instances
+    # and routes based on model field in requests
+```
+
+**Deploy InferencePool:**
+
+```bash
+helm install multi-model-pool \
+  -n ${NAMESPACE} \
+  -f inferencepool-multi-model-values.yaml \
+  --set "provider.name=istio" \
+  --set "inferenceExtension.monitoring.prometheus.enable=true" \
+  oci://us-central1-docker.pkg.dev/k8s-staging-images/gateway-api-inference-extension/charts/inferencepool \
+  --version v1.2.0-rc.1
+```
+
+### Step 4: Deploy HTTPRoute
+
+Create an HTTPRoute to expose the InferencePool:
+
+**File:** `httproute-multi-model.yaml`
+
+```yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: multi-model-route
+  namespace: ${NAMESPACE}
+spec:
+  parentRefs:
+  - name: gateway  # Your Gateway name
+    namespace: istio-system
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /
+    backendRefs:
+    - name: multi-model-pool-epp
+      port: 8000
+```
+
+**Deploy:**
+
+```bash
+kubectl apply -f httproute-multi-model.yaml -n ${NAMESPACE}
+```
+
+### Step 5: Test Multi-Model Routing
+
+**1. Get Gateway External IP:**
+
+```bash
+kubectl get gateway -n istio-system
+GATEWAY_IP=$(kubectl get svc -n istio-system -l istio=gateway -o jsonpath='{.items[0].status.loadBalancer.ingress[0].ip}')
+echo "Gateway IP: ${GATEWAY_IP}"
+```
+
+**2. List Available Models:**
+
+```bash
+curl http://${GATEWAY_IP}/v1/models
+```
+
+**Response:**
+```json
+{
+  "object": "list",
+  "data": [
+    {
+      "id": "meta-llama/Llama-3.2-1B-Instruct",
+      "object": "model",
+      "created": 0,
+      "owned_by": "vllm"
+    },
+    {
+      "id": "/models/Phi-tiny-MoE-instruct",
+      "object": "model",
+      "created": 0,
+      "owned_by": "vllm"
+    }
+  ]
+}
+```
+
+**3. Request to Llama Model:**
+
+```bash
+curl http://${GATEWAY_IP}/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "meta-llama/Llama-3.2-1B-Instruct",
+    "messages": [
+      {"role": "user", "content": "What is machine learning?"}
+    ],
+    "max_tokens": 100
+  }'
+```
+
+**4. Request to Phi-tiny-MoE Model:**
+
+```bash
+curl http://${GATEWAY_IP}/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "/models/Phi-tiny-MoE-instruct",
+    "messages": [
+      {"role": "user", "content": "What is a mixture of experts?"}
+    ],
+    "max_tokens": 100
+  }'
+```
+
+### Key Advantages of llm-d Approach
+
+1. **Production-Ready**: Tested and benchmarked configurations
+2. **Intelligent Routing**: Prefix-cache aware and load-aware balancing
+3. **Automatic Discovery**: InferencePool automatically discovers ModelService instances
+4. **Monitoring**: Built-in Prometheus metrics and Grafana dashboards
+5. **Scalability**: Easy to add more models or scale replicas
+6. **Multi-Hardware Support**: Works with NVIDIA, AMD, Intel XPU, Google TPU
+7. **Advanced Features**: Supports prefill/decode disaggregation, expert parallelism, etc.
+
+### Comparison: k3d vs llm-d
+
+| Feature | k3d (Manual) | llm-d (Production) |
+|---------|--------------|---------------------|
+| **Setup Complexity** | Manual YAML files | Helm charts (automated) |
+| **Routing** | Custom API Gateway | Inference Gateway (K8s native) |
+| **Load Balancing** | Basic round-robin | Intelligent (prefix-cache aware) |
+| **Monitoring** | Manual setup | Built-in Prometheus/Grafana |
+| **Scaling** | Manual pod management | HPA-ready, autoscaling support |
+| **Multi-Model** | Manual service mapping | Automatic discovery |
+| **Production Features** | Limited | Full production stack |
+
+
 
 ## Best Practices
 
