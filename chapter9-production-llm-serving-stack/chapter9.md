@@ -1503,6 +1503,114 @@ docker buildx build \
 
 ### Creating a 2-Node GPU Cluster
 
+**Architecture Overview:**
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          Host Machine (Linux)                                │
+│                                                                               │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                    Docker Engine                                     │   │
+│  │                                                                       │   │
+│  │  ┌───────────────────────────────────────────────────────────────┐ │   │
+│  │  │         k3d Network: k3d-mycluster-gpu                          │ │   │
+│  │  │                                                                 │ │   │
+│  │  │  ┌─────────────────────────────────────────────────────────┐  │ │   │
+│  │  │  │  Control Plane Node (Server-0)                           │  │ │   │
+│  │  │  │  Container: k3d-mycluster-gpu-server-0                    │  │ │   │
+│  │  │  │  Image: k3s-cuda:v1.33.6-cuda-12.2.0                      │  │ │   │
+│  │  │  │  ┌───────────────────────────────────────────────────┐  │  │ │   │
+│  │  │  │  │  Kubernetes Control Plane Services                  │  │  │ │   │
+│  │  │  │  │  ├─ kube-apiserver (port 6443)                      │  │  │ │   │
+│  │  │  │  │  ├─ kube-controller-manager                         │  │  │ │   │
+│  │  │  │  │  ├─ kube-scheduler                                  │  │  │ │   │
+│  │  │  │  │  ├─ etcd (state storage)                           │  │  │ │   │
+│  │  │  │  │  └─ kubelet (node agent)                           │  │  │ │   │
+│  │  │  │  │                                                     │  │  │ │   │
+│  │  │  │  │  ┌─────────────────────────────────────────────┐  │  │  │ │   │
+│  │  │  │  │  │  kube-system Namespace                       │  │  │  │ │   │
+│  │  │  │  │  │  ├─ nvidia-device-plugin-daemonset           │  │  │  │ │   │
+│  │  │  │  │  │  │   └─ Discovers & exposes GPUs to K8s     │  │  │  │ │   │
+│  │  │  │  │  │  ├─ local-path-provisioner                    │  │  │  │ │   │
+│  │  │  │  │  │  └─ coredns (DNS)                             │  │  │  │ │   │
+│  │  │  │  │  └─────────────────────────────────────────────┘  │  │  │ │   │
+│  │  │  │  └───────────────────────────────────────────────────┘  │  │ │   │
+│  │  │  │                                                          │  │ │   │
+│  │  │  │  GPU Access: --gpus=all (shared with host)              │  │ │   │
+│  │  │  │  Volume Mount: /raid/models → /models (optional)        │  │ │   │
+│  │  │  └─────────────────────────────────────────────────────────┘  │ │   │
+│  │  │                                                                 │ │   │
+│  │  │  ┌─────────────────────────────────────────────────────────┐  │ │   │
+│  │  │  │  Worker Node (Agent-0)                                  │  │ │   │
+│  │  │  │  Container: k3d-mycluster-gpu-agent-0                    │  │ │   │
+│  │  │  │  Image: k3s-cuda:v1.33.6-cuda-12.2.0                    │  │ │   │
+│  │  │  │  ┌───────────────────────────────────────────────────┐  │  │ │   │
+│  │  │  │  │  Kubernetes Worker Services                       │  │  │ │   │
+│  │  │  │  │  ├─ kubelet (connects to API server)              │  │  │ │   │
+│  │  │  │  │  ├─ kube-proxy (network proxy)                    │  │  │ │   │
+│  │  │  │  │  └─ containerd (container runtime)               │  │  │ │   │
+│  │  │  │  │                                                     │  │  │ │   │
+│  │  │  │  │  ┌─────────────────────────────────────────────┐  │  │  │ │   │
+│  │  │  │  │  │  Workload Pods (default namespace)         │  │  │  │ │   │
+│  │  │  │  │  │  ├─ vLLM pods (with GPU requests)           │  │  │  │ │   │
+│  │  │  │  │  │  ├─ gpu-test pods                            │  │  │  │ │   │
+│  │  │  │  │  │  └─ Other application pods                   │  │  │  │ │   │
+│  │  │  │  │  └─────────────────────────────────────────────┘  │  │  │ │   │
+│  │  │  │  │                                                     │  │  │ │   │
+│  │  │  │  │  ┌─────────────────────────────────────────────┐  │  │  │ │   │
+│  │  │  │  │  │  kube-system Namespace                     │  │  │  │ │   │
+│  │  │  │  │  │  ├─ nvidia-device-plugin-daemonset           │  │  │  │ │   │
+│  │  │  │  │  │  │   └─ Reports GPU capacity to API server   │  │  │  │ │   │
+│  │  │  │  │  │  └─ local-path-provisioner                  │  │  │  │ │   │
+│  │  │  │  │  └─────────────────────────────────────────────┘  │  │  │ │   │
+│  │  │  │  └───────────────────────────────────────────────────┘  │  │ │   │
+│  │  │  │                                                          │  │ │   │
+│  │  │  │  GPU Access: --gpus=all (shared with host)              │  │ │   │
+│  │  │  │  Volume Mount: /raid/models → /models (optional)        │  │ │   │
+│  │  │  └─────────────────────────────────────────────────────────┘  │ │   │
+│  │  │                                                                 │ │   │
+│  │  │  Network: Docker bridge network                                │ │   │
+│  │  │  ├─ Server-0: 172.18.0.2 (API: 6443)                         │ │   │
+│  │  │  └─ Agent-0:  172.18.0.3 (connects to Server-0)               │ │   │
+│  │  └───────────────────────────────────────────────────────────────┘ │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                               │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                    Physical GPU Resources                              │   │
+│  │  ┌──────┐  ┌──────┐  ┌──────┐  ┌──────┐  ┌──────┐  ┌──────┐         │   │
+│  │  │ GPU0 │  │ GPU1 │  │ GPU2 │  │ GPU3 │  │ GPU4 │  │ GPU5 │  ...    │   │
+│  │  └──────┘  └──────┘  └──────┘  └──────┘  └──────┘  └──────┘         │   │
+│  │     │         │         │         │         │         │              │   │
+│  │     └─────────┴─────────┴─────────┴─────────┴─────────┘              │   │
+│  │                    │                                                  │   │
+│  │                    ▼                                                  │   │
+│  │         NVIDIA Device Plugin (DaemonSet)                               │   │
+│  │         Discovers GPUs and exposes as nvidia.com/gpu resource          │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                               │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                    Host Filesystem                                   │   │
+│  │  /raid/models/  (mounted into containers as /models)                 │   │
+│  │  ├─ Llama-3.2-1B-Instruct/                                           │   │
+│  │  ├─ Phi-tiny-MoE-instruct/                                           │   │
+│  │  └─ ... (other models)                                                │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                               │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                    kubectl Access                                    │   │
+│  │  ~/.kube/config → k3d-mycluster-gpu                                  │   │
+│  │  Server: https://127.0.0.1:6443 (via k3d proxy)                     │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+Key Components:
+├─ Control Plane Node: Manages cluster state, schedules pods, exposes API
+├─ Worker Node: Runs application workloads (vLLM pods, etc.)
+├─ NVIDIA Device Plugin: Discovers GPUs and makes them available to K8s
+├─ Volume Mounts: Optional model directory sharing between host and containers
+└─ Network: Docker bridge network connecting all nodes
+```
+
 **Step 1: Create the Cluster**
 
 **Important:** You must use the custom `k3s-cuda` image built in the previous section. This image provides GPU support for the Kubernetes cluster nodes.
@@ -3051,11 +3159,42 @@ monitoring:
 
 
 
-## Hands-On Example: Deploying Two Models in Kubernetes with API Gateway Routing
+## Hands-On Example: LLM serving in Kubernetes
+
+This section demonstrates two practical examples of deploying LLM serving systems in Kubernetes with API Gateway routing:
+
+1. **Example 1**: Deploying different models using the same inference engine (vLLM)
+2. **Example 2**: Deploying the same model using different inference engines (vLLM vs SGLang)
+
+### How Routing Works
+
+This is the final routing solution that supports routing based on both model and inference engine. The gateway routes requests using both the `model` field and the `owned_by` field.
+
+1. **Client sends request** to API Gateway with both `model` and `owned_by` fields:
+   ```json
+   {
+     "model": "meta-llama/Llama-3.2-1B-Instruct",
+     "owned_by": "sglang",
+     "messages": [...]
+   }
+   ```
+
+2. **Gateway parses request** and extracts both the `model` field and the `owned_by` field from the JSON body.
+
+3. **Gateway looks up service** using both fields:
+   - `("meta-llama/Llama-3.2-1B-Instruct", "vllm")` → `vllm-llama-32-1b`
+   - `("meta-llama/Llama-3.2-1B-Instruct", "sglang")` → `sglang-llama-32-1b`
+   - `("meta-llama/Llama-3.2-1B-Instruct", None)` → `vllm-llama-32-1b` (default)
+
+4. **Gateway forwards request** to the target service based on the inference engine specified.
+
+5. **Gateway returns response** to client (with streaming support if requested).
+
+### Example 1: Different Models, Same Inference Engine (vLLM)
 
 This example demonstrates how to deploy multiple vLLM models in a Kubernetes cluster and use an API Gateway to provide a unified interface that automatically routes requests to the correct model based on the `model` field in the request.
 
-### Architecture Overview
+**Architecture:**
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -3072,7 +3211,7 @@ This example demonstrates how to deploy multiple vLLM models in a Kubernetes clu
 └───────────────┬───────────────────────────┬─────────────────┘
                 │                           │
                 │                           │
-    ┌───────────▼──────────┐    ┌──────────▼──────────┐
+    ┌───────────▼──────────┐    ┌───────────▼─────────┐
     │  vLLM Service 1      │    │  vLLM Service 2     │
     │  (Llama-3.2-1B)      │    │  (Phi-tiny-MoE)     │
     │                      │    │                     │
@@ -3082,7 +3221,13 @@ This example demonstrates how to deploy multiple vLLM models in a Kubernetes clu
     └──────────────────────┘    └─────────────────────┘
 ```
 
-### Step 1: Deploy First Model (Llama-3.2-1B-Instruct)
+This diagram shows two vLLM services serving different models:
+- **vLLM Service 1**: Serves Llama-3.2-1B-Instruct (owned_by: "vllm")
+- **vLLM Service 2**: Serves Phi-tiny-MoE-instruct (owned_by: "vllm")
+
+Both use the same inference engine (vLLM) but serve different models. The gateway routes based on the `model` field in the request.
+
+#### Step 1: Deploy First Model (Llama-3.2-1B-Instruct)
 
 **File:** `code/vllm/llama-3.2-1b.yaml`
 
@@ -3156,7 +3301,7 @@ kubectl apply -f code/vllm/llama-3.2-1b.yaml
 kubectl wait --for=condition=Ready pod/vllm-llama-32-1b --timeout=300s
 ```
 
-### Step 2: Deploy Second Model (Phi-tiny-MoE-instruct)
+#### Step 2: Deploy Second Model (Phi-tiny-MoE-instruct)
 
 **File:** `code/vllm/phi-tiny-moe.yaml`
 
@@ -3238,48 +3383,29 @@ kubectl apply -f code/vllm/phi-tiny-moe.yaml
 kubectl wait --for=condition=Ready pod -l app=vllm,model=phi-tiny-moe --timeout=600s
 ```
 
-### Step 3: Deploy API Gateway
+#### Step 3: Deploy API Gateway
 
 The API Gateway provides a unified entry point that automatically routes requests to the correct vLLM service based on the `model` field in the request body.
 
-**File:** `code/vllm/api-gateway.yaml`
-
-The gateway consists of:
-1. **ConfigMap** containing the Python gateway code
-2. **Pod** running the FastAPI gateway service
-3. **Service** exposing the gateway
+**File:** `code/api-gateway.yaml`
 
 **Key Features:**
 - **Automatic Routing**: Routes requests based on `model` field in request body
 - **Unified Interface**: Single endpoint for all models (`/v1/chat/completions`)
 - **Model Discovery**: Aggregates model lists from all services (`/v1/models`)
 - **Streaming Support**: Supports streaming responses
-- **Error Handling**: Graceful error handling with informative messages
-
-**Model-to-Service Mapping:**
-
-```python
-MODEL_TO_SERVICE = {
-    "meta-llama/Llama-3.2-1B-Instruct": "vllm-llama-32-1b",
-    "/models/Phi-tiny-MoE-instruct": "vllm-phi-tiny-moe-service",
-    "Phi-tiny-MoE-instruct": "vllm-phi-tiny-moe-service",
-}
-```
 
 **Deploy:**
 
 ```bash
 # Deploy API Gateway
-kubectl apply -f code/vllm/api-gateway.yaml
+kubectl apply -f code/api-gateway.yaml
 
 # Wait for gateway to be ready
 kubectl wait --for=condition=Ready pod/vllm-api-gateway --timeout=60s
-
-# Check status
-kubectl get pod,svc -l app=vllm-gateway
 ```
 
-### Step 4: Using the Unified Interface
+#### Step 4: Using the Unified Interface
 
 Once deployed, all requests go through the API Gateway, which automatically routes to the correct model service.
 
@@ -3356,61 +3482,331 @@ curl http://localhost:8000/v1/chat/completions \
   }'
 ```
 
-### How Routing Works
+### Example 2: Same Model, Different Inference Engines (vLLM vs SGLang)
 
-1. **Client sends request** to API Gateway with `model` field in request body:
+This example demonstrates how to deploy the same model (Llama-3.2-1B-Instruct) using different inference engines (vLLM and SGLang) and use an API Gateway to route requests based on both the `model` field and the `owned_by` field.
+
+**Architecture:**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Client Applications                      │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+                            │ HTTP Request with 'model' and 
+                            │ 'owned_by' fields
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│              API Gateway (Unified Entry Point)              │
+│  - Parses 'model' field from request body                   │
+│  - Parses 'owned_by' field                                  │
+│  - Routes to appropriate service based on both fields       │
+│  - Returns response to client                               │
+└───────────────┬───────────────────────────┬─────────────────┘
+                │                           │
+                │                           │
+    ┌───────────▼──────────┐    ┌───────────▼─────────┐
+    │  vLLM Service        │    │  SGLang Service     │
+    │  (Llama-3.2-1B)      │    │  (Llama-3.2-1B)     │
+    │                      │    │                     │
+    │ Pod: vllm-llama-32-1b│    │  Pod: sglang-llama- │
+    │ Service: vllm-llama- │    │    32-1b            │
+    │    32-1b:8000        │    │  Service: sglang-   │
+    │                      │    │    llama-32-1b:8000 │
+    │ owned_by: "vllm"     │    │  owned_by: "sglang" │
+    │                      │    │                     │
+    │ Image: vllm/vllm-    │    │  Image: lmsysorg/   │
+    │   openai:v0.12.0     │    │    sglang:v0.5.6    │
+    └──────────────────────┘    └─────────────────────┘
+```
+
+**Routing Logic:**
+
+1. **Request with vLLM engine:**
+   ```json
+   {
+     "model": "meta-llama/Llama-3.2-1B-Instruct",
+     "owned_by": "vllm",
+     "messages": [...]
+   }
+   ```
+   → Routes to `vllm-llama-32-1b:8000`
+
+2. **Request with SGLang engine:**
+   ```json
+   {
+     "model": "meta-llama/Llama-3.2-1B-Instruct",
+     "owned_by": "sglang",
+     "messages": [...]
+   }
+   ```
+   → Routes to `sglang-llama-32-1b:8000`
+
+3. **Request without owned_by (defaults to vLLM):**
    ```json
    {
      "model": "meta-llama/Llama-3.2-1B-Instruct",
      "messages": [...]
    }
    ```
+   → Routes to `vllm-llama-32-1b:8000` (default)
 
-2. **Gateway parses request** and extracts the `model` field from the JSON body.
+**Key Differences:**
+- **Same Model**: Both services serve `meta-llama/Llama-3.2-1B-Instruct`
+- **Different Engines**: vLLM vs SGLang (different inference engines)
+- **Different owned_by**: "vllm" vs "sglang" (used for routing)
+- **Different Images**: Different container images for each engine
+- **Different Performance**: Each engine has different characteristics (latency, throughput, etc.)
 
-3. **Gateway looks up service** using the `MODEL_TO_SERVICE` mapping:
-   - `"meta-llama/Llama-3.2-1B-Instruct"` → `"vllm-llama-32-1b"`
-   - `"/models/Phi-tiny-MoE-instruct"` → `"vllm-phi-tiny-moe-service"`
+This setup allows clients to:
+- Compare performance between inference engines
+- A/B test different engines
+- Route based on workload characteristics (e.g., use SGLang for structured generation, vLLM for chat)
 
-4. **Gateway forwards request** to the target service:
-   ```
-   POST http://vllm-llama-32-1b:8000/v1/chat/completions
-   ```
+#### Step 1: Deploy vLLM Service for Llama-3.2-1B-Instruct
 
-5. **Gateway returns response** to client (with streaming support if requested).
+Deploy the vLLM service serving Llama-3.2-1B-Instruct. This is the same deployment as in Example 1, Step 1.
 
-### Adding a New Model
+**File:** `code/vllm/llama-3.2-1b.yaml`
 
-To add a third model:
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: vllm-llama-32-1b
+  labels:
+    app: vllm
+    model: llama-32-1b
+spec:
+  runtimeClassName: nvidia
+  containers:
+  - name: vllm-server
+    image: vllm/vllm-openai:v0.12.0
+    command:
+    - python3
+    - -m
+    - vllm.entrypoints.openai.api_server
+    args:
+    - --model
+    - meta-llama/Llama-3.2-1B-Instruct
+    - --host
+    - "0.0.0.0"
+    - --port
+    - "8000"
+    - --tensor-parallel-size
+    - "1"
+    - --gpu-memory-utilization
+    - "0.9"
+    env:
+    - name: HF_TOKEN
+      valueFrom:
+        secretKeyRef:
+          name: hf-token-secret
+          key: token
+    resources:
+      limits:
+        nvidia.com/gpu: 1
+        memory: 8Gi
+      requests:
+        nvidia.com/gpu: 1
+        memory: 6Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-llama-32-1b
+spec:
+  type: ClusterIP
+  selector:
+    app: vllm
+    model: llama-32-1b
+  ports:
+  - port: 8000
+    targetPort: 8000
+```
 
-1. **Deploy the new model** (create Pod/Deployment and Service):
-   ```yaml
-   apiVersion: v1
-   kind: Service
-   metadata:
-     name: vllm-mistral-7b-service
-   spec:
-     selector:
-       app: vllm
-       model: mistral-7b
-     ports:
-     - port: 8000
-   ```
+**Deploy:**
 
-2. **Update API Gateway ConfigMap** to add the new model mapping:
-   ```python
-   MODEL_TO_SERVICE = {
-       "meta-llama/Llama-3.2-1B-Instruct": "vllm-llama-32-1b",
-       "/models/Phi-tiny-MoE-instruct": "vllm-phi-tiny-moe-service",
-       "mistralai/Mistral-7B-Instruct-v0.1": "vllm-mistral-7b-service",  # New
-   }
-   ```
+```bash
+# Create HuggingFace token secret (if not already created)
+kubectl create secret generic hf-token-secret \
+  --from-literal=token="$HF_TOKEN"
 
-3. **Redeploy the gateway**:
-   ```bash
-   kubectl apply -f code/vllm/api-gateway.yaml
-   kubectl rollout restart pod/vllm-api-gateway
-   ```
+# Deploy model
+kubectl apply -f code/vllm/llama-3.2-1b.yaml
+
+# Wait for pod to be ready
+kubectl wait --for=condition=Ready pod/vllm-llama-32-1b --timeout=300s
+```
+
+#### Step 2: Deploy SGLang Service for Llama-3.2-1B-Instruct
+
+Deploy the SGLang service serving the same model (Llama-3.2-1B-Instruct) but using a different inference engine.
+
+**File:** `code/sglang/llama-3.2-1b.yaml`
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: sglang-llama-32-1b
+  labels:
+    app: sglang
+    model: llama-32-1b
+spec:
+  runtimeClassName: nvidia
+  containers:
+  - name: sglang-server
+    image: lmsysorg/sglang:v0.5.6.post2-runtime
+    command:
+    - python3
+    - -m
+    - sglang.launch_server
+    args:
+    - --model-path
+    - meta-llama/Llama-3.2-1B-Instruct
+    - --host
+    - "0.0.0.0"
+    - --port
+    - "8000"
+    - --trust-remote-code
+    env:
+    - name: HF_TOKEN
+      valueFrom:
+        secretKeyRef:
+          name: hf-token-secret
+          key: token
+    resources:
+      limits:
+        nvidia.com/gpu: 1
+        memory: 8Gi
+      requests:
+        nvidia.com/gpu: 1
+        memory: 6Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sglang-llama-32-1b
+spec:
+  type: ClusterIP
+  selector:
+    app: sglang
+    model: llama-32-1b
+  ports:
+  - port: 8000
+    targetPort: 8000
+```
+
+**Deploy:**
+
+```bash
+# Deploy SGLang service
+kubectl apply -f code/sglang/llama-3.2-1b.yaml
+
+# Wait for pod to be ready
+kubectl wait --for=condition=Ready pod/sglang-llama-32-1b --timeout=300s
+```
+
+#### Step 3: Update API Gateway Configuration
+
+The API Gateway needs to be configured to route based on both `model` and `owned_by` fields. The gateway code already supports this routing logic (see `code/api-gateway.py`).
+
+**Routing Configuration:**
+
+The gateway uses the following routing logic:
+- `("meta-llama/Llama-3.2-1B-Instruct", "vllm")` → `vllm-llama-32-1b`
+- `("meta-llama/Llama-3.2-1B-Instruct", "sglang")` → `sglang-llama-32-1b`
+- `("meta-llama/Llama-3.2-1B-Instruct", None)` → `vllm-llama-32-1b` (default)
+
+**Deploy/Update Gateway:**
+
+```bash
+# Deploy or update API Gateway
+kubectl apply -f code/api-gateway.yaml
+
+# Wait for gateway to be ready
+kubectl wait --for=condition=Ready pod/vllm-api-gateway --timeout=60s
+```
+
+#### Step 4: Test the Unified Interface
+
+Test routing to both inference engines using the `owned_by` field.
+
+**1. List Available Models:**
+
+```bash
+# Port forward gateway
+kubectl port-forward svc/vllm-api-gateway 8000:8000
+
+# List all models (should show both vllm and sglang versions)
+curl http://localhost:8000/v1/models
+```
+
+**Response:**
+```json
+{
+  "object": "list",
+  "data": [
+    {
+      "id": "meta-llama/Llama-3.2-1B-Instruct",
+      "object": "model",
+      "created": 0,
+      "owned_by": "vllm"
+    },
+    {
+      "id": "meta-llama/Llama-3.2-1B-Instruct",
+      "object": "model",
+      "created": 0,
+      "owned_by": "sglang"
+    }
+  ]
+}
+```
+
+**2. Request with vLLM Engine:**
+
+```bash
+curl http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "meta-llama/Llama-3.2-1B-Instruct",
+    "owned_by": "vllm",
+    "messages": [
+      {"role": "user", "content": "What is machine learning?"}
+    ],
+    "max_tokens": 100
+  }'
+```
+
+**3. Request with SGLang Engine:**
+
+```bash
+curl http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "meta-llama/Llama-3.2-1B-Instruct",
+    "owned_by": "sglang",
+    "messages": [
+      {"role": "user", "content": "What is machine learning?"}
+    ],
+    "max_tokens": 100
+  }'
+```
+
+**4. Request without owned_by (defaults to vLLM):**
+
+```bash
+curl http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "meta-llama/Llama-3.2-1B-Instruct",
+    "messages": [
+      {"role": "user", "content": "What is machine learning?"}
+    ],
+    "max_tokens": 100
+  }'
+```
 
 ### Production Considerations
 
@@ -3494,45 +3890,6 @@ async def metrics(request: Request, call_next):
     request_latency.observe(duration)
     return response
 ```
-
-### Troubleshooting
-
-**1. Gateway can't reach model services:**
-
-```bash
-# Check if services exist
-kubectl get svc | grep vllm
-
-# Check service endpoints
-kubectl get endpoints vllm-llama-32-1b
-kubectl get endpoints vllm-phi-tiny-moe-service
-
-# Test connectivity from gateway pod
-kubectl exec -it vllm-api-gateway -- curl http://vllm-llama-32-1b:8000/health
-```
-
-**2. Model not found error:**
-
-- Verify the model name in request matches the mapping in `MODEL_TO_SERVICE`
-- Check gateway logs: `kubectl logs vllm-api-gateway`
-- Verify model service is running: `kubectl get pods -l app=vllm`
-
-**3. Routing to wrong model:**
-
-- Check gateway logs for routing decisions
-- Verify `MODEL_TO_SERVICE` mapping is correct
-- Ensure model field is correctly extracted from request body
-
-### Benefits of This Architecture
-
-1. **Unified Interface**: Clients only need to know one endpoint
-2. **Automatic Routing**: No need to manage multiple service endpoints
-3. **Easy Scaling**: Add new models by updating the mapping
-4. **Centralized Control**: Rate limiting, authentication, and monitoring in one place
-5. **Service Isolation**: Each model runs in its own pod/service
-6. **Flexible Deployment**: Models can be deployed on different nodes for resource isolation
-
-**Note:** For comprehensive examples of canary deployments, traffic shifting, and automated rollback, see the "Canary Deployments and A/B Testing" section earlier in this chapter (around line 572), which includes complete implementations with latency tracking, promotion logic, and traffic shifting.
 
 ## Best Practices
 

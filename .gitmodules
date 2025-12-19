@@ -46,3 +46,6 @@
 [submodule "resources/guidellm"]
 	path = resources/guidellm
 	url = https://github.com/vllm-project/guidellm.git
+[submodule "resources/llm-d"]
+	path = resources/llm-d
+	url = https://github.com/llm-d/llm-d.git
