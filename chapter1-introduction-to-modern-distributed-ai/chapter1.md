@@ -925,7 +925,7 @@ Most of the time, you won't call these operations directly. DDP handles AllReduc
 
 ### DistributedDataParallel (DDP)
 
-This section provides a brief overview of DDP. Chapter 3 covers DDP in depth with detailed implementation, optimization techniques, and best practices.
+Among the various distributed training strategies, DDP is the simplest to understand and use. It requires minimal changes to your single-GPU training code, and it's the most common starting point for distributed training. This section provides a brief overview of DDP. Chapter 3 covers DDP in depth with detailed implementation, optimization techniques, and best practices.
 
 DDP wraps a model for data-parallel distributed training. When you wrap a model with DDP, PyTorch automatically synchronizes gradients across all processes. Each process computes gradients on its local data, then DDP averages these gradients before updating the model.
 
@@ -977,10 +977,7 @@ Now that we understand when and why to use distributed systems, we need to under
 
 ## Further Reading
 
-PyTorch Distributed Training: https://pytorch.org/tutorials/intermediate/ddp_tutorial.html
-
-NVIDIA NCCL Documentation: https://docs.nvidia.com/deeplearning/nccl/
-
-GPU Memory Management: https://pytorch.org/docs/stable/notes/cuda.html
-
-Profiling PyTorch Models: https://pytorch.org/tutorials/recipes/recipes/profiler_recipe.html
+- PyTorch Distributed Training: https://pytorch.org/tutorials/intermediate/ddp_tutorial.html
+- NVIDIA NCCL Documentation: https://docs.nvidia.com/deeplearning/nccl/
+- GPU Memory Management: https://pytorch.org/docs/stable/notes/cuda.html
+- Profiling PyTorch Models: https://pytorch.org/tutorials/recipes/recipes/profiler_recipe.html

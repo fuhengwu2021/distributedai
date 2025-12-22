@@ -8,7 +8,11 @@ This chapter is a hands-on guide to using DDP for multi-GPU and multi-node train
 
 ## 1. How DDP Works Internally
 
-Before diving into code, let's understand what DDP actually does. When you wrap a model with `DistributedDataParallel`, you're telling PyTorch to replicate the model across multiple processes (typically one per GPU) and synchronize gradients during training. The magic happens during the backward pass—DDP automatically aggregates gradients from all processes and ensures every process has the same updated parameters.
+Before diving into code, let's understand what DDP actually does.
+
+![](img/ddp.png)
+
+When you wrap a model with `DistributedDataParallel`, you're telling PyTorch to replicate the model across multiple processes (typically one per GPU) and synchronize gradients during training. The magic happens during the backward pass—DDP automatically aggregates gradients from all processes and ensures every process has the same updated parameters.
 
 ### The Basic Flow
 
@@ -26,37 +30,19 @@ This is **data parallelism**: the model is replicated, but data is sharded. Each
 
 ### Data Parallel (DP) vs Distributed Data Parallel (DDP)
 
-Before DDP, PyTorch had `DataParallel` (DP), which is still available but largely superseded by DDP. Understanding the differences helps explain why DDP is the preferred choice for distributed training.
+Before DDP, PyTorch had `DataParallel` (DP), which is still available but largely superseded by DDP. DP uses a single-process, multi-threaded approach that runs on a single machine. It has several limitations: Python's GIL prevents true parallelism, all gradient synchronization happens on GPU 0 creating a bottleneck, and it can't scale across multiple machines.
 
-**DataParallel (DP)** uses a single-process, multi-threaded approach. It runs on a single machine and can only use GPUs on that machine. Here's how it works:
-
-1. **Forward pass**: The model is replicated on each GPU, and the mini-batch is split across GPUs. Each GPU processes its portion of the data.
-
-2. **Gradient collection**: After backward pass, gradients from all GPUs are collected on GPU 0 (the main GPU).
-
-3. **Parameter update**: GPU 0 updates model parameters, then broadcasts updated parameters to all other GPUs.
-
-DP has several limitations:
-
-- **Python GIL bottleneck**: DP uses multi-threading, which is limited by Python's Global Interpreter Lock (GIL). This prevents true parallelism and limits CPU utilization.
-
-- **Single GPU bottleneck**: All gradient accumulation and parameter updates happen on GPU 0, creating an imbalance where GPU 0 is heavily utilized while other GPUs sit idle.
-
-- **Single-machine only**: DP can't scale across multiple machines, limiting the maximum number of GPUs you can use.
-
-- **Communication overhead**: Gradients must be transferred to GPU 0 and parameters broadcast back, creating communication bottlenecks.
+![](img/data_parallel.png)
 
 **DistributedDataParallel (DDP)** addresses these limitations:
 
-- **Multi-process architecture**: DDP uses separate processes (one per GPU), avoiding Python GIL limitations and enabling true parallelism.
+![](img/distributed_data_parallel.png)
 
-- **Multi-machine support**: DDP can scale across multiple machines connected via network, enabling training on hundreds or thousands of GPUs.
+DDP uses a multi-process architecture instead of multi-threading. Each GPU runs in its own process, which avoids Python's GIL limitations and enables true parallelism. Unlike DP, DDP can scale across multiple machines connected via network. You're not limited to GPUs in a single machine—you can train on hundreds or thousands of GPUs across a cluster.
 
-- **Efficient communication**: DDP uses optimized collective communication (Ring AllReduce, tree algorithms) that distribute work across all GPUs, not just GPU 0.
+Communication is more efficient too. DDP uses optimized collective communication primitives like Ring AllReduce and tree algorithms. These distribute the work across all GPUs, not just GPU 0. Instead of one GPU doing all the work, every GPU participates in the gradient synchronization. This eliminates the single-GPU bottleneck that plagues DP.
 
-- **Computation-communication overlap**: DDP overlaps gradient synchronization with computation, hiding communication latency.
-
-- **Balanced workload**: All GPUs participate equally in gradient synchronization, eliminating the single-GPU bottleneck.
+DDP also overlaps gradient synchronization with computation. While one bucket of gradients is being synchronized, the next bucket can start computing. This hides communication latency, making the overall training faster. All GPUs participate equally in gradient synchronization, creating a balanced workload across the entire system.
 
 For these reasons, DDP is the standard for distributed training. DP is mainly useful for simple single-machine multi-GPU scenarios, but even then, DDP usually performs better.
 
@@ -517,13 +503,15 @@ The simplest way to launch multi-node training is with `torchrun` on each node. 
 On the master node (node 0):
 
 ```bash
-torchrun --nnodes=2 --nproc_per_node=8 --node_rank=0 --master_addr=<master_ip> --master_port=29500 train.py
+torchrun --nnodes=2 --nproc_per_node=8 --node_rank=0 \
+ --master_addr=<master_ip> --master_port=29500 train.py
 ```
 
 On worker node (node 1):
 
 ```bash
-torchrun --nnodes=2 --nproc_per_node=8 --node_rank=1 --master_addr=<master_ip> --master_port=29500 train.py
+torchrun --nnodes=2 --nproc_per_node=8 --node_rank=1 \
+ --master_addr=<master_ip> --master_port=29500 train.py
 ```
 
 Replace `<master_ip>` with the actual IP address of the master node. You can find it with:
@@ -540,7 +528,7 @@ ip addr show | grep inet
 
 ### Using SLURM for Multi-Node Launch
 
-Most HPC clusters use SLURM for job scheduling. Here's a SLURM script that launches multi-node DDP:
+Most HPC clusters use SLURM for job scheduling. We'll cover SLURM in detail in Chapter 8, but here's a quick example of a SLURM script that launches multi-node DDP:
 
 ```bash
 #!/bin/bash
@@ -575,7 +563,8 @@ Or using `torchrun` with SLURM:
 export MASTER_ADDR=$(scontrol show hostnames $SLURM_JOB_NODELIST | head -n 1)
 export MASTER_PORT=29500
 
-srun torchrun --nnodes=$SLURM_NNODES --nproc_per_node=8 --node_rank=$SLURM_NODEID --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT train.py
+srun torchrun --nnodes=$SLURM_NNODES --nproc_per_node=8 \
+--node_rank=$SLURM_NODEID --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT train.py
 ```
 
 ### Network Configuration
@@ -2336,3 +2325,5 @@ DDP is mature, well-optimized, and suitable for most distributed training scenar
 References:
 
 - /media/wukong/jackie/git.repo/AISystem/05Framework/04Parallel/02DataParallel.md
+- https://multithreaded.stitchfix.com/blog/2023/06/08/distributed-model-training/
+
