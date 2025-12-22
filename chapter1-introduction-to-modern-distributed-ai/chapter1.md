@@ -715,6 +715,8 @@ PyTorch provides eight main collective operations. Let's walk through each one w
 
 #### AllReduce
 
+![](https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/_images/allreduce.png)
+
 AllReduce is the most common operation in distributed training. It performs a reduction (sum, max, min) across all ranks and stores the result in every rank's buffer.
 DDP uses AllReduce to synchronize gradients—each rank computes gradients on its local data, then AllReduce sums them and distributes the averaged result back to all ranks.
 
@@ -735,6 +737,8 @@ OMP_NUM_THREADS=1 torchrun --nproc_per_node=2 code/collective-operation/demo_all
 AllReduce is equivalent to Reduce followed by Broadcast, but it's more efficient because NCCL can optimize the combined operation.
 
 #### AllGather
+
+![](https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/_images/allgather.png)
 
 AllGather collects data from all ranks and distributes the concatenated result to every rank. Each rank contributes N values, and every rank receives world_size × N values. The output is ordered by rank index.
 
@@ -759,6 +763,8 @@ Note: ReduceScatter followed by AllGather is equivalent to AllReduce. Some syste
 
 #### Broadcast
 
+![](https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/_images/broadcast.png)
+
 Broadcast copies data from a root rank to all other ranks. Only the root rank needs to have the data initially. After the operation, all ranks have identical data.
 
 Use Broadcast to send model weights, hyperparameters, or other shared data from rank 0 to all ranks.
@@ -781,6 +787,8 @@ OMP_NUM_THREADS=1 torchrun --nproc_per_node=2 code/collective-operation/demo_bro
 
 #### Reduce
 
+![](https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/_images/reduce.png)
+
 Reduce performs the same reduction as AllReduce, but only the root rank receives the result. Other ranks' buffers are unchanged.
 
 Use Reduce when only one rank needs the aggregated result, such as collecting metrics to rank 0 for logging.
@@ -801,6 +809,8 @@ OMP_NUM_THREADS=1 torchrun --nproc_per_node=2 code/collective-operation/demo_red
 Reduce followed by Broadcast is equivalent to AllReduce.
 
 #### Gather
+
+![](https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/_images/gather.png)
 
 Gather collects data from all ranks to the root rank. Each rank sends N values, and the root receives world_size × N values concatenated and ordered by rank index.
 
@@ -824,6 +834,8 @@ OMP_NUM_THREADS=1 torchrun --nproc_per_node=2 code/collective-operation/demo_gat
 ```
 
 #### Scatter
+
+![](https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/_images/scatter.png)
 
 Scatter is the inverse of Gather. The root rank distributes data to all ranks, with each rank receiving a different chunk.
 
@@ -850,6 +862,8 @@ OMP_NUM_THREADS=1 torchrun --nproc_per_node=2 code/collective-operation/demo_sca
 
 #### ReduceScatter
 
+![](https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/_images/reducescatter.png)
+
 ReduceScatter combines Reduce and Scatter. It performs a reduction across all ranks, then scatters the result in equal-sized chunks. Each rank receives a different chunk based on its rank index.
 
 Use ReduceScatter in FSDP and other sharded parallelism strategies where each rank needs a shard of the reduced result.
@@ -871,6 +885,8 @@ OMP_NUM_THREADS=1 torchrun --nproc_per_node=2 code/collective-operation/demo_red
 ```
 
 #### AlltoAll
+
+![](https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/_images/alltoall.png)
 
 AlltoAll is the most general operation. Each rank sends different data to every other rank. Each rank provides world_size chunks, and receives world_size chunks—one from each rank.
 
@@ -898,29 +914,13 @@ Note: AlltoAll requires NCCL backend. GLOO (CPU backend) doesn't support it. If 
 
 #### Choosing the Right Operation
 
-- **Gradient synchronization**: Use AllReduce (DDP does this automatically)
-- **Collecting embeddings/metrics from all ranks**: Use AllGather
-- **Sending shared data to all ranks**: Use Broadcast
-- **Collecting results to one rank**: Use Gather
-- **Distributing data from one rank**: Use Scatter
-- **Sharded parallelism**: Use ReduceScatter or AlltoAll
+So when do you use which operation? For gradient synchronization, AllReduce is the standard choice. DDP uses it automatically when you wrap your model—you don't need to call it yourself. If you need to collect embeddings or metrics from all ranks, AllGather is what you want. It gives every rank a copy of data from all other ranks.
 
-Most of the time, you won't call these directly. DDP uses AllReduce internally. FSDP uses ReduceScatter and AllGather. But understanding them helps you debug issues and implement custom parallelism strategies.
+When you have data on one rank that needs to go to everyone else, Broadcast is the simplest option. Think of it as one-to-all communication. The inverse is Gather—when all ranks have data and you need to collect it on one rank, usually rank 0 for logging or saving. Scatter does the opposite, distributing different chunks from one rank to all others.
 
-#### Source Code
+For sharded parallelism strategies like FSDP, you'll see ReduceScatter and AlltoAll. ReduceScatter combines reduction with scattering, which is efficient when each rank only needs a shard of the result. AlltoAll is the most general case, where every rank sends different data to every other rank. This shows up in tensor parallelism.
 
-All demo code is available in:
-
-```
-chapter1-introduction-to-modern-distributed-ai/code/collective-operation/demo_allgather.py
-chapter1-introduction-to-modern-distributed-ai/code/collective-operation/demo_allreduce.py
-chapter1-introduction-to-modern-distributed-ai/code/collective-operation/demo_alltoall.py
-chapter1-introduction-to-modern-distributed-ai/code/collective-operation/demo_broadcast.py
-chapter1-introduction-to-modern-distributed-ai/code/collective-operation/demo_gather.py
-chapter1-introduction-to-modern-distributed-ai/code/collective-operation/demo_reduce.py
-chapter1-introduction-to-modern-distributed-ai/code/collective-operation/demo_reducescatter.py
-chapter1-introduction-to-modern-distributed-ai/code/collective-operation/demo_scatter.py
-```
+Most of the time, you won't call these operations directly. DDP handles AllReduce for you during gradient synchronization. FSDP uses ReduceScatter and AllGather under the hood. But understanding what each operation does helps when you're debugging why communication is slow or when you need to implement custom parallelism strategies that the standard APIs don't cover.
 
 
 ### DistributedDataParallel (DDP)
