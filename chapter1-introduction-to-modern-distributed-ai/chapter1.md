@@ -47,6 +47,20 @@ Before you start training or deploying, you need to know how much memory and com
 
 The memory footprint depends on what you're storing. For model weights alone, the calculation is straightforward. Each parameter in FP32 takes 4 bytes, FP16/BF16 takes 2 bytes, Int8 takes 1 byte, and Int4 takes 0.5 bytes. For a 7B parameter model, that's 28 GB in FP32, 14 GB in BF16 (or FP16), 7 GB in Int8, and 3.5 GB in Int4.
 
+Here's a quick reference for common precision formats:
+
+| Format | Bytes | Format Details | Primary Usage |
+|------|--|----------------|---------------|
+| FP32 | 4 | 32-bit floating point (1 sign, 8 exponent, 23 mantissa) | Training, high-precision inference |
+| BF16 | 2 | 16-bit bfloat (1 sign, 8 exponent, 7 mantissa) | Training (preferred), inference |
+| FP16 | 2 | 16-bit float (1 sign, 5 exponent, 10 mantissa) | Inference |
+| FP8 E4M3 | 1 | 8-bit float (1 sign, 4 exponent, 3 mantissa) | Inference (activations, weights) |
+| FP8 E5M2 | 1 | 8-bit float (1 sign, 5 exponent, 2 mantissa) | Storage, wide dynamic range |
+| Int8 | 1 | 8-bit integer | Quantized inference |
+| Int4 | 0.5 | 4-bit integer | Quantized inference (extreme compression) |
+
+Note that FP8 has two formats: E4M3 (higher precision, used for inference activations and weights) and E5M2 (wider dynamic range, used for storage). Both use 1 byte per parameter but serve different purposes.
+
 For training, BF16 (bfloat16) is preferred over FP16 (float16). BF16 has the same exponent range as FP32 (8 bits) but reduced mantissa (7 bits), giving it the same dynamic range as FP32. This makes training more stable—less likely to overflow or underflow. FP16 has a smaller exponent range (5 bits), which can cause numerical issues during training. Modern GPUs (A100, H100) have Tensor Cores optimized for BF16. For inference, both FP16 and BF16 work, but BF16 is still preferred for consistency with training.
 
 But model weights are just the start. During training, you also need space for gradients, optimizer states, and activations. For inference, you need KV cache for attention mechanisms. The KV cache is crucial for LLM inference—it stores the key-value pairs from previous tokens in the sequence, allowing the model to avoid recomputing attention over the entire sequence for each new token. This dramatically speeds up autoregressive generation, but it requires significant memory that scales with batch size and sequence length. The total memory requirement can be several times larger than just the model weights.
