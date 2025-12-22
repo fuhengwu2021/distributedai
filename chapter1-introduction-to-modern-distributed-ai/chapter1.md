@@ -583,9 +583,77 @@ With 2 GPUs using the data-split pattern, we achieve **1.89× speedup**, nearly 
 
 Both patterns demonstrate the power of distributed inference: throughput scales almost linearly with the number of GPUs, making it ideal for production serving workloads that require high request rates. The inference patterns shown here use data parallelism, suitable for models that fit on a single GPU. For large language models that exceed single-GPU memory, later chapters will explore advanced techniques such as expert parallelism, sequence parallelism, tensor parallelism, and serving frameworks like vLLM and SGLang.
 
-## 6. PyTorch Distributed Introduction
+## 6. Distributed AI Fundamentals with PyTorch
 
-Now that you've seen distributed training and inference in action, let's understand the fundamental concepts and APIs that make it work. The essential building blocks are process groups, ranks, and communication primitives. These form the foundation for all distributed operations, whether you're using DDP or FSDP for data-parallel training, implementing custom parallelism strategies, or building distributed inference systems.
+Now that you've seen distributed training and inference in action, let's understand the fundamental concepts and APIs that make it work.
+
+### The Distributed AI Stack
+
+Distributed AI systems are built in layers, from high-level frameworks down to physical hardware. Understanding this stack helps you debug issues, optimize performance, and make informed decisions about which tools to use.
+
+While the stack applies to all distributed frameworks (PyTorch, JAX, TensorFlow), this book uses PyTorch as the primary example. The concepts translate to other frameworks, but the APIs and implementation details differ. We'll focus on PyTorch's distributed APIs throughout.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Framework Layer                                            │
+│  PyTorch, JAX, TensorFlow                                   │
+│  High-level APIs for models, optimizers, data loaders       │
+└─────────────────────────────────────────────────────────────┘
+                          ↓
+┌─────────────────────────────────────────────────────────────┐
+│  Messaging Layer                                            │
+│  Tensor, Bucket                                             │
+│  Organizes data into chunks for efficient communication     │
+└─────────────────────────────────────────────────────────────┘
+                          ↓
+┌─────────────────────────────────────────────────────────────┐
+│  Collective Operations Layer                                │
+│  AllReduce, AllGather, Broadcast, Scatter, etc.             │
+│  Defines communication patterns between processes           │
+└─────────────────────────────────────────────────────────────┘
+                          ↓
+┌─────────────────────────────────────────────────────────────┐
+│  Data Transfer Layer                                        │
+│  NCCL (GPU), GLOO (CPU), MPI                                │
+│  Implements collective operations efficiently               │
+└─────────────────────────────────────────────────────────────┘
+                          ↓
+┌─────────────────────────────────────────────────────────────┐
+│  Topology Layer                                             │
+│  Ring, Fat-Tree, Mesh, Torus                                │
+│  Determines communication paths between devices             │
+└─────────────────────────────────────────────────────────────┘
+                          ↓
+┌─────────────────────────────────────────────────────────────┐
+│  Link Layer                                                 │
+│  NVLink, InfiniBand (RDMA), PCIe, Ethernet                  │
+│  Physical interconnects between devices                     │
+└─────────────────────────────────────────────────────────────┘
+                          ↓
+┌─────────────────────────────────────────────────────────────┐
+│  Physical Layer                                             │
+│  GPU, TPU, NPU, CPU                                         │
+│  Actual compute and memory hardware                         │
+└─────────────────────────────────────────────────────────────┘
+```
+
+At the top sits the framework layer. This is where you write your code—PyTorch's `torch.distributed` module, `DDP`, `FSDP`, and the rest. When you define a model and call `loss.backward()`, PyTorch handles the gradient computation and decides when communication needs to happen. You don't think about network packets or hardware links at this level. You just write training loops and let PyTorch orchestrate the distributed operations.
+
+Below the framework, PyTorch organizes your tensors into buckets. Instead of sending each gradient tensor separately, DDP groups multiple tensors together. This reduces communication overhead. If you have thousands of small gradient tensors, sending them one by one would be inefficient. Bucketing batches them together, so you make fewer network calls. This happens automatically—you don't control it directly, but understanding it helps when you're debugging why communication takes longer than expected.
+
+The collective operations layer defines what communication pattern to use. AllReduce sums gradients across all ranks and distributes the result back. AllGather collects data from all ranks. Broadcast sends data from one rank to all others. These are the primitives that higher-level APIs like DDP use. When DDP synchronizes gradients, it's calling AllReduce under the hood. This layer defines what needs to happen, not how it's implemented.
+
+The data transfer layer is where the actual implementation lives. NCCL (NVIDIA Collective Communications Library) is the most common backend for GPU training. It implements AllReduce and other collectives in ways optimized for NVIDIA GPUs. GLOO is a CPU-based backend, useful for testing when you don't have GPUs. PyTorch defaults to NCCL for GPU backends and GLOO for CPU backends, which covers most use cases. MPI is another option, mainly for CPU clusters. When you initialize a process group with `backend="nccl"`, you're choosing which library will handle the actual data movement.
+
+The network topology determines how devices are connected. In a ring topology, GPUs form a ring—each GPU sends data to the next one in the ring. This is simple but can create bottlenecks. Fat-Tree topologies provide multiple paths between devices, reducing congestion. Mesh and Torus topologies offer different trade-offs between complexity and bandwidth. The topology affects how NCCL routes data, which impacts both bandwidth and latency.
+
+Physical links carry the data. NVLink connects GPUs within a single node at high bandwidth—up to 600 GB/s on modern hardware. When you have multiple GPUs in one machine, they communicate over NVLink. InfiniBand with RDMA (Remote Direct Memory Access) enables direct memory access across nodes without involving the CPU. This is crucial for multi-node training. PCIe connects GPUs to CPUs, and Ethernet is slower but more common. The link layer determines the raw bandwidth available.
+
+At the bottom sits the physical hardware—GPUs for parallel compute, TPUs for tensor operations, CPUs for coordination. This layer determines your raw compute capacity and memory limits. No amount of optimization in the layers above can overcome hardware limitations here.
+
+When you call `dist.all_reduce()` in your code, the request flows down this entire stack. PyTorch organizes your tensors into buckets, calls the AllReduce collective operation, NCCL implements it using the network topology it discovers, data moves over NVLink links within a node or InfiniBand links across nodes, and the results end up back in GPU memory. Understanding this flow helps when you're debugging why communication is slow or why a distributed job hangs. Is it a topology issue? A link bandwidth problem? Or something in the collective operation itself? Knowing the stack helps you narrow it down.
+
+Now that we've seen how the layers fit together, let's look at the fundamental concepts you'll work with in PyTorch. The essential building blocks are process groups, ranks, and communication primitives. These form the foundation for all distributed operations, whether you're using DDP or FSDP for data-parallel training, implementing custom parallelism strategies, or building distributed inference systems.
 
 ### Process Groups and Ranks
 
@@ -638,6 +706,222 @@ OMP_NUM_THREADS=4 torchrun --nproc_per_node=2 code/distributed_basic_test.py
 ```
 
 Set it in your shell before `torchrun` starts—setting it inside your Python script won't work because `torchrun` checks the environment before launching your processes.
+
+### Collective Operations
+
+Collective operations are the building blocks of distributed communication. They define how data moves between processes. Each operation has a specific use case. Understanding them helps you choose the right one for your task and debug communication issues.
+
+PyTorch provides eight main collective operations. Let's walk through each one with code examples.
+
+#### AllReduce
+
+AllReduce is the most common operation in distributed training. It performs a reduction (sum, max, min) across all ranks and stores the result in every rank's buffer.
+DDP uses AllReduce to synchronize gradients—each rank computes gradients on its local data, then AllReduce sums them and distributes the averaged result back to all ranks.
+
+```python
+# Each rank has different input
+tensor = torch.tensor([rank + 1, rank + 2, rank + 3], device=device)
+# After all_reduce with SUM, all ranks have the same result
+dist.all_reduce(tensor, op=dist.ReduceOp.SUM)
+# Result: [sum(1..world_size), sum(2..world_size+1), sum(3..world_size+2)]
+```
+
+Run the demo:
+
+```bash
+OMP_NUM_THREADS=1 torchrun --nproc_per_node=2 code/collective-operation/demo_allreduce.py
+```
+
+AllReduce is equivalent to Reduce followed by Broadcast, but it's more efficient because NCCL can optimize the combined operation.
+
+#### AllGather
+
+AllGather collects data from all ranks and distributes the concatenated result to every rank. Each rank contributes N values, and every rank receives world_size × N values. The output is ordered by rank index.
+
+Use AllGather when you need every rank to have data from all other ranks. For example, collecting embeddings from all GPUs for a global operation.
+
+```python
+# Each rank has different input
+input_tensor = torch.tensor([rank * 10 + 1, rank * 10 + 2], device=device)
+# Prepare output list
+output_list = [torch.zeros_like(input_tensor) for _ in range(world_size)]
+dist.all_gather(output_list, input_tensor)
+# All ranks now have: [rank0_data, rank1_data, ..., rankN_data]
+```
+
+Run the demo:
+
+```bash
+OMP_NUM_THREADS=1 torchrun --nproc_per_node=2 code/collective-operation/demo_allgather.py
+```
+
+Note: ReduceScatter followed by AllGather is equivalent to AllReduce. Some systems use this decomposition for optimization.
+
+#### Broadcast
+
+Broadcast copies data from a root rank to all other ranks. Only the root rank needs to have the data initially. After the operation, all ranks have identical data.
+
+Use Broadcast to send model weights, hyperparameters, or other shared data from rank 0 to all ranks.
+
+```python
+root = 0
+if rank == root:
+    tensor = torch.tensor([10.0, 20.0, 30.0], device=device)
+else:
+    tensor = torch.zeros(3, device=device)
+# After broadcast, all ranks have [10.0, 20.0, 30.0]
+dist.broadcast(tensor, src=root)
+```
+
+Run the demo:
+
+```bash
+OMP_NUM_THREADS=1 torchrun --nproc_per_node=2 code/collective-operation/demo_broadcast.py
+```
+
+#### Reduce
+
+Reduce performs the same reduction as AllReduce, but only the root rank receives the result. Other ranks' buffers are unchanged.
+
+Use Reduce when only one rank needs the aggregated result, such as collecting metrics to rank 0 for logging.
+
+```python
+root = 0
+tensor = torch.tensor([rank + 1, rank + 2, rank + 3], device=device)
+dist.reduce(tensor, dst=root, op=dist.ReduceOp.SUM)
+# Only root has the sum; other ranks unchanged
+```
+
+Run the demo:
+
+```bash
+OMP_NUM_THREADS=1 torchrun --nproc_per_node=2 code/collective-operation/demo_reduce.py
+```
+
+Reduce followed by Broadcast is equivalent to AllReduce.
+
+#### Gather
+
+Gather collects data from all ranks to the root rank. Each rank sends N values, and the root receives world_size × N values concatenated and ordered by rank index.
+
+Use Gather to collect results from all ranks to a single rank for processing or saving.
+
+```python
+root = 0
+input_tensor = torch.tensor([rank * 10 + 1, rank * 10 + 2], device=device)
+if rank == root:
+    output_list = [torch.zeros_like(input_tensor) for _ in range(world_size)]
+    dist.gather(input_tensor, output_list, dst=root)
+    # Root has all data concatenated
+else:
+    dist.gather(input_tensor, None, dst=root)
+```
+
+Run the demo:
+
+```bash
+OMP_NUM_THREADS=1 torchrun --nproc_per_node=2 code/collective-operation/demo_gather.py
+```
+
+#### Scatter
+
+Scatter is the inverse of Gather. The root rank distributes data to all ranks, with each rank receiving a different chunk.
+
+Use Scatter to distribute different data chunks from one rank to all ranks, such as splitting a large dataset.
+
+```python
+root = 0
+if rank == root:
+    scatter_list = [torch.tensor([r * 10 + 1, r * 10 + 2], device=device) 
+                   for r in range(world_size)]
+output_tensor = torch.zeros(2, device=device)
+if rank == root:
+    dist.scatter(output_tensor, scatter_list=scatter_list, src=root)
+else:
+    dist.scatter(output_tensor, scatter_list=None, src=root)
+# Each rank receives its chunk
+```
+
+Run the demo:
+
+```bash
+OMP_NUM_THREADS=1 torchrun --nproc_per_node=2 code/collective-operation/demo_scatter.py
+```
+
+#### ReduceScatter
+
+ReduceScatter combines Reduce and Scatter. It performs a reduction across all ranks, then scatters the result in equal-sized chunks. Each rank receives a different chunk based on its rank index.
+
+Use ReduceScatter in FSDP and other sharded parallelism strategies where each rank needs a shard of the reduced result.
+
+```python
+# Each rank has input of size world_size * N
+input_list = [torch.tensor([rank * 10 + i, rank * 10 + i + 1], device=device) 
+              for i in range(world_size)]
+input_tensor = torch.cat(input_list)
+# Each rank receives a chunk of the reduced result
+output_tensor = torch.zeros(2, device=device)
+dist.reduce_scatter(output_tensor, input_list, op=dist.ReduceOp.SUM)
+```
+
+Run the demo:
+
+```bash
+OMP_NUM_THREADS=1 torchrun --nproc_per_node=2 code/collective-operation/demo_reducescatter.py
+```
+
+#### AlltoAll
+
+AlltoAll is the most general operation. Each rank sends different data to every other rank. Each rank provides world_size chunks, and receives world_size chunks—one from each rank.
+
+Use AlltoAll in tensor parallelism where each rank needs to exchange different parts of tensors with all other ranks.
+
+```python
+# Each rank prepares data to send to each other rank
+input_list = []
+for dst_rank in range(world_size):
+    chunk = torch.tensor([rank * 100 + dst_rank * 10 + 1, 
+                         rank * 100 + dst_rank * 10 + 2], device=device)
+    input_list.append(chunk)
+# Each rank receives data from all ranks
+output_list = [torch.zeros(2, device=device) for _ in range(world_size)]
+dist.all_to_all(output_list, input_list)
+```
+
+Run the demo:
+
+```bash
+OMP_NUM_THREADS=1 torchrun --nproc_per_node=2 code/collective-operation/demo_alltoall.py
+```
+
+Note: AlltoAll requires NCCL backend. GLOO (CPU backend) doesn't support it. If you see an error with `--use_cpu`, switch to GPU mode.
+
+#### Choosing the Right Operation
+
+- **Gradient synchronization**: Use AllReduce (DDP does this automatically)
+- **Collecting embeddings/metrics from all ranks**: Use AllGather
+- **Sending shared data to all ranks**: Use Broadcast
+- **Collecting results to one rank**: Use Gather
+- **Distributing data from one rank**: Use Scatter
+- **Sharded parallelism**: Use ReduceScatter or AlltoAll
+
+Most of the time, you won't call these directly. DDP uses AllReduce internally. FSDP uses ReduceScatter and AllGather. But understanding them helps you debug issues and implement custom parallelism strategies.
+
+#### Source Code
+
+All demo code is available in:
+
+```
+chapter1-introduction-to-modern-distributed-ai/code/collective-operation/demo_allgather.py
+chapter1-introduction-to-modern-distributed-ai/code/collective-operation/demo_allreduce.py
+chapter1-introduction-to-modern-distributed-ai/code/collective-operation/demo_alltoall.py
+chapter1-introduction-to-modern-distributed-ai/code/collective-operation/demo_broadcast.py
+chapter1-introduction-to-modern-distributed-ai/code/collective-operation/demo_gather.py
+chapter1-introduction-to-modern-distributed-ai/code/collective-operation/demo_reduce.py
+chapter1-introduction-to-modern-distributed-ai/code/collective-operation/demo_reducescatter.py
+chapter1-introduction-to-modern-distributed-ai/code/collective-operation/demo_scatter.py
+```
+
 
 ### DistributedDataParallel (DDP)
 
