@@ -169,7 +169,7 @@ convert_md_to_pdf() {
   \noindent
   \begin{tikzpicture}
     % Decorative line
-    \draw[chapterbluelight,line width=1pt] (0,0) -- (0.4\textwidth,0);
+    \draw[chapterbluelight,line width=1pt] (0,0) -- (0.2\textwidth,0);
     % Speech bubble decoration (simplified)
     \fill[chapterblue!20] (0.4\textwidth,0.2) circle (0.15);
     \draw[chapterblue,line width=0.5pt] (0.4\textwidth,0.2) circle (0.15);
