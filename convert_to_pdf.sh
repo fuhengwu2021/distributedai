@@ -122,7 +122,7 @@ convert_md_to_pdf() {
 \definecolor{chapterblue}{RGB}{0,102,204}
 \definecolor{chapterbluelight}{RGB}{153,204,255}
 \definecolor{chaptergray}{RGB}{128,128,128}
-\NewDocumentEnvironment{chaptertitlepage}{m m m O{}}{%
+\NewDocumentEnvironment{chaptertitlepage}{m m m O{} O{}}{%
   \newpage
   \thispagestyle{empty}
   \vspace*{-2cm}
@@ -160,6 +160,10 @@ convert_md_to_pdf() {
         \color{chaptergray}
         #4
       \end{minipage}
+    \fi
+    % Code summary section (if provided as 5th argument)
+    \ifx\relax#5\relax\else
+      #5
     \fi
   \end{minipage}
   \vfill
