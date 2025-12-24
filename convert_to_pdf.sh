@@ -137,7 +137,7 @@ convert_md_to_pdf() {
     {\normalsize #3}\\[1.2cm]
     % Compact quote section (if provided as 4th argument)
     \ifx\relax#4\relax\else
-      \vspace{0.1cm}
+      \vspace{0.2cm}
       \noindent
       \begin{tikzpicture}
         % Compact decorative horizontal line
@@ -146,11 +146,13 @@ convert_md_to_pdf() {
         \fill[chapterblue!20] (0.35\textwidth,0) circle (0.12);
         \draw[chapterblue,line width=0.4pt] (0.35\textwidth,0) circle (0.12);
       \end{tikzpicture}
-      \par\vspace{0.1cm}
+      \par\vspace{0.3cm}
       \noindent
-      \begin{minipage}[t]{0.9\textwidth}
+      \begin{minipage}[t]{0.85\textwidth}
         \raggedright
-        \small
+        \itshape
+        \fontsize{10}{13}\selectfont
+        \color{chaptergray}
         #4
       \end{minipage}
     \fi
