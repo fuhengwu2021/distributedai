@@ -1,8 +1,22 @@
 # Chapter 7: Request-Level Routing and SGLang
 
-In the previous chapter, we covered vLLM, which uses model parallelism (TP/PP/DP/EP) to distribute large models across GPUs. vLLM excels at high-throughput workloads with large batches and is optimized for models that require multiple GPUs just to fit in memory.
+*Ultra-low latency inference with request-level routing and workload disaggregation*
 
-But what if you need ultra-low latency for interactive chat applications? Or what if your models fit on a single GPU but you need to handle thousands of concurrent requests with session persistence? That's where SGLang comes in. This chapter introduces SGLang's distributed inference architecture, focusing on router-based request routing, prefill/decode disaggregation, and multi-node coordination. Unlike vLLM's model parallelism approach, SGLang emphasizes request-level routing and workload disaggregation for high-QPS, low-latency distributed inference.
+> SGLang emphasizes request-level routing and workload disaggregation for high-QPS, low-latency distributed inference. Unlike vLLM's model parallelism approach, SGLang is optimized for interactive chat applications and session persistence.
+- Adapted from Chapter 7
+
+**Code Summary**
+
+- `sglang.Runtime`: SGLang runtime for model execution
+- `sglang.srt.server.LaunchEngine`: Launch SGLang inference engine
+- `sglang.srt.hf_transformers_utils`: HuggingFace transformers integration
+- `sglang.srt.engine`: SGLang engine for request processing
+- `sglang.srt.server`: SGLang server for distributed serving
+- `sglang.srt.model_config`: Model configuration for SGLang
+- `sglang.srt.tokenizer`: Tokenizer utilities for SGLang
+- `sglang.srt.router`: Request router for distributed SGLang
+- `sglang.srt.sampling_params`: Sampling parameters for SGLang generation
+- `sglang.srt.server_runner`: Server runner for SGLang deployment
 
 
 ## Introduction to SGLang and Setup

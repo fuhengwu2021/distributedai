@@ -1,10 +1,22 @@
-# Chapter 6 — Distributed Inference Fundamentals and vLLM
+# Chapter 6: Distributed Inference Fundamentals and vLLM
 
-In the previous chapters, we've covered distributed training extensively: state sharding techniques like FSDP2 and DeepSpeed ZeRO for distributing model parameters, gradients, and optimizer states; computation sharding with Megatron's tensor parallelism, pipeline parallelism, and context parallelism; and hybrid approaches that combine both. These techniques enable training of models that would otherwise be impossible to fit in memory or compute efficiently.
+*Serving large language models at scale with high throughput and low latency*
 
-However, training is only half the story. Once you've trained a model, you need to serve it efficiently at scale—handling thousands of concurrent requests, minimizing latency, and maximizing throughput. Inference presents a fundamentally different set of challenges: while training processes batches of data in a controlled environment, inference must handle unpredictable request patterns, maintain low latency for interactive applications, and efficiently manage memory for variable-length sequences.
+> Inference presents a fundamentally different set of challenges: while training processes batches of data in a controlled environment, inference must handle unpredictable request patterns, maintain low latency for interactive applications, and efficiently manage memory for variable-length sequences.
+- Adapted from Chapter 6
 
-This chapter introduces distributed inference concepts and vLLM internals, focusing on how inference parallelism strategies differ from training, and optimization techniques for serving large language models efficiently in production environments. vLLM is a high-performance inference engine that uses innovations like PagedAttention and continuous batching to achieve state-of-the-art throughput and memory efficiency.
+**Code Summary**
+
+- `vllm.LLM`: vLLM LLM class for model loading and inference
+- `vllm.SamplingParams`: Configuration for text generation sampling
+- `vllm.engine.LLMEngine`: Core vLLM inference engine
+- `vllm.attention.PagedAttention`: PagedAttention implementation for KV cache management
+- `vllm.worker.worker.Worker`: vLLM worker process for distributed inference
+- `vllm.engine.arg_utils`: vLLM command-line argument utilities
+- `vllm.distributed.parallel_state`: vLLM parallel state management
+- `vllm.engine.async_llm_engine.AsyncLLMEngine`: Async inference engine for serving
+- `vllm.sampling_params.SamplingParams`: Sampling parameters for generation
+- `vllm.utils.random`: Random number generation utilities for sampling
 
 ## Introduction to vLLM and Setup
 

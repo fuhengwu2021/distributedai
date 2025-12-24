@@ -1,10 +1,22 @@
-# Chapter 3 — Distributed Training with PyTorch DDP
+# Chapter 3: Distributed Training with PyTorch DDP
 
-In the previous chapter, we explored GPU hardware, networking topologies, and the fundamental parallelism strategies. We saw how NVLink enables fast intra-node communication, how InfiniBand connects nodes, and how different parallelism strategies (data, tensor, pipeline) distribute computation and memory across GPUs.
+*Scaling training across multiple GPUs with DistributedDataParallel*
 
-Now we'll put these concepts into practice. When you're training large models, a single GPU isn't enough. You need to distribute the work across multiple GPUs, and that's where PyTorch's DistributedDataParallel (DDP) comes in. DDP is the workhorse of distributed training—it's what most production training pipelines use, and understanding how it works is essential for building scalable AI systems.
+> DDP is the workhorse of distributed training—it's what most production training pipelines use, and understanding how it works is essential for building scalable AI systems.
+- Adapted from Chapter 3
 
-This chapter is a hands-on guide to using DDP for multi-GPU and multi-node training. We'll cover DDP internals, how to initialize process groups, common failure modes and debugging techniques, and practical optimization strategies. Every section includes runnable examples you can adapt for your own workloads.
+**Code Summary**
+
+- `torch.distributed.init_process_group()`: Initialize the process group for distributed communication
+- `DistributedDataParallel`: PyTorch wrapper for data-parallel distributed training
+- `DistributedSampler`: Sampler that partitions dataset across multiple processes
+- `torch.distributed.all_reduce()`: Collective operation that sums tensors across all ranks
+- `torch.distributed.barrier()`: Synchronize all processes in the group
+- `torch.distributed.get_rank()`: Get the rank of the current process
+- `torch.distributed.get_world_size()`: Get the total number of processes
+- `torchrun`: PyTorch launcher for distributed training
+- `torch.nn.parallel.DistributedDataParallel`: DDP wrapper class
+- `torch.distributed.destroy_process_group()`: Clean up the process group
 
 ## 1. How DDP Works Internally
 

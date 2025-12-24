@@ -1,9 +1,22 @@
-# Chapter 2 — GPU Hardware, Networking, and Parallelism Strategies
+# Chapter 2: GPU Hardware, Networking, and Parallelism Strategies
 
+*Understanding hardware topology and parallelism strategies for distributed AI*
 
-Before you can effectively distribute training or inference across multiple GPUs, you need to understand what you're working with. The hardware topology of your system—how GPUs connect to each other and to the CPU—directly impacts which parallelism strategies will work best and what performance you can expect.
+> The hardware topology of your system—how GPUs connect to each other and to the CPU—directly impacts which parallelism strategies will work best and what performance you can expect.
+- Adapted from Chapter 2
 
-This chapter walks through GPU architecture basics, interconnect technologies, and the major parallelism strategies you'll encounter. We'll also cover how to inspect your system and make informed decisions about which approach fits your workload.
+**Code Summary**
+
+- `nvidia-smi`: Command-line utility to monitor GPU status and utilization
+- `torch.cuda.device_count()`: Get the number of available CUDA devices
+- `torch.cuda.get_device_name()`: Get the name of a CUDA device
+- `torch.cuda.is_available()`: Check if CUDA is available
+- `torch.distributed.get_world_size()`: Get the total number of processes in the distributed group
+- `torch.distributed.get_rank()`: Get the rank of the current process
+- `torch.distributed.get_backend()`: Get the backend name (e.g., 'nccl', 'gloo')
+- `nvidia-ml-py`: Python library for querying NVIDIA GPU information
+- `pynvml`: Python bindings for NVIDIA Management Library
+- `ibstat`: Command to check InfiniBand adapter status
 
 ![](img/h100.jpg)
 

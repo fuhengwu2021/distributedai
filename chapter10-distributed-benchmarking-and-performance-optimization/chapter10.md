@@ -1,12 +1,22 @@
 # Chapter 10: Distributed Benchmarking and Performance Optimization
 
-## Overview
+*Measuring and optimizing performance of distributed AI systems*
 
-We've now covered the full stack: distributed training (DDP, FSDP, DeepSpeed, Megatron), inference engines (vLLM, SGLang), job scheduling (Slurm), and production serving systems. But once you've built these systems, you need to know how well they're performing. Are you getting the throughput you expect? Is latency acceptable? How efficiently are you using your GPUs? Are your optimizations degrading model accuracy?
+> Once you've built these systems, you need to know how well they're performing. Are you getting the throughput you expect? Is latency acceptable? How efficiently are you using your GPUs? Are your optimizations degrading model accuracy?
+- Adapted from Chapter 10
 
-This chapter teaches readers how to benchmark distributed training and inference systems rigorously using tools like genai-bench, MLPerf, and custom profiling scripts. It covers both **performance benchmarking** (throughput, latency, scaling efficiency) and **accuracy benchmarking** (model quality, output correctness). Topics include warmup methodology, scaling efficiency, network bottleneck identification, accuracy evaluation, and performance analysis. By the end of this chapter, readers will be able to design reproducible benchmark experiments, identify performance bottlenecks, evaluate model accuracy, and optimize distributed systems effectively.
+**Code Summary**
 
-**Chapter Length:** 28 pages
+- `torch.profiler`: PyTorch profiler for performance analysis
+- `torch.utils.benchmark`: PyTorch benchmarking utilities
+- `nvidia-ml-py`: Python library for GPU monitoring
+- `psutil`: System and process utilities for resource monitoring
+- `mlperf_logging`: MLPerf logging utilities for standardized benchmarks
+- `tensorboard`: TensorBoard for visualization of training metrics
+- `wandb`: Weights & Biases for experiment tracking
+- `py-spy`: Sampling profiler for Python applications
+- `nsys`: NVIDIA Nsight Systems for system-level profiling
+- `ncu`: NVIDIA Nsight Compute for kernel-level profiling
 
 
 

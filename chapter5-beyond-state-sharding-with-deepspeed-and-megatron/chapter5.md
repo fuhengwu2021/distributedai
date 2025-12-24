@@ -1,18 +1,22 @@
-# Chapter 5 — Beyond State Sharding with DeepSpeed and Megatron
+# Chapter 5: Beyond State Sharding with DeepSpeed and Megatron
 
-In the previous chapter, we covered PyTorch FSDP2, which shards parameters, gradients, and optimizer states across GPUs to enable training of models larger than what fits on a single GPU. As a PyTorch-native solution, FSDP2 integrates well with the PyTorch ecosystem and is sufficient for the majority of large-scale training workloads.
+*Extending memory capacity and sharding computation for very large models*
 
-However, there are scenarios where GPU-only state sharding is still not enough. A model may exceed the aggregate GPU memory budget even with full sharding, or the available GPU count may be limited. In other cases, practitioners may want to leverage CPU memory or NVMe storage to extend the effective memory capacity, accepting reduced throughput in exchange for feasibility.
+> When training large models, practitioners often begin with state sharding techniques like FSDP2 or ZeRO-3, then add Megatron-style computation parallelism when per-layer computation becomes the bottleneck.
+- Adapted from Chapter 5
 
-DeepSpeed's ZeRO (Zero Redundancy Optimizer) addresses these memory-constrained scenarios. Like FSDP2, ZeRO-3 shards parameters, gradients, and optimizer states across GPUs. In addition, DeepSpeed provides ZeRO-Offload to CPU memory, ZeRO-Infinity to NVMe storage, and ZeRO++ for communication and scheduling optimizations in large, multi-node environments. These features extend the memory hierarchy beyond GPUs and offer practical solutions when GPU-only approaches are insufficient.
+**Code Summary**
 
-Yet memory is not the only bottleneck. As model sizes continue to grow, a different limitation emerges: individual layers themselves may become too large or too expensive to compute efficiently on a single GPU, even if their parameters are fully sharded. This is where computation parallelism becomes necessary.
-
-Megatron-LM addresses this class of problems by introducing tensor parallelism and pipeline parallelism, which shard the computation of individual layers and the model depth itself across multiple GPUs. Rather than focusing on reducing memory redundancy, Megatron directly partitions large matrix multiplications and attention operations, enabling training of models whose per-layer computation would otherwise exceed single-GPU limits. This approach is important for very large Transformer-based language models.
-
-This chapter covers two complementary families of techniques that address different bottlenecks. We first examine when state sharding alone is insufficient, then introduce DeepSpeed ZeRO as a memory extension toolbox that can leverage CPU and NVMe resources. The core of this chapter focuses on Megatron's computation parallelism strategies—tensor parallelism, pipeline parallelism, and sequence parallelism—which address a fundamentally different problem: sharding computation itself when individual layers exceed single-GPU limits. We then explore how these techniques are combined in practice through hybrid parallelism, which is commonly used for training very large models. Finally, we provide practical guidance on choosing the right combination of techniques.
-
-**Practical guidance**: When training large models, practitioners often begin with state sharding techniques like FSDP2 or ZeRO-3, then add Megatron-style computation parallelism when per-layer computation becomes the bottleneck. DeepSpeed ZeRO offers additional capabilities for CPU and NVMe offloading, which can be valuable when GPU memory is constrained. Common patterns include FSDP2 + Megatron Tensor Parallelism, as well as ZeRO-3 + Megatron for scenarios where DeepSpeed's ecosystem is already in use.
+- `deepspeed.initialize()`: Initialize DeepSpeed engine with ZeRO configuration
+- `deepspeed.DeepSpeedEngine`: DeepSpeed engine wrapper for model training
+- `megatron.core.parallel_state`: Megatron parallel state management
+- `megatron.core.tensor_parallel`: Megatron tensor parallelism utilities
+- `megatron.core.pipeline_parallel`: Megatron pipeline parallelism utilities
+- `deepspeed.zero.Init()`: DeepSpeed ZeRO initialization context manager
+- `deepspeed.zero.OffloadOptimizerConfig`: Configuration for ZeRO-Offload
+- `deepspeed.zero.OffloadParamConfig`: Configuration for ZeRO-Infinity parameter offload
+- `megatron.model.parallel.layers.ColumnParallelLinear`: Column-parallel linear layer for tensor parallelism
+- `megatron.model.parallel.layers.RowParallelLinear`: Row-parallel linear layer for tensor parallelism
 
 ## Understanding the Memory Problem
 

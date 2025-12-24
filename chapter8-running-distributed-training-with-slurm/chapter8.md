@@ -1,10 +1,22 @@
-# Chapter 8 — Distributed AI Training in Action
+# Chapter 8: Running Distributed Training with SLURM
 
-So far, we've covered the theory and implementation of distributed training (DDP, FSDP, DeepSpeed, Megatron) and inference (vLLM, SGLang). But understanding the concepts is only part of the equation—you also need to know how to actually run these systems in practice. Most HPC clusters and cloud providers use job schedulers like Slurm to manage GPU resources and coordinate multi-node jobs.
+*Managing GPU resources and coordinating multi-node jobs with SLURM*
 
-This chapter provides a practical guide to running distributed AI training workloads using Slurm as the job scheduler and resource manager. We'll cover setting up a Slurm cluster, submitting distributed training jobs, integrating with PyTorch DDP and FSDP, managing multi-node training, and best practices for production workloads.
+> Understanding the concepts is only part of the equation—you also need to know how to actually run these systems in practice. Most HPC clusters and cloud providers use job schedulers like Slurm to manage GPU resources and coordinate multi-node jobs.
+- Adapted from Chapter 8
 
-**Audience:** ML engineers and researchers who need to run distributed training jobs on shared GPU clusters, and platform engineers setting up Slurm for AI workloads.
+**Code Summary**
+
+- `sbatch`: SLURM command to submit batch jobs
+- `srun`: SLURM command to run interactive jobs
+- `squeue`: SLURM command to view job queue
+- `scancel`: SLURM command to cancel jobs
+- `sinfo`: SLURM command to view cluster information
+- `sacct`: SLURM command to view job accounting information
+- `scontrol`: SLURM command for cluster control and configuration
+- `torchrun`: PyTorch launcher compatible with SLURM
+- `SLURM_PROCID`: SLURM environment variable for process ID
+- `SLURM_NTASKS`: SLURM environment variable for number of tasks
 
 ## 1. Introduction to Slurm for Distributed Training
 

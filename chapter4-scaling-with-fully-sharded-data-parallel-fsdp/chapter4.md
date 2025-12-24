@@ -1,10 +1,22 @@
-# Chapter 4 — Scaling with Fully Sharded Data Parallel (FSDP)
+# Chapter 4: Scaling with Fully Sharded Data Parallel (FSDP)
 
-In the previous chapter, we covered DistributedDataParallel (DDP), which replicates the entire model on each GPU and synchronizes gradients. DDP works great when your model fits on a single GPU—it's simple, efficient, and well-optimized. But what happens when your model is too large for a single GPU's memory?
+*Training models larger than single GPU memory with parameter sharding*
 
-This is where Fully Sharded Data Parallel (FSDP) comes in. FSDP extends DDP by sharding model parameters, gradients, and optimizer states across GPUs. Instead of each GPU holding a full copy of the model, each GPU only holds a shard. This lets you train models that are much larger than what fits in a single GPU's memory.
+> FSDP extends DDP by sharding model parameters, gradients, and optimizer states across GPUs. Instead of each GPU holding a full copy of the model, each GPU only holds a shard. This lets you train models that are much larger than what fits in a single GPU's memory.
+- Adapted from Chapter 4
 
-If you've been following along with the DDP examples in Chapter 3, you've seen how to scale training across multiple GPUs when the model fits on one GPU. Now we'll tackle the next challenge: training models that don't fit on a single GPU, even with mixed precision and activation checkpointing.
+**Code Summary**
+
+- `torch.distributed.fsdp.fully_shard()`: FSDP2 function to shard a module
+- `FullyShardedDataParallel`: Original FSDP wrapper class for CUDA/GPUs
+- `torch.distributed.fsdp.FSDP`: FSDP wrapper class (alternative API)
+- `torch.distributed.fsdp.StateDictType`: Enum for state dict types (FULL_STATE_DICT, SHARDED_STATE_DICT)
+- `torch.distributed.fsdp.api.FullyShardedDataParallel`: FSDP class for parameter sharding
+- `torch.distributed.fsdp.wrap()`: Function to wrap submodules with FSDP
+- `torch.distributed.fsdp.set_state_dict_type()`: Configure state dict type for checkpointing
+- `torch.distributed.fsdp.StateDictConfig`: Configuration for state dict handling
+- `torch.distributed.fsdp.OptimStateDictConfig`: Configuration for optimizer state dict
+- `torch.distributed.fsdp.MixedPrecision`: Mixed precision configuration for FSDP
 
 PyTorch has three main FSDP implementations:
 

@@ -1,12 +1,22 @@
 # Chapter 9: Production LLM Serving Stack
 
-## Overview
+*Building end-to-end production systems for reliable LLM serving*
 
-We've covered training systems (DDP, FSDP, DeepSpeed, Megatron), inference engines (vLLM, SGLang), and how to run them with Slurm. But building a production LLM serving system requires more than just running an inference engine. You need a complete stack: model runners that load and execute models efficiently, tokenizers that handle text preprocessing, API gateways that route and load balance requests, rate limiting to prevent abuse, observability to monitor performance, and deployment strategies like A/B testing and canary rollouts to ensure reliability.
+> Building a production LLM serving system requires more than just running an inference engine. You need a complete stack: model runners, tokenizers, API gateways, rate limiting, observability, and deployment strategies like A/B testing and canary rollouts.
+- Adapted from Chapter 9
 
-This chapter builds a complete end-to-end production LLM serving stack, including all these components. Readers implement A/B testing, canary rollouts, and distributed tracing to ensure reliability and maintainability at scale. By the end of this chapter, readers will be able to design, deploy, and operate production-grade LLM serving systems.
+**Code Summary**
 
-**Chapter Length:** 35 pages
+- `fastapi`: Python web framework for building API gateways
+- `uvicorn`: ASGI server for running FastAPI applications
+- `prometheus_client`: Prometheus metrics client for observability
+- `opentelemetry`: OpenTelemetry for distributed tracing
+- `kubernetes.client`: Kubernetes Python client for orchestration
+- `httpx`: HTTP client library for service communication
+- `redis`: Redis client for rate limiting and caching
+- `pydantic`: Data validation library for API request/response models
+- `grpc`: gRPC framework for high-performance service communication
+- `docker`: Docker SDK for container management
 
 
 
