@@ -1,5 +1,10 @@
 # Chapter 1: Introduction to Modern Distributed AI
 
+*Building scalable AI systems from single GPU to distributed clusters*
+
+> Don't ask what your system can do, ask what your system can do in parallel.
+- Henry Wu | Principal ML Tech Lead, Oracle, 2025
+
 ## Overview
 
 Modern AI models have grown beyond what single GPUs can handle. Large language models now range from several billion to over a trillion parameters. Training models with tens of billions of parameters on a single GPU would take months, if they even fit in memory. Serving these models at scale requires distributed architectures.

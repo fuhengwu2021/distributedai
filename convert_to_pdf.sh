@@ -52,6 +52,34 @@ convert_md_to_pdf() {
     # Change to the chapter directory so relative image paths work correctly
     cd "$(dirname "$abs_md_file")"
     
+    # Auto-generate LaTeX chapter title page and quote from Markdown
+    # Create a temporary file with LaTeX code prepended if chapter title exists
+    local temp_md_file=""
+    local original_md_basename="$md_basename"
+    
+    # Check if file has chapter title pattern: # Chapter N: Title
+    if grep -q "^# Chapter [0-9]\+:" "$md_basename"; then
+        echo "   🔧 Auto-generating LaTeX chapter title page and quote from Markdown..."
+        
+        # Use Python script to process the entire file
+        if [ -f "$SCRIPT_DIR/scripts/extract_chapter_title_quote.py" ]; then
+            temp_md_file="${md_basename}.tmp.$$"
+            if python3 "$SCRIPT_DIR/scripts/extract_chapter_title_quote.py" --process-file "$original_md_basename" "$temp_md_file" 2>/dev/null; then
+                if [ -f "$temp_md_file" ] && [ -s "$temp_md_file" ]; then
+                    md_basename="$temp_md_file"
+                else
+                    # Fallback: use original file if processing failed
+                    rm -f "$temp_md_file"
+                    temp_md_file=""
+                fi
+            else
+                # Fallback: use original file if processing failed
+                rm -f "$temp_md_file"
+                temp_md_file=""
+            fi
+        fi
+    fi
+    
     # Try different PDF engines in order of preference
     # Use basenames since we're now in the chapter directory
     # Capture output to filter warnings but show errors
@@ -68,6 +96,9 @@ convert_md_to_pdf() {
 \usepackage{float}
 \floatplacement{figure}{H}
 \usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{tikz}
+\usepackage{tcolorbox}
 % Control image scaling: keep images at original size unless they exceed page width
 % This prevents small images from being over-scaled and becoming blurry
 \makeatletter
@@ -85,29 +116,103 @@ convert_md_to_pdf() {
 \renewcommand{\footnoterule}{\vspace*{8pt}\hrule width 0.4\columnwidth height 0.4pt \vspace*{4pt}}
 % Increase space between footnote rule and first footnote
 \setlength{\skip\footins}{1.2cm}
+% Chapter title page styling
+\definecolor{chapterblue}{RGB}{0,102,204}
+\definecolor{chaptergray}{RGB}{128,128,128}
+\NewDocumentEnvironment{chaptertitlepage}{m m m O{}}{%
+  \newpage
+  \thispagestyle{empty}
+  \vspace*{-2cm}
+  \begin{tikzpicture}[remember picture,overlay]
+    % Blue block on the left
+    \fill[chapterblue] (0,0) rectangle (3.5,14);
+    % Chapter number in blue block
+    \node[white,font=\fontsize{72}{86}\selectfont\bfseries] at (1.75,7) {#1};
+  \end{tikzpicture}
+  \hspace{4cm}
+  \begin{minipage}{0.6\textwidth}
+    \vspace{2cm}
+    {\color{chaptergray}\large\bfseries Chapter #1}\\[0.5cm]
+    {\color{chapterblue}\fontsize{24}{28}\selectfont\bfseries\raggedright #2}\\[0.8cm]
+    {\normalsize #3}\\[1.2cm]
+    % Compact quote section (if provided as 4th argument)
+    \ifx\relax#4\relax\else
+      \vspace{0.1cm}
+      \noindent
+      \begin{tikzpicture}
+        % Compact decorative horizontal line
+        \draw[chapterblue,line width=0.8pt] (0,0) -- (0.35\textwidth,0);
+        % Speech bubble circle
+        \fill[chapterblue!20] (0.35\textwidth,0) circle (0.12);
+        \draw[chapterblue,line width=0.4pt] (0.35\textwidth,0) circle (0.12);
+      \end{tikzpicture}
+      \par\vspace{0.1cm}
+      \noindent
+      \begin{minipage}[t]{0.9\textwidth}
+        \raggedright
+        \small
+        #4
+      \end{minipage}
+    \fi
+  \end{minipage}
+  \vfill
+  \newpage
+}{}
+\NewDocumentEnvironment{chapterquote}{}{%
+  \vspace{1cm}
+  \noindent
+  \begin{tikzpicture}
+    % Decorative line
+    \draw[chapterblue,line width=1pt] (0,0) -- (0.4\textwidth,0);
+    % Speech bubble decoration (simplified)
+    \fill[chapterblue!20] (0.4\textwidth,0.2) circle (0.15);
+    \draw[chapterblue,line width=0.5pt] (0.4\textwidth,0.2) circle (0.15);
+    \draw[red,line width=1pt] (0.4\textwidth,-0.1) -- (0.4\textwidth+0.3,-0.1);
+  \end{tikzpicture}
+  \par\vspace{0.8cm}
+  \noindent
+  \begin{minipage}[t]{0.05\textwidth}
+    \begin{tikzpicture}
+      \draw[chaptergray,line width=0.5pt] (0,0) -- (0,3);
+    \end{tikzpicture}
+  \end{minipage}%
+  \hspace{0.1cm}%
+  \begin{minipage}[t]{0.75\textwidth}
+    \raggedright
+}{%
+  \end{minipage}
+  \vspace{2cm}
+}
 EOF
 )
+    # Cleanup function (defined before use)
+    cleanup_temp() {
+        if [ -n "$temp_md_file" ] && [ -f "$temp_md_file" ]; then
+            rm -f "$temp_md_file"
+        fi
+    }
+    
     if pandoc_output=$(pandoc "$md_basename" -o "$pdf_basename" --pdf-engine=xelatex -V geometry:margin=1in --highlight-style=tango -H <(echo "$latex_header") 2>&1); then
         # Filter out font-related warnings but keep image warnings
         echo "$pandoc_output" | grep -E "\[WARNING\].*image|\[WARNING\].*resource" || true
         echo "✅ Successfully converted using xelatex"
-        cd "$SCRIPT_DIR"
+        cleanup_temp
         return 0
     elif pandoc_output=$(pandoc "$md_basename" -o "$pdf_basename" --pdf-engine=pdflatex -V geometry:margin=1in --highlight-style=tango -V 'tolerance=1000' -V 'emergencystretch=3em' -H <(echo "$latex_header") 2>&1); then
         echo "$pandoc_output" | grep -E "\[WARNING\].*image|\[WARNING\].*resource" || true
         echo "✅ Successfully converted using pdflatex"
-        cd "$SCRIPT_DIR"
+        cleanup_temp
         return 0
     elif pandoc_output=$(pandoc "$md_basename" -o "$pdf_basename" -V geometry:margin=1in --highlight-style=tango -V 'tolerance=1000' -V 'emergencystretch=3em' -H <(echo "$latex_header") 2>&1); then
         echo "$pandoc_output" | grep -E "\[WARNING\].*image|\[WARNING\].*resource" || true
         echo "✅ Successfully converted using default engine"
-        cd "$SCRIPT_DIR"
+        cleanup_temp
         return 0
     else
         # Show all output if conversion failed
         echo "$pandoc_output"
         echo "❌ Failed to convert: $md_file"
-        cd "$SCRIPT_DIR"
+        cleanup_temp
         return 1
     fi
 }
