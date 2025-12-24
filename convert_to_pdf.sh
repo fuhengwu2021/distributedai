@@ -149,7 +149,7 @@ convert_md_to_pdf() {
         \draw[chapterbluelight,line width=0.8pt] (0,0) -- (0.95\textwidth,0);
         % Speech bubble circle at the end
         \fill[chapterbluelight!20] (0.95\textwidth,0) circle (0.12);
-        \draw[chapterbluelight,line width=0.4pt] (0.95\textwidth,0) circle (0.12);
+        \draw[chapterbluelight,line width=0.8pt] (0.95\textwidth,0) circle (0.12);
       \end{tikzpicture}
       \par\vspace{0.1cm}
       \noindent
@@ -157,13 +157,27 @@ convert_md_to_pdf() {
         \raggedright
         \itshape
         \fontsize{12}{14}\selectfont
-        \color{chaptergray}
+        \color{black}
         #4
       \end{minipage}
     \fi
     % Code summary section (if provided as 5th argument)
     \ifx\relax#5\relax\else
+      \\[0.6cm]
+      \noindent
+      \begin{tikzpicture}
+        % Decorative horizontal line spanning most of the page width
+        \draw[chapterbluelight,line width=0.8pt] (0,0) -- (0.95\textwidth,0);
+        % Speech bubble circle at the end
+        \fill[chapterbluelight!20] (0.95\textwidth,0) circle (0.12);
+        \draw[chapterbluelight,line width=0.8pt] (0.95\textwidth,0) circle (0.12);
+      \end{tikzpicture}
+      \\[0.3cm]
+      \begin{itemize}
+      \normalsize
+      \color{chapterblue}
       #5
+      \end{itemize}
     \fi
   \end{minipage}
   \vfill
