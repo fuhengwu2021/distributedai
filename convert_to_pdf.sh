@@ -100,6 +100,7 @@ convert_md_to_pdf() {
 \usepackage{tikz}
 \usetikzlibrary{calc}
 \usepackage{tcolorbox}
+\usepackage{xparse}
 % Control image scaling: keep images at original size unless they exceed page width
 % This prevents small images from being over-scaled and becoming blurry
 \makeatletter
@@ -119,7 +120,7 @@ convert_md_to_pdf() {
 \setlength{\skip\footins}{1.2cm}
 % Chapter title page styling
 \definecolor{chapterblue}{RGB}{0,102,204}
-\definecolor{chapterbluelight}{RGB}{102,153,255}
+\definecolor{chapterbluelight}{RGB}{153,204,255}
 \definecolor{chaptergray}{RGB}{128,128,128}
 \NewDocumentEnvironment{chaptertitlepage}{m m m O{}}{%
   \newpage
@@ -145,10 +146,10 @@ convert_md_to_pdf() {
       \noindent
       \begin{tikzpicture}
         % Decorative horizontal line spanning most of the page width
-        \draw[chapterblue,line width=0.8pt] (0,0) -- (0.95\textwidth,0);
+        \draw[chapterbluelight,line width=0.8pt] (0,0) -- (0.95\textwidth,0);
         % Speech bubble circle at the end
-        \fill[chapterblue!20] (0.95\textwidth,0) circle (0.12);
-        \draw[chapterblue,line width=0.4pt] (0.95\textwidth,0) circle (0.12);
+        \fill[chapterbluelight!20] (0.95\textwidth,0) circle (0.12);
+        \draw[chapterbluelight,line width=0.4pt] (0.95\textwidth,0) circle (0.12);
       \end{tikzpicture}
       \par\vspace{0.1cm}
       \noindent
@@ -164,31 +165,6 @@ convert_md_to_pdf() {
   \vfill
   \newpage
 }{}
-\NewDocumentEnvironment{chapterquote}{}{%
-  \vspace{1cm}
-  \noindent
-  \begin{tikzpicture}
-    % Decorative line
-    \draw[chapterbluelight,line width=1pt] (0,0) -- (0.2\textwidth,0);
-    % Speech bubble decoration (simplified)
-    \fill[chapterblue!20] (0.4\textwidth,0.2) circle (0.15);
-    \draw[chapterblue,line width=0.5pt] (0.4\textwidth,0.2) circle (0.15);
-    \draw[red,line width=1pt] (0.4\textwidth,-0.1) -- (0.4\textwidth+0.3,-0.1);
-  \end{tikzpicture}
-  \par\vspace{0.8cm}
-  \noindent
-  \begin{minipage}[t]{0.05\textwidth}
-    \begin{tikzpicture}
-      \draw[chaptergray,line width=0.5pt] (0,0) -- (0,3);
-    \end{tikzpicture}
-  \end{minipage}%
-  \hspace{0.1cm}%
-  \begin{minipage}[t]{0.75\textwidth}
-    \raggedright
-}{%
-  \end{minipage}
-  \vspace{2cm}
-}
 EOF
 )
     # Cleanup function (defined before use)
