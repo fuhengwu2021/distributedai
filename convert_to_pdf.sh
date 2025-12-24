@@ -98,6 +98,7 @@ convert_md_to_pdf() {
 \usepackage{graphicx}
 \usepackage{xcolor}
 \usepackage{tikz}
+\usetikzlibrary{calc}
 \usepackage{tcolorbox}
 % Control image scaling: keep images at original size unless they exceed page width
 % This prevents small images from being over-scaled and becoming blurry
@@ -124,34 +125,36 @@ convert_md_to_pdf() {
   \thispagestyle{empty}
   \vspace*{-2cm}
   \begin{tikzpicture}[remember picture,overlay]
-    % Blue block on the left
-    \fill[chapterblue] (0,0) rectangle (3.5,14);
-    % Chapter number in blue block
-    \node[white,font=\fontsize{72}{86}\selectfont\bfseries] at (1.75,7) {#1};
+    % Blue square on the top right (4cm x 4cm)
+    \coordinate (square-center) at ($(current page.north east) + (-2cm,-2cm)$);
+    \fill[chapterblue] ($(square-center) + (-2cm,-2cm)$) rectangle 
+      ($(square-center) + (2cm,2cm)$);
+    % Chapter number in blue square (centered, smaller font to fit)
+    \node[white,font=\fontsize{60}{72}\selectfont\bfseries,anchor=center] 
+      at (square-center) {#1};
   \end{tikzpicture}
-  \hspace{4cm}
   \begin{minipage}{0.6\textwidth}
     \vspace{2cm}
-    {\color{chaptergray}\large\bfseries Chapter #1}\\[0.5cm]
-    {\color{chapterblue}\fontsize{24}{28}\selectfont\bfseries\raggedright #2}\\[0.8cm]
-    {\normalsize #3}\\[1.2cm]
+    {\color{chaptergray}\large\bfseries Chapter #1}\\[0.4cm]
+    {\color{chapterblue}\fontsize{24}{32}\selectfont\bfseries\raggedright #2}\\[0.4cm]
+    {\itshape\normalsize #3}\\[0.8cm]
     % Compact quote section (if provided as 4th argument)
     \ifx\relax#4\relax\else
       \vspace{0.2cm}
       \noindent
       \begin{tikzpicture}
-        % Compact decorative horizontal line
-        \draw[chapterblue,line width=0.8pt] (0,0) -- (0.35\textwidth,0);
-        % Speech bubble circle
-        \fill[chapterblue!20] (0.35\textwidth,0) circle (0.12);
-        \draw[chapterblue,line width=0.4pt] (0.35\textwidth,0) circle (0.12);
+        % Decorative horizontal line spanning most of the page width
+        \draw[chapterblue,line width=0.8pt] (0,0) -- (0.95\textwidth,0);
+        % Speech bubble circle at the end
+        \fill[chapterblue!20] (0.95\textwidth,0) circle (0.12);
+        \draw[chapterblue,line width=0.4pt] (0.95\textwidth,0) circle (0.12);
       \end{tikzpicture}
-      \par\vspace{0.3cm}
+      \par\vspace{0.1cm}
       \noindent
-      \begin{minipage}[t]{0.85\textwidth}
+      \begin{minipage}[t]{0.95\textwidth}
         \raggedright
         \itshape
-        \fontsize{10}{13}\selectfont
+        \fontsize{12}{14}\selectfont
         \color{chaptergray}
         #4
       \end{minipage}
