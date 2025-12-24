@@ -119,6 +119,7 @@ convert_md_to_pdf() {
 \setlength{\skip\footins}{1.2cm}
 % Chapter title page styling
 \definecolor{chapterblue}{RGB}{0,102,204}
+\definecolor{chapterbluelight}{RGB}{102,153,255}
 \definecolor{chaptergray}{RGB}{128,128,128}
 \NewDocumentEnvironment{chaptertitlepage}{m m m O{}}{%
   \newpage
@@ -133,7 +134,7 @@ convert_md_to_pdf() {
     \node[white,font=\fontsize{60}{72}\selectfont\bfseries,anchor=center] 
       at (square-center) {#1};
   \end{tikzpicture}
-  \begin{minipage}{0.6\textwidth}
+  \begin{minipage}{1.0\textwidth}
     \vspace{2cm}
     {\color{chaptergray}\large\bfseries Chapter #1}\\[0.4cm]
     {\color{chapterblue}\fontsize{24}{32}\selectfont\bfseries\raggedright #2}\\[0.4cm]
@@ -168,7 +169,7 @@ convert_md_to_pdf() {
   \noindent
   \begin{tikzpicture}
     % Decorative line
-    \draw[chapterblue,line width=1pt] (0,0) -- (0.4\textwidth,0);
+    \draw[chapterbluelight,line width=1pt] (0,0) -- (0.4\textwidth,0);
     % Speech bubble decoration (simplified)
     \fill[chapterblue!20] (0.4\textwidth,0.2) circle (0.15);
     \draw[chapterblue,line width=0.5pt] (0.4\textwidth,0.2) circle (0.15);
