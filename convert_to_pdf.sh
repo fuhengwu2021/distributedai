@@ -7,6 +7,21 @@
 #   ./convert_to_pdf.sh 2                  # Convert chapter 2
 #   ./convert_to_pdf.sh chapter1           # Convert specific chapter (alternative)
 #   ./convert_to_pdf.sh chapter1-introduction-to-modern-distributed-ai  # Full chapter name
+#
+# Footnote Support:
+#   To add footnotes in markdown, use the following syntax:
+#   
+#   In the text: [^1] or [^note-label]
+#   At the end of the document or section: [^1]: Footnote text here
+#   
+#   Example:
+#     This is some text with a footnote[^1].
+#     More text with another footnote[^2].
+#     
+#     [^1]: This is the first footnote.
+#     [^2]: This is the second footnote.
+#
+#   Footnotes will automatically appear at the bottom of each page in the PDF.
 
 set -e  # Exit on error
 
@@ -61,6 +76,15 @@ convert_md_to_pdf() {
 \def\maxheight{\ifdim\Gin@nat@height>\textheight\textheight\else\Gin@nat@height\fi}
 \makeatother
 \setkeys{Gin}{width=\maxwidth,height=\maxheight,keepaspectratio}
+% Footnote support: ensure footnotes are properly displayed
+\usepackage{footnote}
+% Customize footnote style and spacing
+% Increase space between main text and footnotes
+\setlength{\footnotesep}{0.5cm}
+% Add space above the footnote rule
+\renewcommand{\footnoterule}{\vspace*{8pt}\hrule width 0.4\columnwidth height 0.4pt \vspace*{4pt}}
+% Increase space between footnote rule and first footnote
+\setlength{\skip\footins}{1.2cm}
 EOF
 )
     if pandoc_output=$(pandoc "$md_basename" -o "$pdf_basename" --pdf-engine=xelatex -V geometry:margin=1in --highlight-style=tango -H <(echo "$latex_header") 2>&1); then

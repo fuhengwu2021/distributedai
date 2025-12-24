@@ -10,7 +10,7 @@ This chapter walks through resource estimation, decision frameworks for choosing
 
 A few years ago, you could train most models on a single GPU. ResNet-50 on ImageNet took a couple of days. Today, training a 70B parameter language model on a single GPU would take months, if it even fits in memory. The models got bigger, the datasets got bigger, and single-GPU training became impractical.
 
-Looking at recent models, the scale is clear. GPT-4 has over 1 trillion parameters. Training it requires thousands of GPUs working together. Even smaller models like Llama 2 (70B parameters) need multiple GPUs just to fit in memory, let alone train efficiently.
+Looking at recent models, the scale is clear[^model_size_comp]. GPT-4 has over 1 trillion parameters. Training it requires thousands of GPUs working together. Even smaller models like Llama 2 (70B parameters) need multiple GPUs just to fit in memory, let alone train efficiently.
 
 | Model Name | Parameters | Company | Year |
 |------------|------------|---------|------|
@@ -28,6 +28,10 @@ Looking at recent models, the scale is clear. GPT-4 has over 1 trillion paramete
 | GPT-5 | ~2–5T | OpenAI | 2025 |
 | DeepSeek-V3 | 671B MoE (64 experts, 8 active) | DeepSeek | 2025 |
 | Gemini-3-Pro | ~7.5T | Google | 2025 |
+
+
+[^model_size_comp]: The tilde (~) indicates approximate parameter counts. Many large models are closed-source, so exact parameter counts are not publicly disclosed. These approximations are based on inference from model architecture, training costs, and industry estimates.
+
 
 ![Model Parameters v.s. Year](code/model_comparison_plot.png)
 
@@ -732,7 +736,10 @@ PyTorch provides eight main collective operations. Let's walk through each one w
 ![](https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/_images/allreduce.png)
 
 AllReduce is the most common operation in distributed training. It performs a reduction (sum, max, min) across all ranks and stores the result in every rank's buffer.
-DDP uses AllReduce to synchronize gradients—each rank computes gradients on its local data, then AllReduce sums them and distributes the averaged result back to all ranks.
+DDP uses AllReduce to synchronize gradients—each rank computes gradients on its local data, then AllReduce sums them and distributes the averaged result back to all ranks[^allreduce-note].
+
+[^allreduce-note]: AllReduce is the most common collective operation in distributed training.
+
 
 ```python
 # Each rank has different input
@@ -995,3 +1002,6 @@ Now that we understand when and why to use distributed systems, we need to under
 - NVIDIA NCCL Documentation: https://docs.nvidia.com/deeplearning/nccl/
 - GPU Memory Management: https://pytorch.org/docs/stable/notes/cuda.html
 - Profiling PyTorch Models: https://pytorch.org/tutorials/recipes/recipes/profiler_recipe.html
+
+
+

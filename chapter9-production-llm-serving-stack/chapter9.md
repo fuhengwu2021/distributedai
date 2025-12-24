@@ -1485,6 +1485,12 @@ docker build \
 docker images | grep k3s-cuda
 ```
 
+I can see:
+
+```
+k3s-cuda v1.33.6-cuda-12.2.0-working   f2cb1b953c67   1 days ago     833MB
+```
+
 **Note:** If you encounter issues with the `--exclude` flag, ensure Docker BuildKit is enabled. You may need to install `docker buildx`:
 
 ```bash
