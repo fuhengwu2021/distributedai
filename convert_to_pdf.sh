@@ -101,6 +101,7 @@ convert_md_to_pdf() {
 \usetikzlibrary{calc}
 \usepackage{tcolorbox}
 \usepackage{xparse}
+\usepackage{enumitem}
 % Control image scaling: keep images at original size unless they exceed page width
 % This prevents small images from being over-scaled and becoming blurry
 \makeatletter
@@ -173,12 +174,13 @@ convert_md_to_pdf() {
         \draw[chapterbluelight,line width=0.8pt] (0.95\textwidth,0) circle (0.12);
       \end{tikzpicture}
       \\[0.3cm]
-      \begin{itemize}
-      \setlength{\itemsep}{0.4cm}
+      \centering
+      \begin{itemize}[label=\raisebox{1ex}{\textcolor{chapterblue}{$\triangleright$}},leftmargin=*,itemsep=0.2cm,topsep=0pt,partopsep=0pt]
       \normalsize
       \color{chapterblue}
       #5
       \end{itemize}
+      \raggedright
     \fi
   \end{minipage}
   \vfill
