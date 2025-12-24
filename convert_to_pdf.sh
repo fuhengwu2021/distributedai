@@ -174,6 +174,7 @@ convert_md_to_pdf() {
       \end{tikzpicture}
       \\[0.3cm]
       \begin{itemize}
+      \setlength{\itemsep}{0.4cm}
       \normalsize
       \color{chapterblue}
       #5
