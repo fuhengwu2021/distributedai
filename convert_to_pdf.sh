@@ -175,7 +175,7 @@ convert_md_to_pdf() {
       \end{tikzpicture}
       \\[0.3cm]
       \centering
-      \begin{itemize}[label=\raisebox{1ex}{\textcolor{chapterblue}{$\triangleright$}},leftmargin=*,itemsep=0.2cm,topsep=0pt,partopsep=0pt]
+      \begin{itemize}[label=\raisebox{1ex}{\textcolor{chapterblue}{$\triangleright$}},leftmargin=*,itemsep=0.15cm,topsep=0pt,partopsep=0pt]
       \normalsize
       \color{chapterblue}
       #5
