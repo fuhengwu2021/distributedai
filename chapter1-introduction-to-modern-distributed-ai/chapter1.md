@@ -5,6 +5,19 @@
 > Don't ask what your system can do, ask what your system can do in parallel.
 - Henry Wu | Principal ML Tech Lead, Oracle, 2025
 
+**Code Summary**
+
+- `nn.Module`: Base class for all neural network modules in PyTorch
+- `nn.Linear`: Linear (fully connected) layer for neural networks
+- `nn.Sigmoid`: Sigmoid activation function
+- `torch.distributed`: Core module for distributed training in PyTorch
+- `dist.init_process_group()`: Initialize the process group for distributed communication
+- `DDP` (DistributedDataParallel): Wrapper for data-parallel distributed training
+- `DistributedSampler`: Sampler that partitions dataset across multiple processes
+- `dist.all_reduce()`: Collective operation that sums tensors across all ranks
+- `dist.all_gather()`: Collective operation that collects data from all ranks
+- `torch.cuda.set_device()`: Set the current CUDA device for a process
+
 ## Overview
 
 Modern AI models have grown beyond what single GPUs can handle. Large language models now range from several billion to over a trillion parameters. Training models with tens of billions of parameters on a single GPU would take months, if they even fit in memory. Serving these models at scale requires distributed architectures.
