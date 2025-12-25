@@ -356,15 +356,17 @@ The memory requirements become substantially more demanding for models with ultr
 
 #### GPU Requirements Estimation
 
-For training, calculate your memory needs, add 10-20% safety margin for communication buffers and framework overhead, then see if it fits. A 13B model with BF16 needs about 72 GB per GPU. With safety margin, that's 85 GB. An A100 has 80 GB, so you'll need 2 GPUs with model parallelism or FSDP.
+Estimating GPU requirements requires accounting for both model memory and operational overhead. For training workloads, the calculation begins with the model's memory footprint, to which a 10-20% safety margin must be added to accommodate communication buffers and framework overhead. Consider a 13B parameter model using BF16 precision: the base memory requirement is approximately 72 GB per GPU. With the safety margin applied, this increases to 85 GB. Since an A100 GPU provides 80 GB of memory, this configuration necessitates 2 GPUs using model parallelism or Fully Sharded Data Parallel (FSDP) strategies.
 
-For inference, it's similar. Calculate model size plus KV cache. A 70B model in BF16 needs 140 GB just for weights. With KV cache, you're looking at 160-180 GB total. You'll need 2+ A100 GPUs, or use Int8 quantization to get it down to 70 GB for weights, which might fit on one GPU with careful KV cache management.
+Inference requirements follow a similar calculation methodology, combining model weights with KV cache memory. A 70B parameter model in BF16 requires 140 GB for weights alone. When accounting for KV cache overhead, the total memory requirement reaches 160-180 GB. This necessitates a minimum of 2 A100 GPUs, or alternatively, Int8 quantization can reduce weight memory to approximately 70 GB, potentially enabling single-GPU deployment with careful KV cache management.
 
 #### Real-World Considerations
 
-Don't forget the overhead. PyTorch adds 1-2 GB. The OS needs 5-10 GB. Distributed training needs 2-5 GB per GPU for communication buffers. Checkpointing causes temporary spikes. Start conservative and add 20-30% buffer to your estimates. Use mixed precision (BF16 for training, FP16/BF16 for inference) to cut memory in half compared to FP32. Monitor with `nvidia-smi` to see actual usage. For inference, Int8 quantization can halve memory with minimal accuracy loss. Remember that activations scale linearly with batch size—if you hit OOM, reduce batch size first.
+Practical deployment introduces additional memory overhead beyond the base model requirements. The PyTorch framework typically consumes 1-2 GB, while the operating system requires 5-10 GB. Distributed training architectures allocate an additional 2-5 GB per GPU for communication buffers. Checkpointing operations create temporary memory spikes that must be accounted for in capacity planning. A conservative approach adds a 20-30% buffer to base estimates to accommodate these overheads and operational variations.
 
-Quick Reference Table:
+Memory optimization strategies play a critical role in practical deployments. Mixed precision training using BF16 (or FP16/BF16 for inference) reduces memory consumption by approximately 50% compared to FP32, with minimal impact on model accuracy. For inference workloads, Int8 quantization can further halve memory requirements while maintaining acceptable accuracy degradation. Monitoring actual memory usage through tools such as `nvidia-smi` provides empirical validation of theoretical estimates. It is important to recognize that activation memory scales linearly with batch size; when encountering out-of-memory (OOM) errors, reducing batch size represents the most immediate mitigation strategy.
+
+Quick Reference Table[^memory_estimates]:
 
 | Model Size | FP32 Weights | BF16 Weights | Training (BF16+Adam) | Inference (BF16) |
 |------------|--------------|--------------|----------------------|------------------|
@@ -373,13 +375,15 @@ Quick Reference Table:
 | 13B        | 52 GB        | 26 GB        | ~110-130 GB          | 26-35 GB         |
 | 70B        | 280 GB       | 140 GB       | ~600-700 GB          | 140-180 GB       |
 
-*Note: Training estimates assume Adam optimizer and moderate batch size. Actual values vary based on architecture, sequence length, and batch size.*
+[^memory_estimates]: Training estimates assume Adam optimizer and moderate batch size. Actual values vary based on architecture, sequence length, and batch size.
 
 ### The Evolution from Classic ML to Foundation Models
 
-Classic machine learning models were designed to fit on a single machine. Traditional ML models - such as linear regression, logistic regression, decision trees, random forests, support vector machines (SVM), and gradient boosting (XGBoost, LightGBM) - typically had thousands to millions of parameters and were trained on datasets that fit in memory. The deep learning era brought models with hundreds of millions of parameters (e.g., ResNet, BERT), requiring GPUs but still manageable on single devices. Today's foundation model era has models with billions to trillions of parameters (e.g., GPT-4, Gemini, LLaMA), requiring distributed systems from day one.
+The progression from classic machine learning to modern foundation models represents a fundamental shift in computational requirements and architectural paradigms. Classic machine learning models were designed to operate on single machines, with traditional algorithms—including linear regression, logistic regression, decision trees, random forests, support vector machines (SVM), and gradient boosting methods (XGBoost, LightGBM)—typically comprising thousands to millions of parameters and training on datasets that fit entirely in system memory.
 
-The shift to distributed AI enabled breakthrough capabilities - models that can understand and generate human-like text, code, and multimodal content. It also drove enterprise adoption, with companies deploying AI at scale for production workloads, and accelerated research through faster iteration cycles enabled by parallel experimentation.
+The deep learning era introduced models with hundreds of millions of parameters, exemplified by architectures such as ResNet and BERT. While these models necessitated GPU acceleration, they remained manageable on single-device configurations. The contemporary foundation model era has fundamentally altered this landscape: models now span billions to trillions of parameters (e.g., GPT-4, Gemini, LLaMA), requiring distributed systems as an architectural prerequisite rather than an optimization.
+
+This transition to distributed AI has enabled breakthrough capabilities, including models capable of understanding and generating human-like text, code, and multimodal content. The shift has also catalyzed enterprise adoption, with organizations deploying AI systems at scale for production workloads. Furthermore, distributed architectures have accelerated research progress through faster iteration cycles enabled by parallel experimentation across multiple compute nodes.
 
 ## 2. The Modern AI Model Lifecycle
 
