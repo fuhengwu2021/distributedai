@@ -389,41 +389,14 @@ This transition to distributed AI has enabled breakthrough capabilities, includi
 
 Building AI models isn't a one-shot process. It's a cycle: you collect data, train a model, deploy it, see how it performs, then go back and improve the data or model. Each stage feeds into the next.
 
-\newpage
-
 The lifecycle looks like this:
 
 ![Modern AI Model Lifecycle](img/mdlc.png)
 
-You start with data engineering. Collect data, curate it, transform it, validate it, explore it. You're preparing terabytes of data for training. Clean it, deduplicate it, filter for quality, format it. Tools like NeMo Curator handle this at scale.
-
-Then you train the model. Forward pass, backprop, gradient descent. Tune hyperparameters, use parameter-efficient tuning (PEFT), fine-tune, maybe do RLHF. You're learning model parameters from data. This is where distributed training shines - split models and data across GPUs.
-
-Once trained, you run inference. Quantize the model, cache activations, convert to ONNX, fuse operators, optimize CUDA kernels. You're generating predictions. Latency and throughput matter here. Distributed inference handles models too large for a single GPU.
-
-Before deploying, you benchmark. Measure precision and recall, evaluate engineering performance, profile bottlenecks, run stress tests, test different scenarios. You're checking how well the model works. Distributed evaluation speeds up testing on large datasets.
-
-Then you deploy. Set up autoscaling, scheduling, load balancing, observability. Put the model in production. That means API gateways, monitoring, handling thousands of requests per second.
-
-Production feedback tells you what data to collect next, or where the model fails. You loop back to data engineering. The cycle repeats.
+The lifecycle begins with data engineering, where terabytes of data are collected, curated, transformed, validated, cleaned and prepared for training. Training follows, involving forward passes, backpropagation, gradient descent, hyperparameter tuning, and even fine-tuning. Once trained, models undergo inference optimization through quantization, ONNX conversion, operator fusion, and CUDA kernel optimization. Before deployment, comprehensive benchmarking evaluates model performance through precision and recall metrics, engineering performance profiling, bottleneck analysis, and stress testing, with distributed evaluation accelerating testing on large datasets. Production deployment requires autoscaling, scheduling, load balancing, observability, API gateways, and monitoring infrastructure to handle thousands of requests per second. Production feedback identifies data collection priorities and model failure modes, completing the cycle by informing subsequent data engineering efforts and model improvements.
 
 
-This book focuses on the distributed technologies you need for training, inference, benchmarking, and deployment. Data engineering gets a brief overview but isn't the main focus. Distributed data processing is important, but it's a well-established topic. Spark, Dask, and Ray have been around for years. This book covers the basics - what you need to know to prepare data for distributed training - but the real focus is on AI-specific distributed challenges: training large models, serving them at scale, and optimizing inference.
-
-The principles are the same across all stages: parallelism, communication, memory management, fault tolerance. But the techniques differ. Training is iterative with frequent gradient syncs. Inference is latency-sensitive with throughput requirements.
-
-### Training vs Inference vs Serving
-
-Training, inference, and serving are different. Each has different requirements, bottlenecks, and optimization strategies. Understanding these differences helps you design effective distributed systems.
-
-| Aspect | Training | Inference | Serving |
-|--------|----------|-----------|---------|
-| **Primary Goal** | Learn parameters | Generate predictions | Provide access |
-| **Memory Usage** | High (activations + gradients) | Medium (weights + KV cache) | Variable |
-| **Compute Pattern** | Iterative, intensive | Single forward pass | Request-driven |
-| **Communication** | Frequent (gradients) | Minimal | API-level |
-| **Latency Requirement** | Hours to days | Milliseconds to seconds | Milliseconds |
-| **Throughput Focus** | Samples per second | Tokens per second | Requests per second |
+This book focuses on the distributed technologies you need for training, inference, benchmarking, and deployment. Data engineering gets a brief overview but isn't the main focus. Distributed data processing is important, but it's a well-established topic. Spark, Dask, and Ray have been around for years. This book's main focus is on AI-specific distributed challenges: training large models, optimizing inference, and serving them at scale.
 
 #### Training: The Learning Phase
 
@@ -445,7 +418,16 @@ Serving is about providing reliable, scalable access to models. It's not just ru
 
 The challenges include system reliability and uptime, multi-model routing and load balancing, cost optimization through GPU utilization and autoscaling, and observability for debugging. A production LLM serving platform might include multiple model variants (different sizes, fine-tuned versions), A/B testing infrastructure, canary deployment pipelines, and distributed tracing and monitoring.
 
+Here is a table of `Training vs Inference vs Serving`:
 
+| Aspect | Training | Inference | Serving |
+|--------|----------|-----------|---------|
+| **Goal** | Learn parameters | Generate predictions | Provide access |
+| **Memory** | High (activations + gradients) | Medium (weights + KV cache) | Variable |
+| **Computation** | Iterative, intensive | Single forward pass | Request-driven |
+| **Communication** | Frequent (gradients) | Minimal | API-level |
+| **Latency** | Hours to days | Milliseconds to seconds | Milliseconds |
+| **Throughput** | Samples per second | Tokens per second | Requests per second |
 
 
 ## 3. Decision Framework: When Do You Need Distributed Systems?
