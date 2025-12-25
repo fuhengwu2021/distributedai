@@ -77,7 +77,7 @@ Here's a quick reference for common precision formats:
 | BF16 | 2 | 16-bit bfloat (1 sign, 8 exponent, 7 mantissa) | Training (preferred), inference |
 | FP16 | 2 | 16-bit float (1 sign, 5 exponent, 10 mantissa) | Inference |
 | FP8 E4M3 | 1 | 8-bit float (1 sign, 4 exponent, 3 mantissa) | Inference (activations, weights) |
-| FP8 E5M2 | 1 | 8-bit float (1 sign, 5 exponent, 2 mantissa) | Storage, wide dynamic range |
+| FP8 E5M2 | 1 | 8-bit float (1 sign, 5 exponent, 2 mantissa) | Training (gradient storage and accumulation) |
 | Int8 | 1 | 8-bit integer | Quantized inference |
 | Int4 | 0.5 | 4-bit integer | Quantized inference (extreme compression) |
 

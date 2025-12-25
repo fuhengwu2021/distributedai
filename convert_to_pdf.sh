@@ -80,6 +80,18 @@ convert_md_to_pdf() {
         fi
     fi
     
+    # Extract chapter title from markdown file for header
+    local chapter_title=""
+    local header_title_text="Modern Distributed AI Systems"
+    if grep -q "^# Chapter [0-9]\+:" "$original_md_basename"; then
+        # Extract chapter title: "Chapter N: Title" -> "Title"
+        chapter_title=$(grep "^# Chapter [0-9]\+:" "$original_md_basename" | sed 's/^# Chapter [0-9]\+: *//' | head -1)
+        if [ -n "$chapter_title" ]; then
+            # Escape LaTeX special characters in chapter title
+            header_title_text=$(echo "$chapter_title" | sed 's/\\/\\textbackslash{}/g; s/{/\\{/g; s/}/\\}/g; s/\$/\\$/g; s/&/\\&/g; s/%/\\%/g; s/#/\\#/g; s/\^/\\textasciicircum{}/g; s/_/\\_/g')
+        fi
+    fi
+    
     # Try different PDF engines in order of preference
     # Use basenames since we're now in the chapter directory
     # Capture output to filter warnings but show errors
@@ -87,7 +99,9 @@ convert_md_to_pdf() {
     # Create LaTeX header with image size control
     # Keep images at original size to prevent blurriness from over-scaling
     # Only scale down if image exceeds page width
-    local latex_header=$(cat <<'EOF'
+    # Use a dynamic header that includes chapter title
+    # Use quoted heredoc to prevent $ expansion, then replace placeholder
+    local latex_header=$(cat <<'STATIC_EOF'
 \usepackage{microtype}
 \sloppy
 \setlength{\emergencystretch}{3em}
@@ -102,6 +116,19 @@ convert_md_to_pdf() {
 \usepackage{tcolorbox}
 \usepackage{xparse}
 \usepackage{enumitem}
+% Page headers using fancyhdr
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+% Clear default header/footer
+\fancyhf{}
+% Set header: left side shows chapter title (or book title if no chapter), right side shows page number
+\fancyhead[L]{\color{chaptergray}\small\itshape HEADER_TITLE_PLACEHOLDER}
+\fancyhead[R]{\color{chaptergray}\small\thepage}
+% Add a line under the header
+\renewcommand{\headrulewidth}{0.4pt}
+\renewcommand{\headrule}{\hbox to\headwidth{\color{chapterbluelight}\leaders\hrule height \headrulewidth\hfill}}
+% Set header height to accommodate the content
+\setlength{\headheight}{14.5pt}
 % Control image scaling: keep images at original size unless they exceed page width
 % This prevents small images from being over-scaled and becoming blurry
 \makeatletter
@@ -186,8 +213,11 @@ convert_md_to_pdf() {
   \vfill
   \newpage
 }{}
-EOF
+STATIC_EOF
 )
+    # Replace placeholder with actual title (escape special chars for sed)
+    local escaped_title=$(printf '%s\n' "$header_title_text" | sed 's/[[\.*^$()+?{|]/\\&/g' | sed 's/\\/\\\\/g')
+    latex_header=$(echo "$latex_header" | sed "s|HEADER_TITLE_PLACEHOLDER|$escaped_title|g")
     # Cleanup function (defined before use)
     cleanup_temp() {
         if [ -n "$temp_md_file" ] && [ -f "$temp_md_file" ]; then
