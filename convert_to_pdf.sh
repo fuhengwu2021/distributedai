@@ -22,6 +22,36 @@
 #     [^2]: This is the second footnote.
 #
 #   Footnotes will automatically appear at the bottom of each page in the PDF.
+#
+# Fancy Divider Support:
+#   To add a fancy horizontal divider in markdown, use the following syntax:
+#   
+#   Without icon:
+#     \fancydivider                                    # Default blue divider (95% width)
+#     \fancydivider[dividerred]                        # Red divider with default width
+#     \fancydivider[chapterblue][0.8\textwidth]       # Blue divider with custom width
+#   
+#   With icon:
+#     \fancydividerwithicon{icon.png}                  # With icon (default color/width)
+#     \fancydividerwithicon[dividerred]{python-logo.png}  # Red divider with icon
+#     \fancydividerwithicon[chapterblue][0.8\textwidth]{icon.svg}  # Full customization
+#   
+#   Available colors: chapterbluelight (default), chapterblue, dividerred, red, blue, black, etc.
+#   Width can be specified as: 0.95\textwidth (default), 0.8\textwidth, \linewidth, etc.
+#   Icon formats: PNG, SVG, PDF, JPG (any format supported by LaTeX graphicx package)
+#   Icon will be placed on the right side of the line, overlapping the line
+#   Icon path should be relative to the markdown file location (same as regular images)
+#   
+#   Example:
+#     Some text here.
+#     
+#     \fancydivider
+#     
+#     More text after the divider.
+#     
+#     \fancydividerwithicon[dividerred]{python-logo.png}
+#     
+#     Text after red divider with Python icon.
 
 set -e  # Exit on error
 
@@ -150,6 +180,49 @@ convert_md_to_pdf() {
 \definecolor{chapterblue}{RGB}{0,102,204}
 \definecolor{chapterbluelight}{RGB}{153,204,255}
 \definecolor{chaptergray}{RGB}{128,128,128}
+\definecolor{dividerred}{RGB}{255,0,0}
+% Fancy divider command for use in markdown
+% Usage in markdown: 
+%   \fancydivider                                    # Default blue divider (no icon)
+%   \fancydivider[color]                            # Custom color, no icon
+%   \fancydivider[color][width]                      # Custom color and width, no icon
+%   \fancydividerwithicon{icon.png}                  # With icon (default color/width)
+%   \fancydividerwithicon[color]{icon.png}           # With icon and custom color
+%   \fancydividerwithicon[color][width]{icon.png}    # With icon, color, and width
+% Example: 
+%   \fancydivider
+%   \fancydivider[dividerred]
+%   \fancydividerwithicon{python-logo.png}
+%   \fancydividerwithicon[dividerred]{python-logo.svg}
+%   \fancydividerwithicon[chapterblue][0.8\textwidth]{python-logo.pdf}
+% Available colors: chapterbluelight (default), chapterblue, dividerred, red, blue, black, etc.
+% Icon formats: PNG, SVG, PDF, JPG (any format supported by graphicx package)
+% Icon will be placed on the right side of the line, overlapping the line
+% Divider without icon
+\NewDocumentCommand{\fancydivider}{O{chapterbluelight} O{0.95\textwidth}}{%
+  \par\vspace{0.8cm}%
+  \noindent%
+  \begin{tikzpicture}%
+    \coordinate (line-end) at (#2,0);%
+    \draw[#1,line width=0.8pt] (0,0) -- (line-end);%
+    \fill[#1!20] (line-end) circle (0.12);%
+    \draw[#1,line width=0.8pt] (line-end) circle (0.12);%
+  \end{tikzpicture}%
+  \par\vspace{0.8cm}%
+}
+% Divider with icon
+\NewDocumentCommand{\fancydividerwithicon}{O{chapterbluelight} O{0.95\textwidth} m}{%
+  \par\vspace{0.4cm}%
+  \noindent%
+  \begin{tikzpicture}%
+    \coordinate (line-end) at (#2,0);%
+    \draw[#1,line width=0.8pt] (0,0) -- (line-end);%
+    \node[anchor=center,inner sep=0] at (line-end) {%
+      \includegraphics[height=0.7cm,keepaspectratio]{#3}%
+    };%
+  \end{tikzpicture}%
+  \par\vspace{0.4cm}%
+}
 \NewDocumentEnvironment{chaptertitlepage}{m m m O{} O{}}{%
   \newpage
   \thispagestyle{empty}
@@ -225,18 +298,18 @@ STATIC_EOF
         fi
     }
     
-    if pandoc_output=$(pandoc "$md_basename" -o "$pdf_basename" --pdf-engine=xelatex -V geometry:margin=1in --highlight-style=tango -H <(echo "$latex_header") 2>&1); then
+    if pandoc_output=$(pandoc "$md_basename" -o "$pdf_basename" --from=markdown+raw_tex --pdf-engine=xelatex -V geometry:margin=1in --highlight-style=tango -H <(echo "$latex_header") 2>&1); then
         # Filter out font-related warnings but keep image warnings
         echo "$pandoc_output" | grep -E "\[WARNING\].*image|\[WARNING\].*resource" || true
         echo "✅ Successfully converted using xelatex"
         cleanup_temp
         return 0
-    elif pandoc_output=$(pandoc "$md_basename" -o "$pdf_basename" --pdf-engine=pdflatex -V geometry:margin=1in --highlight-style=tango -V 'tolerance=1000' -V 'emergencystretch=3em' -H <(echo "$latex_header") 2>&1); then
+    elif pandoc_output=$(pandoc "$md_basename" -o "$pdf_basename" --from=markdown+raw_tex --pdf-engine=pdflatex -V geometry:margin=1in --highlight-style=tango -V 'tolerance=1000' -V 'emergencystretch=3em' -H <(echo "$latex_header") 2>&1); then
         echo "$pandoc_output" | grep -E "\[WARNING\].*image|\[WARNING\].*resource" || true
         echo "✅ Successfully converted using pdflatex"
         cleanup_temp
         return 0
-    elif pandoc_output=$(pandoc "$md_basename" -o "$pdf_basename" -V geometry:margin=1in --highlight-style=tango -V 'tolerance=1000' -V 'emergencystretch=3em' -H <(echo "$latex_header") 2>&1); then
+    elif pandoc_output=$(pandoc "$md_basename" -o "$pdf_basename" --from=markdown+raw_tex -V geometry:margin=1in --highlight-style=tango -V 'tolerance=1000' -V 'emergencystretch=3em' -H <(echo "$latex_header") 2>&1); then
         echo "$pandoc_output" | grep -E "\[WARNING\].*image|\[WARNING\].*resource" || true
         echo "✅ Successfully converted using default engine"
         cleanup_temp
