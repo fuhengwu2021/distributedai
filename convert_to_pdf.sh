@@ -52,6 +52,31 @@
 #     \fancydividerwithicon[dividerred]{python-logo.png}
 #     
 #     Text after red divider with Python icon.
+#
+# Code Line Annotations Support:
+#   Code blocks automatically display circled line numbers (①, ②, ③, etc.) at the
+#   end of each line. No manual annotation needed!
+#   
+#   Simply write your code block normally:
+#      ```python
+#      print("Hello")
+#      print("World")
+#      ```
+#   
+#   Add explanations after the code block:
+#      ```python
+#      print("Hello")
+#      print("World")
+#      ```
+#      
+#      \begin{codeexplanation}
+#      \codelineannotation{1}{First line prints Hello}
+#      \codelineannotation{2}{Second line prints World}
+#      \end{codeexplanation}
+#   
+#   The circled numbers (①, ②, etc.) will automatically appear at the end of each
+#   line inside the code block, and explanations will appear below the code block
+#   in italic gray text with proper line breaks.
 
 set -e  # Exit on error
 
@@ -132,6 +157,15 @@ convert_md_to_pdf() {
     # Use a dynamic header that includes chapter title
     # Use quoted heredoc to prevent $ expansion, then replace placeholder
     local latex_header=$(cat <<'STATIC_EOF'
+% Unicode support - use fontspec for xelatex, inputenc for pdflatex
+\ifxetex
+  \usepackage{fontspec}
+  % Let xelatex use default system fonts (will handle Unicode properly)
+\else
+  \usepackage[utf8]{inputenc}
+  \usepackage[T1]{fontenc}
+  \usepackage{textcomp}
+\fi
 \usepackage{microtype}
 \sloppy
 \setlength{\emergencystretch}{3em}
@@ -146,6 +180,150 @@ convert_md_to_pdf() {
 \usepackage{tcolorbox}
 \usepackage{xparse}
 \usepackage{enumitem}
+% Define colors before using them in listings
+\definecolor{chapterblue}{RGB}{0,102,204}
+\definecolor{chapterbluelight}{RGB}{153,204,255}
+\definecolor{chaptergray}{RGB}{128,128,128}
+\definecolor{dividerred}{RGB}{255,0,0}
+% Code block styling with line number annotations using listings package
+\usepackage{listings}
+% Use mdframed to wrap listings and add custom line numbers
+\usepackage{mdframed}
+% Enhanced syntax highlighting colors
+\definecolor{codekeyword}{RGB}{0,102,204}
+\definecolor{codecomment}{RGB}{128,128,128}
+\definecolor{codestring}{RGB}{0,128,0}
+\definecolor{codenumber}{RGB}{128,0,128}
+\definecolor{codefunction}{RGB}{0,0,255}
+% Define custom style for circled line numbers using simpler approach
+% We'll add line numbers manually using a post-processing approach
+\lstset{
+  basicstyle=\ttfamily\normalsize,
+  breaklines=true,
+  breakatwhitespace=true,
+  showstringspaces=false,
+  frame=none,
+  backgroundcolor=\color{gray!5},
+  % Enhanced syntax highlighting
+  commentstyle=\color{codecomment}\itshape,
+  keywordstyle=\color{codekeyword}\bfseries,
+  stringstyle=\color{codestring},
+  numberstyle=\color{codenumber},
+  identifierstyle=\color{black},
+  % Python-specific highlighting
+  emph={True,False,None,self},
+  emphstyle=\color{codekeyword}\bfseries,
+  % Function names
+  morekeywords={print,import,from,def,class,if,else,elif,for,while,return,try,except,finally,with,as,pass,break,continue,lambda,del,global,nonlocal,yield,assert,raise},
+  % Better string handling
+  string=[s]{"}{"},
+  string=[s]{'}{'},
+  % Better comment handling
+  comment=[l]{\#},
+  % Ensure symmetric padding inside mdframed
+  xleftmargin=0pt,
+  xrightmargin=0pt,
+  aboveskip=0pt,
+  belowskip=0pt,
+  % Remove extra spacing that might cause asymmetry
+  lineskip=0pt,
+  % Ensure consistent line height
+  basewidth=0.5em,
+}
+% Bash-specific highlighting style
+\lstdefinestyle{bashstyle}{%
+  language=bash,
+  basicstyle=\ttfamily\normalsize,
+  breaklines=true,
+  breakatwhitespace=true,
+  showstringspaces=false,
+  frame=none,
+  backgroundcolor=\color{gray!5},
+  keywordstyle=\color{codekeyword}\bfseries,
+  commentstyle=\color{codecomment}\itshape,
+  stringstyle=\color{codestring},
+  identifierstyle=\color{black},
+  numberstyle=\color{codenumber},
+  % Bash keywords
+  morekeywords={if,then,else,elif,fi,for,while,do,done,case,esac,function,export,local,readonly,declare,typeset},
+  % Bash built-in commands
+  morekeywords=[2]{echo,cd,pwd,ls,cat,grep,sed,awk,find,chmod,chown,cp,mv,rm,mkdir,rmdir,touch,ln,ps,kill,env,source,exec,eval,test},
+  keywordstyle=[2]=\color{codefunction}\bfseries,
+  % Common ML/AI commands
+  morekeywords=[3]{torchrun,python,python3,srun,mpirun,horovodrun},
+  keywordstyle=[3]=\color{codefunction}\bfseries,
+  % Comments
+  comment=[l]{\#},
+  % Strings
+  string=[b]{"},
+  string=[b]{'},
+  % Highlight numbers
+  literate={-}{{\color{codekeyword}\bfseries-}}1
+           {--}{{\color{codekeyword}\bfseries--}}2
+           {0}{{\color{codenumber}0}}1
+           {1}{{\color{codenumber}1}}1
+           {2}{{\color{codenumber}2}}1
+           {3}{{\color{codenumber}3}}1
+           {4}{{\color{codenumber}4}}1
+           {5}{{\color{codenumber}5}}1
+           {6}{{\color{codenumber}6}}1
+           {7}{{\color{codenumber}7}}1
+           {8}{{\color{codenumber}8}}1
+           {9}{{\color{codenumber}9}}1,
+  xleftmargin=0pt,
+  xrightmargin=0pt,
+  aboveskip=0pt,
+  belowskip=0pt,
+  numbers=none,
+}
+% Define mdframed style for code blocks with border and rounded corners
+% Note: roundcorner may not work in all mdframed versions, but we keep it for compatibility
+\mdfdefinestyle{codeblockstyle}{%
+  leftmargin=0pt,
+  rightmargin=0pt,
+  innerleftmargin=10pt,
+  innerrightmargin=10pt,
+  innertopmargin=10pt,
+  innerbottommargin=5pt,
+  skipabove=0.5em,
+  skipbelow=0.5em,
+  linecolor=chapterbluelight,
+  linewidth=0.8pt,
+  backgroundcolor=gray!5,
+  roundcorner=4pt,
+  outerlinewidth=0.8pt,
+  % Ensure escapeinside works properly
+  hidealllines=false,
+  % Ensure symmetric inner padding
+  innerlinewidth=0pt,
+  outermargin=0pt,
+}
+% Command to add circled number mark (for use in explanations outside code blocks)
+\newcommand{\codelinemark}[1]{%
+  \tikz[baseline=(char.base)]{%
+    \node[shape=circle,draw=chapterblue,fill=chapterblue!10,inner sep=2pt,minimum size=1.2em,font=\tiny\bfseries\color{chapterblue}] (char) {#1};%
+  }%
+}
+% Command for code line explanation (used outside code block)
+\newcommand{\codelineannotation}[2]{%
+  \tikz[baseline=(char.base)]{%
+    \node[shape=circle,draw=chapterblue,fill=chapterblue!10,inner sep=2pt,minimum size=1.2em,font=\tiny\bfseries\color{chapterblue}] (char) {#1};%
+  }%
+  \quad\textit{#2}\par%
+}
+% Environment for code explanations (to be used after code blocks)
+\newenvironment{codeexplanation}{%
+  \vspace{0.3cm}%
+  \noindent%
+  \begin{minipage}{\textwidth}%
+  \small%
+  \itshape%
+  \color{chaptergray}%
+  \raggedright%
+}{%
+  \end{minipage}%
+  \vspace{0.3cm}%
+}
 % Page headers using fancyhdr
 \usepackage{fancyhdr}
 \pagestyle{fancy}
@@ -177,10 +355,7 @@ convert_md_to_pdf() {
 % Increase space between footnote rule and first footnote
 \setlength{\skip\footins}{1.2cm}
 % Chapter title page styling
-\definecolor{chapterblue}{RGB}{0,102,204}
-\definecolor{chapterbluelight}{RGB}{153,204,255}
-\definecolor{chaptergray}{RGB}{128,128,128}
-\definecolor{dividerred}{RGB}{255,0,0}
+% (Colors are already defined above, before listings package)
 % Fancy divider command for use in markdown
 % Usage in markdown: 
 %   \fancydivider                                    # Default blue divider (no icon)
@@ -298,27 +473,45 @@ STATIC_EOF
         fi
     }
     
-    if pandoc_output=$(pandoc "$md_basename" -o "$pdf_basename" --from=markdown+raw_tex --pdf-engine=xelatex -V geometry:margin=1in --highlight-style=tango -H <(echo "$latex_header") 2>&1); then
+    # Use Lua filter for code line numbers if available
+    local lua_filter=""
+    if [ -f "$SCRIPT_DIR/scripts/code_line_numbers.lua" ]; then
+        lua_filter="--lua-filter=$SCRIPT_DIR/scripts/code_line_numbers.lua"
+    fi
+    
+    # Write header to temporary file to ensure proper handling
+    local header_file="${md_basename}.header.$$.tex"
+    echo "$latex_header" > "$header_file"
+    
+    # Enhanced cleanup function
+    cleanup_all() {
+        cleanup_temp
+        if [ -n "$header_file" ] && [ -f "$header_file" ]; then
+            rm -f "$header_file"
+        fi
+    }
+    
+    if pandoc_output=$(pandoc "$md_basename" -o "$pdf_basename" --from=markdown+raw_tex $lua_filter --pdf-engine=xelatex -V geometry:margin=1in --highlight-style=tango -H "$header_file" 2>&1); then
         # Filter out font-related warnings but keep image warnings
         echo "$pandoc_output" | grep -E "\[WARNING\].*image|\[WARNING\].*resource" || true
         echo "✅ Successfully converted using xelatex"
-        cleanup_temp
+        cleanup_all
         return 0
-    elif pandoc_output=$(pandoc "$md_basename" -o "$pdf_basename" --from=markdown+raw_tex --pdf-engine=pdflatex -V geometry:margin=1in --highlight-style=tango -V 'tolerance=1000' -V 'emergencystretch=3em' -H <(echo "$latex_header") 2>&1); then
+    elif pandoc_output=$(pandoc "$md_basename" -o "$pdf_basename" --from=markdown+raw_tex $lua_filter --pdf-engine=pdflatex -V geometry:margin=1in --highlight-style=tango -V 'tolerance=1000' -V 'emergencystretch=3em' -H "$header_file" 2>&1); then
         echo "$pandoc_output" | grep -E "\[WARNING\].*image|\[WARNING\].*resource" || true
         echo "✅ Successfully converted using pdflatex"
-        cleanup_temp
+        cleanup_all
         return 0
-    elif pandoc_output=$(pandoc "$md_basename" -o "$pdf_basename" --from=markdown+raw_tex -V geometry:margin=1in --highlight-style=tango -V 'tolerance=1000' -V 'emergencystretch=3em' -H <(echo "$latex_header") 2>&1); then
+    elif pandoc_output=$(pandoc "$md_basename" -o "$pdf_basename" --from=markdown+raw_tex $lua_filter -V geometry:margin=1in --highlight-style=tango -V 'tolerance=1000' -V 'emergencystretch=3em' -H "$header_file" 2>&1); then
         echo "$pandoc_output" | grep -E "\[WARNING\].*image|\[WARNING\].*resource" || true
         echo "✅ Successfully converted using default engine"
-        cleanup_temp
+        cleanup_all
         return 0
     else
         # Show all output if conversion failed
         echo "$pandoc_output"
         echo "❌ Failed to convert: $md_file"
-        cleanup_temp
+        cleanup_all
         return 1
     fi
 }
