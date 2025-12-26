@@ -34,13 +34,13 @@ function CodeBlock(block)
   local is_python = (lang:lower() == "python")
   
   if is_python then
-    -- Split code into lines and add circled number at the end of each line
+    -- Split code into lines and add circled number at the beginning of each line
     local lines = {}
     local line_num = 0
     for line in code:gmatch("[^\r\n]+") do
       line_num = line_num + 1
-      -- Add circled number mark at the end using escapeinside
-      lines[line_num] = line .. " (*@\\codelinemark{" .. tostring(line_num) .. "}@*)"
+      -- Add circled number mark at the beginning using escapeinside
+      lines[line_num] = "(*@\\codelinemark{" .. tostring(line_num) .. "}@*) " .. line
     end
     
     -- If no lines, return original block
