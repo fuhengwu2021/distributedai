@@ -288,7 +288,7 @@ convert_md_to_pdf() {
     arc=4pt,
     left=5pt,
     right=10pt,
-    top=10pt,
+    top=5pt,
     bottom=5pt,
     before skip=0.5em,
     after skip=0.5em,
