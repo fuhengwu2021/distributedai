@@ -177,7 +177,11 @@ convert_md_to_pdf() {
 \usepackage{xcolor}
 \usepackage{tikz}
 \usetikzlibrary{calc}
-\usepackage{tcolorbox}
+% Use tcolorbox to wrap listings with rounded corners (better than mdframed)
+% tcolorbox provides reliable rounded corners support
+% Load with [most] option to get all libraries including listings
+\usepackage[most]{tcolorbox}
+\tcbuselibrary{listings}
 \usepackage{xparse}
 \usepackage{enumitem}
 \usepackage{etoolbox}
@@ -188,8 +192,6 @@ convert_md_to_pdf() {
 \definecolor{dividerred}{RGB}{255,0,0}
 % Code block styling with line number annotations using listings package
 \usepackage{listings}
-% Use mdframed to wrap listings and add custom line numbers
-\usepackage{mdframed}
 % Use soul package for text highlighting
 \usepackage{soul}
 % Enhanced syntax highlighting colors
@@ -276,27 +278,22 @@ convert_md_to_pdf() {
   belowskip=0pt,
   numbers=none,
 }
-% Define mdframed style for code blocks with border and rounded corners
-% Note: roundcorner may not work in all mdframed versions, but we keep it for compatibility
-\mdfdefinestyle{codeblockstyle}{%
-  leftmargin=0pt,
-  rightmargin=0pt,
-  innerleftmargin=5pt,
-  innerrightmargin=10pt,
-  innertopmargin=10pt,
-  innerbottommargin=5pt,
-  skipabove=0.5em,
-  skipbelow=0.5em,
-  linecolor=chapterbluelight,
-  linewidth=0.8pt,
-  backgroundcolor=gray!5,
-  roundcorner=4pt,
-  outerlinewidth=0.8pt,
-  % Ensure escapeinside works properly
-  hidealllines=false,
-  % Ensure symmetric inner padding
-  innerlinewidth=0pt,
-  outermargin=0pt,
+% Define tcolorbox style for code blocks with border and rounded corners
+% tcolorbox provides reliable rounded corners support
+\tcbset{
+  codeblockstyle/.style={
+    colback=gray!5,
+    colframe=chapterbluelight,
+    boxrule=0.8pt,
+    arc=4pt,
+    left=5pt,
+    right=10pt,
+    top=10pt,
+    bottom=5pt,
+    before skip=0.5em,
+    after skip=0.5em,
+    fontupper=\ttfamily\normalsize,
+  }
 }
 % Command to add circled number mark (for use in explanations outside code blocks)
 % First argument: style ("normal" or "solid")

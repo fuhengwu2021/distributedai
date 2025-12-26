@@ -66,12 +66,12 @@ function CodeBlock(block)
       return block
     end
     
-    -- Use mdframed to wrap listings with border, and escapeinside for line numbers
-    local listings_code = "\\begin{mdframed}[style=codeblockstyle]\n"
+    -- Use tcolorbox to wrap listings with border and rounded corners, and escapeinside for line numbers
+    local listings_code = "\\begin{tcolorbox}[codeblockstyle]\n"
     listings_code = listings_code .. "\\begin{lstlisting}[" .. listings_lang .. "escapeinside={(*@}{@*)},basicstyle=\\ttfamily\\normalsize,breaklines=true]\n"
     listings_code = listings_code .. table.concat(lines, "\n")
     listings_code = listings_code .. "\n\\end{lstlisting}\n"
-    listings_code = listings_code .. "\\end{mdframed}"
+    listings_code = listings_code .. "\\end{tcolorbox}"
     
     -- Return as RawBlock (LaTeX)
     return pandoc.RawBlock('latex', listings_code)
@@ -82,11 +82,11 @@ function CodeBlock(block)
     if lang:lower() == "bash" or lang:lower() == "sh" or lang:lower() == "shell" then
       style_option = "style=bashstyle,"
     end
-    local listings_code = "\\begin{mdframed}[style=codeblockstyle]\n"
+    local listings_code = "\\begin{tcolorbox}[codeblockstyle]\n"
     listings_code = listings_code .. "\\begin{lstlisting}[" .. style_option .. listings_lang .. "basicstyle=\\ttfamily\\normalsize,breaklines=true]\n"
     listings_code = listings_code .. code
     listings_code = listings_code .. "\n\\end{lstlisting}\n"
-    listings_code = listings_code .. "\\end{mdframed}"
+    listings_code = listings_code .. "\\end{tcolorbox}"
     
     -- Return as RawBlock (LaTeX)
     return pandoc.RawBlock('latex', listings_code)
