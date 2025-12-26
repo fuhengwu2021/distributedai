@@ -39,8 +39,25 @@ function CodeBlock(block)
     local line_num = 0
     for line in code:gmatch("[^\r\n]+") do
       line_num = line_num + 1
+      -- Check if line has #HL marker for highlighting
+      local should_highlight = false
+      local clean_line = line
+      -- Check for #HL at the end of line (with optional whitespace)
+      if line:match("#HL") then
+        should_highlight = true
+        -- Remove #HL marker from the line (handle with or without space before)
+        clean_line = line:gsub("%s*#HL%s*", "")
+      end
+      
       -- Add circled number mark at the beginning using escapeinside
-      lines[line_num] = "(*@\\codelinemark{" .. tostring(line_num) .. "}@*) " .. line
+      -- Use "solid" style if line should be highlighted (solid fill color)
+      local mark_style = "normal"
+      if should_highlight then
+        mark_style = "solid"
+      end
+      local line_with_number = "(*@\\codelinemark{" .. mark_style .. "}{" .. tostring(line_num) .. "}@*) " .. clean_line
+      
+      lines[line_num] = line_with_number
     end
     
     -- If no lines, return original block

@@ -476,7 +476,7 @@ You should now have 2 T4 GPUs available. To verify your GPU setup, run the code 
 ```python
 import torch
 
-print(f"CUDA available: {torch.cuda.is_available()}")
+print(f"CUDA available: {torch.cuda.is_available()}") #HL
 print(f"Number of GPUs: {torch.cuda.device_count()}")
 for i in range(torch.cuda.device_count()):
     props = torch.cuda.get_device_properties(i)
@@ -487,10 +487,8 @@ for i in range(torch.cuda.device_count()):
 \begin{codeexplanation}
 \codelineannotation{1}{Checks if CUDA is available on the system}
 \codelineannotation{2}{Gets the total number of GPUs}
-\codelineannotation{3}{Iterates through each GPU}
 \codelineannotation{4}{Retrieves properties for the current GPU}
 \codelineannotation{5}{Converts memory from bytes to GB}
-\codelineannotation{6}{Prints GPU information with formatted output}
 \end{codeexplanation}
 
 Running this should show your available GPUs:

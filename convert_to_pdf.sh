@@ -180,6 +180,7 @@ convert_md_to_pdf() {
 \usepackage{tcolorbox}
 \usepackage{xparse}
 \usepackage{enumitem}
+\usepackage{etoolbox}
 % Define colors before using them in listings
 \definecolor{chapterblue}{RGB}{0,102,204}
 \definecolor{chapterbluelight}{RGB}{153,204,255}
@@ -189,6 +190,8 @@ convert_md_to_pdf() {
 \usepackage{listings}
 % Use mdframed to wrap listings and add custom line numbers
 \usepackage{mdframed}
+% Use soul package for text highlighting
+\usepackage{soul}
 % Enhanced syntax highlighting colors
 \definecolor{codekeyword}{RGB}{0,102,204}
 \definecolor{codecomment}{RGB}{128,128,128}
@@ -296,16 +299,24 @@ convert_md_to_pdf() {
   outermargin=0pt,
 }
 % Command to add circled number mark (for use in explanations outside code blocks)
-\newcommand{\codelinemark}[1]{%
-  \tikz[baseline=(char.base)]{%
-    \node[shape=circle,draw=chapterblue,fill=chapterblue!10,inner sep=2pt,minimum size=1.2em,font=\tiny\bfseries\color{chapterblue}] (char) {#1};%
+% First argument: style ("normal" or "solid")
+% Second argument: line number
+\newcommand{\codelinemark}[2]{%
+  \ifstrequal{#1}{solid}{%
+    % Solid fill for highlighted lines
+    \tikz[baseline=(char.base)]{%
+      \node[shape=circle,draw=chapterblue,fill=chapterblue,inner sep=2pt,minimum size=1.2em,font=\tiny\bfseries\color{white}] (char) {#2};%
+    }%
+  }{%
+    % Normal style (transparent fill)
+    \tikz[baseline=(char.base)]{%
+      \node[shape=circle,draw=chapterblue,fill=chapterblue!10,inner sep=2pt,minimum size=1.2em,font=\tiny\bfseries\color{chapterblue}] (char) {#2};%
+    }%
   }%
 }
 % Command for code line explanation (used outside code block)
 \newcommand{\codelineannotation}[2]{%
-  \tikz[baseline=(char.base)]{%
-    \node[shape=circle,draw=chapterblue,fill=chapterblue!10,inner sep=2pt,minimum size=1.2em,font=\tiny\bfseries\color{chapterblue}] (char) {#1};%
-  }%
+  \codelinemark{normal}{#1}%
   \quad\textit{#2}\par%
 }
 % Environment for code explanations (to be used after code blocks)
