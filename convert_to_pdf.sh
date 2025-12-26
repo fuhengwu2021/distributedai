@@ -303,12 +303,12 @@ convert_md_to_pdf() {
   \ifstrequal{#1}{solid}{%
     % Solid fill for highlighted lines (dark blue)
     \tikz[baseline=(char.base)]{%
-      \node[shape=circle,draw=chapterblue,fill=chapterblue,inner sep=2pt,minimum size=1.2em,font=\tiny\bfseries\color{white}] (char) {#2};%
+      \node[shape=circle,draw=chapterblue,fill=chapterblue,inner sep=2pt,minimum size=1.2em,font=\scriptsize\bfseries\color{white}] (char) {#2};%
     }%
   }{%
     % Normal style (lighter colors)
     \tikz[baseline=(char.base)]{%
-      \node[shape=circle,draw=chapterbluelight,fill=chapterbluelight!20,inner sep=2pt,minimum size=1.2em,font=\tiny\bfseries\color{chapterbluelight}] (char) {#2};%
+      \node[shape=circle,draw=chapterbluelight,fill=chapterbluelight!20,inner sep=2pt,minimum size=1.2em,font=\scriptsize\bfseries\color{chapterbluelight}] (char) {#2};%
     }%
   }%
 }
@@ -318,7 +318,7 @@ convert_md_to_pdf() {
 % Use moderate adjustment to find middle ground
 \newcommand{\codelineannotation}[2]{%
   \tikz[baseline=-0.35ex]{%
-    \node[shape=circle,draw=chapterblue,fill=chapterblue,inner sep=2pt,minimum size=1.2em,font=\tiny\bfseries\color{white}] (char) {#1};%
+    \node[shape=circle,draw=chapterblue,fill=chapterblue,inner sep=2pt,minimum size=1.2em,font=\scriptsize\bfseries\color{white}] (char) {#1};%
   }%
   \quad\raisebox{-0.35ex}{\color{black}#2}\par%
 }
