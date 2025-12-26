@@ -51,11 +51,12 @@ function CodeBlock(block)
       
       -- Add circled number mark at the beginning using escapeinside
       -- Use "solid" style if line should be highlighted (solid fill color)
+      -- Add negative horizontal space to move circle closer to left border
       local mark_style = "normal"
       if should_highlight then
         mark_style = "solid"
       end
-      local line_with_number = "(*@\\codelinemark{" .. mark_style .. "}{" .. tostring(line_num) .. "}@*) " .. clean_line
+      local line_with_number = "(*@\\codelinemark{" .. mark_style .. "}{" .. tostring(line_num) .. "}\\hspace{-3pt}@*) " .. clean_line
       
       lines[line_num] = line_with_number
     end

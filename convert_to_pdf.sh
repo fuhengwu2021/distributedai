@@ -281,7 +281,7 @@ convert_md_to_pdf() {
 \mdfdefinestyle{codeblockstyle}{%
   leftmargin=0pt,
   rightmargin=0pt,
-  innerleftmargin=10pt,
+  innerleftmargin=5pt,
   innerrightmargin=10pt,
   innertopmargin=10pt,
   innerbottommargin=5pt,
@@ -301,23 +301,29 @@ convert_md_to_pdf() {
 % Command to add circled number mark (for use in explanations outside code blocks)
 % First argument: style ("normal" or "solid")
 % Second argument: line number
+% Use lighter colors and position closer to left border
 \newcommand{\codelinemark}[2]{%
   \ifstrequal{#1}{solid}{%
-    % Solid fill for highlighted lines
+    % Solid fill for highlighted lines (dark blue)
     \tikz[baseline=(char.base)]{%
       \node[shape=circle,draw=chapterblue,fill=chapterblue,inner sep=2pt,minimum size=1.2em,font=\tiny\bfseries\color{white}] (char) {#2};%
     }%
   }{%
-    % Normal style (transparent fill)
+    % Normal style (lighter colors)
     \tikz[baseline=(char.base)]{%
-      \node[shape=circle,draw=chapterblue,fill=chapterblue!10,inner sep=2pt,minimum size=1.2em,font=\tiny\bfseries\color{chapterblue}] (char) {#2};%
+      \node[shape=circle,draw=chapterbluelight,fill=chapterbluelight!20,inner sep=2pt,minimum size=1.2em,font=\tiny\bfseries\color{chapterbluelight}] (char) {#2};%
     }%
   }%
 }
 % Command for code line explanation (used outside code block)
+% Use dark blue for consistency with highlighted lines
+% Ensure perfect baseline alignment between circle and text
+% Use moderate adjustment to find middle ground
 \newcommand{\codelineannotation}[2]{%
-  \codelinemark{normal}{#1}%
-  \quad\textit{#2}\par%
+  \tikz[baseline=-0.35ex]{%
+    \node[shape=circle,draw=chapterblue,fill=chapterblue,inner sep=2pt,minimum size=1.2em,font=\tiny\bfseries\color{white}] (char) {#1};%
+  }%
+  \quad\raisebox{-0.35ex}{\color{black}#2}\par%
 }
 % Environment for code explanations (to be used after code blocks)
 \newenvironment{codeexplanation}{%
@@ -325,8 +331,7 @@ convert_md_to_pdf() {
   \noindent%
   \begin{minipage}{\textwidth}%
   \small%
-  \itshape%
-  \color{chaptergray}%
+  \color{black}%
   \raggedright%
 }{%
   \end{minipage}%
