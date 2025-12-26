@@ -246,12 +246,9 @@ convert_md_to_pdf() {
   numberstyle=\color{codenumber},
   % Bash keywords
   morekeywords={if,then,else,elif,fi,for,while,do,done,case,esac,function,export,local,readonly,declare,typeset},
-  % Bash built-in commands
-  morekeywords=[2]{echo,cd,pwd,ls,cat,grep,sed,awk,find,chmod,chown,cp,mv,rm,mkdir,rmdir,touch,ln,ps,kill,env,source,exec,eval,test},
+  % Bash built-in commands and ML/AI commands
+  morekeywords=[2]{echo,cd,pwd,ls,cat,grep,sed,awk,find,chmod,chown,cp,mv,rm,mkdir,rmdir,touch,ln,ps,kill,env,source,exec,eval,test,torchrun,python,python3,srun,mpirun,horovodrun},
   keywordstyle=[2]=\color{codefunction}\bfseries,
-  % Common ML/AI commands
-  morekeywords=[3]{torchrun,python,python3,srun,mpirun,horovodrun},
-  keywordstyle=[3]=\color{codefunction}\bfseries,
   % Comments
   comment=[l]{\#},
   % Strings
