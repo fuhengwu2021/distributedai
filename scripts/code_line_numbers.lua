@@ -7,6 +7,18 @@ function CodeBlock(block)
   local code = block.text
   local lang = block.classes[1] or "text"
   
+  -- Check for background color specification: #BKG:color
+  local background_color = "gray!5"  -- default
+  local bg_pattern = "^#BKG:([^\r\n]+)"
+  local bg_match = code:match(bg_pattern)
+  if bg_match then
+    -- Extract color and remove the marker line from code
+    background_color = bg_match:gsub("^%s+", ""):gsub("%s+$", "")
+    -- Remove the #BKG:color line from code (with optional newline after)
+    code = code:gsub(bg_pattern .. "%s*\r?\n?", "", 1)
+    code = code:gsub("^%s+", "")  -- Remove leading whitespace if any
+  end
+  
   -- Map common languages to listings language names, or use empty for unknown
   local listings_lang = ""
   local lang_map = {
@@ -67,8 +79,15 @@ function CodeBlock(block)
     end
     
     -- Use tcolorbox to wrap listings with border and rounded corners, and escapeinside for line numbers
-    local listings_code = "\\begin{tcolorbox}[codeblockstyle]\n"
-    listings_code = listings_code .. "\\begin{lstlisting}[" .. listings_lang .. "escapeinside={(*@}{@*)},basicstyle=\\ttfamily\\normalsize,breaklines=true]\n"
+    -- Apply custom background color if specified
+    local tcolorbox_options = "codeblockstyle"
+    local listings_bg_option = ""
+    if background_color ~= "gray!5" then
+      tcolorbox_options = "codeblockstyle,colback=" .. background_color
+      listings_bg_option = "backgroundcolor=\\color{" .. background_color .. "},"
+    end
+    local listings_code = "\\begin{tcolorbox}[" .. tcolorbox_options .. "]\n"
+    listings_code = listings_code .. "\\begin{lstlisting}[" .. listings_lang .. listings_bg_option .. "escapeinside={(*@}{@*)},basicstyle=\\ttfamily\\normalsize,breaklines=true]\n"
     listings_code = listings_code .. table.concat(lines, "\n")
     listings_code = listings_code .. "\n\\end{lstlisting}\n"
     listings_code = listings_code .. "\\end{tcolorbox}"
@@ -82,8 +101,15 @@ function CodeBlock(block)
     if lang:lower() == "bash" or lang:lower() == "sh" or lang:lower() == "shell" then
       style_option = "style=bashstyle,"
     end
-    local listings_code = "\\begin{tcolorbox}[codeblockstyle]\n"
-    listings_code = listings_code .. "\\begin{lstlisting}[" .. style_option .. listings_lang .. "basicstyle=\\ttfamily\\normalsize,breaklines=true]\n"
+    -- Apply custom background color if specified
+    local tcolorbox_options = "codeblockstyle"
+    local listings_bg_option = ""
+    if background_color ~= "gray!5" then
+      tcolorbox_options = "codeblockstyle,colback=" .. background_color
+      listings_bg_option = "backgroundcolor=\\color{" .. background_color .. "},"
+    end
+    local listings_code = "\\begin{tcolorbox}[" .. tcolorbox_options .. "]\n"
+    listings_code = listings_code .. "\\begin{lstlisting}[" .. style_option .. listings_lang .. listings_bg_option .. "basicstyle=\\ttfamily\\normalsize,breaklines=true]\n"
     listings_code = listings_code .. code
     listings_code = listings_code .. "\n\\end{lstlisting}\n"
     listings_code = listings_code .. "\\end{tcolorbox}"

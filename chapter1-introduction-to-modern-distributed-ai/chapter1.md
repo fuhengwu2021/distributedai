@@ -302,6 +302,7 @@ The activation memory scales with batch size and sequence length—larger batche
 During training, memory usage varies across different stages of the training loop. Understanding when each component is needed helps you estimate peak memory requirements and identify optimization opportunities.
 
 ```python
+#BKG:white
 for epoch in range(num_epochs):
     model.train()                         # set to training mode
     for x_batch, y_batch in dataloader:   # iterate over batches
