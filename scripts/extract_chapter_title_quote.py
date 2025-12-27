@@ -117,14 +117,12 @@ def generate_latex_title_page_with_quote(chapter_num, title, subtitle, quote_tex
     # Build quote content if available
     quote_content = ""
     if quote_text and quote_author:
-        # Add quotes around quote text if not already present
-        if not quote_text.startswith('"') and not quote_text.endswith('"'):
-            quoted_text = f'"{quote_text}"'
-        else:
-            quoted_text = quote_text
+        # Remove quotes from text since LaTeX will add proper quote marks
+        unquoted_text = quote_text.strip('"').strip("'")
         # Escape special LaTeX characters in quote content
         # Style: quote text left-aligned in italic, author right-aligned in smaller font
-        quote_content = f"{quoted_text}\\\\[0.5cm]\n\\hfill\\textnormal{{\\fontsize{{9}}{{11}}\\selectfont--- {quote_author}}}"
+        # Add LaTeX quote marks only around the quote text, not the author
+        quote_content = f"``{unquoted_text}''\\\\[0.5cm]\n\\hfill\\textnormal{{\\fontsize{{9}}{{11}}\\selectfont--- {quote_author}}}"
     
     # Build code summary content if available
     code_summary_content = ""
