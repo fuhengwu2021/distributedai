@@ -420,8 +420,17 @@ def process_file_for_pdf(input_file, output_file):
             continue
         
         # Skip quote block (already included in title page)
+        # BUT don't skip NOTES: and NOTEE blocks (these are note sections, not quotes)
         quote_match = re.match(quote_pattern, line)
         if quote_match:
+            quote_text = quote_match.group(1) or quote_match.group(2)
+            # Check if this is a NOTES: or NOTEE block (note sections, not quotes)
+            if quote_text and (quote_text.strip().startswith('NOTES:') or quote_text.strip().startswith('NOTEE')):
+                # This is a note section, not a quote - keep it
+                output_lines.append(line)
+                i += 1
+                continue
+            # This is a regular quote block - skip it (already in title page)
             i += 1
             # Skip empty line if present
             while i < len(lines) and not lines[i].strip():

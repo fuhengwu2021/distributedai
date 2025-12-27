@@ -334,6 +334,40 @@ convert_md_to_pdf() {
   \end{minipage}%
   \vspace{0.3cm}%
 }
+% Environment for note sections (marked with >NOTES: and >NOTEE:)
+\newenvironment{notesection}{%
+  \vspace{0.5em}%
+  \noindent%
+  \begin{tcolorbox}[
+    colback=yellow!10,
+    colframe=chapterbluelight,
+    boxrule=0.8pt,
+    arc=4pt,
+    left=3pt,
+    right=10pt,
+    top=8pt,
+    bottom=8pt,
+    before skip=0pt,
+    after skip=0pt
+  ]%
+  \raisebox{-\height}[0pt][0pt]{%
+    \begin{minipage}[t]{0.10\textwidth}%
+      \raggedright%
+      \includegraphics[width=0.5\linewidth,keepaspectratio]{../img/note64x64.png}%
+    \end{minipage}%
+  }%
+  \hspace{0.15em}%
+  \begin{minipage}[t]{0.87\textwidth}%
+  \small%
+  \color{black}%
+  \raggedright%
+  \setlength{\leftskip}{0pt}%
+  \setlength{\parindent}{0pt}%
+}{%
+  \end{minipage}%
+  \end{tcolorbox}%
+  \vspace{0.5em}%
+}
 % Page headers using fancyhdr
 \usepackage{fancyhdr}
 \pagestyle{fancy}
@@ -483,10 +517,17 @@ STATIC_EOF
         fi
     }
     
-    # Use Lua filter for code line numbers if available
-    local lua_filter=""
+    # Use Lua filters for code line numbers and note sections
+    local lua_filters=""
     if [ -f "$SCRIPT_DIR/scripts/code_line_numbers.lua" ]; then
-        lua_filter="--lua-filter=$SCRIPT_DIR/scripts/code_line_numbers.lua"
+        lua_filters="--lua-filter=$SCRIPT_DIR/scripts/code_line_numbers.lua"
+    fi
+    if [ -f "$SCRIPT_DIR/scripts/note_sections.lua" ]; then
+        if [ -n "$lua_filters" ]; then
+            lua_filters="$lua_filters --lua-filter=$SCRIPT_DIR/scripts/note_sections.lua"
+        else
+            lua_filters="--lua-filter=$SCRIPT_DIR/scripts/note_sections.lua"
+        fi
     fi
     
     # Write header to temporary file to ensure proper handling
@@ -501,18 +542,18 @@ STATIC_EOF
         fi
     }
     
-    if pandoc_output=$(pandoc "$md_basename" -o "$pdf_basename" --from=markdown+raw_tex $lua_filter --pdf-engine=xelatex -V geometry:margin=1in --highlight-style=tango -H "$header_file" 2>&1); then
+    if pandoc_output=$(pandoc "$md_basename" -o "$pdf_basename" --from=markdown+raw_tex $lua_filters --pdf-engine=xelatex -V geometry:margin=1in --highlight-style=tango -H "$header_file" 2>&1); then
         # Filter out font-related warnings but keep image warnings
         echo "$pandoc_output" | grep -E "\[WARNING\].*image|\[WARNING\].*resource" || true
         echo "✅ Successfully converted using xelatex"
         cleanup_all
         return 0
-    elif pandoc_output=$(pandoc "$md_basename" -o "$pdf_basename" --from=markdown+raw_tex $lua_filter --pdf-engine=pdflatex -V geometry:margin=1in --highlight-style=tango -V 'tolerance=1000' -V 'emergencystretch=3em' -H "$header_file" 2>&1); then
+    elif pandoc_output=$(pandoc "$md_basename" -o "$pdf_basename" --from=markdown+raw_tex $lua_filters --pdf-engine=pdflatex -V geometry:margin=1in --highlight-style=tango -V 'tolerance=1000' -V 'emergencystretch=3em' -H "$header_file" 2>&1); then
         echo "$pandoc_output" | grep -E "\[WARNING\].*image|\[WARNING\].*resource" || true
         echo "✅ Successfully converted using pdflatex"
         cleanup_all
         return 0
-    elif pandoc_output=$(pandoc "$md_basename" -o "$pdf_basename" --from=markdown+raw_tex $lua_filter -V geometry:margin=1in --highlight-style=tango -V 'tolerance=1000' -V 'emergencystretch=3em' -H "$header_file" 2>&1); then
+    elif pandoc_output=$(pandoc "$md_basename" -o "$pdf_basename" --from=markdown+raw_tex $lua_filters -V geometry:margin=1in --highlight-style=tango -V 'tolerance=1000' -V 'emergencystretch=3em' -H "$header_file" 2>&1); then
         echo "$pandoc_output" | grep -E "\[WARNING\].*image|\[WARNING\].*resource" || true
         echo "✅ Successfully converted using default engine"
         cleanup_all

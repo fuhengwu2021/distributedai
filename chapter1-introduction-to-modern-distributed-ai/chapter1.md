@@ -552,6 +552,12 @@ We tested scaling from 1 to 8 GPUs to see how performance improves:
 
 Training time drops from 8.78 seconds to 2.44 seconds with 8 GPUs, achieving a **3.6× speedup**. Adding more GPUs significantly reduces training time and accelerates development cycles. The speedup becomes even more pronounced with larger workloads, as we'll see next.
 
+>NOTES: **Paragraph1**
+
+Paragraph2 _Paragraph3_ [hello](http://www.mocksphere.com)A modern Turing test The best researchers can step outside conventional patterns and see things differently. This question tests your ability to think creatively and analytically about how we communicate. Write up to 140 characters that our human reviewer will recognize as human but our AI reviewer will classify as AI-generated.
+
+>NOTEE
+
 ### Extended Training: CIFAR-10 with 20 Epochs
 
 For a more realistic workload, we tested ResNet18 on CIFAR-10 with 20 epochs. CIFAR-10 is larger and more complex than FashionMNIST, with 50,000 training images using 3-channel RGB images of 32×32 pixels. This better showcases the benefits of distributed training.
