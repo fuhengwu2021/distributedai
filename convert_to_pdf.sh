@@ -356,12 +356,12 @@ convert_md_to_pdf() {
       \includegraphics[width=0.5\linewidth,keepaspectratio]{../img/note64x64.png}%
     \end{minipage}%
   }%
-  \hspace{0.15em}%
-  \begin{minipage}[t]{0.87\textwidth}%
+  \hspace{0.00em}%
+  \begin{minipage}[t]{0.9\textwidth}%
   \small%
   \color{black}%
   \raggedright%
-  \setlength{\leftskip}{0pt}%
+  \setlength{\leftskip}{-15pt}%
   \setlength{\parindent}{0pt}%
 }{%
   \end{minipage}%
