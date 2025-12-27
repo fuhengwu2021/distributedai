@@ -47,6 +47,8 @@ def extract_chapter_info(md_content):
         if match:
             chapter_num = match.group(1)
             title = match.group(2).strip()
+            # Remove Pandoc attributes like {-} or {.unnumbered} from title
+            title = re.sub(r'\s*\{[^}]*\}\s*$', '', title).strip()
             
             # Look for subtitle in the next few lines
             for j in range(i + 1, min(i + 5, len(lines))):

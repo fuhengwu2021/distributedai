@@ -1,4 +1,4 @@
-# Chapter 1: Introduction to Modern Distributed AI
+# Chapter 1: Introduction to Modern Distributed AI {-}
 
 *Building scalable AI systems from single GPU to distributed clusters*
 
@@ -25,7 +25,7 @@ Modern AI models have grown beyond what single GPUs can handle. Large language m
 
 This chapter walks through resource estimation, decision frameworks for choosing between distributed training, fine-tuning, or inference, and practical examples to get you started.
 
-## 1. Why Modern AI Requires Distribution
+## Why Modern AI Requires Distribution
 
 A few years ago, you could train most models on a single GPU. ResNet-50 on ImageNet took a couple of days. Today, training a 70B parameter language model on a single GPU would take months, if it even fits in memory. The models got bigger, the datasets got bigger, and single-GPU training became impractical.
 
@@ -386,7 +386,7 @@ The deep learning era introduced models with hundreds of millions of parameters,
 
 This transition to distributed AI has enabled breakthrough capabilities, including models capable of understanding and generating human-like text, code, and multimodal content. The shift has also catalyzed enterprise adoption, with organizations deploying AI systems at scale for production workloads. Furthermore, distributed architectures have accelerated research progress through faster iteration cycles enabled by parallel experimentation across multiple compute nodes.
 
-## 2. The Modern AI Model Lifecycle
+## The Modern AI Model Lifecycle
 
 Building AI models isn't a one-shot process. It's a cycle: you collect data, train a model, deploy it, see how it performs, then go back and improve the data or model. Each stage feeds into the next.
 
@@ -431,7 +431,7 @@ Here is a table of `Training vs Inference vs Serving`:
 | **Throughput** | Samples per second | Tokens per second | Requests per second |
 
 
-## 3. Decision Framework: When Do You Need Distributed Systems?
+## Decision Framework: When Do You Need Distributed Systems?
 
 Distributed systems add complexity, communication overhead, and cost. Use them when you have to, not when you want to.
 
@@ -454,9 +454,9 @@ Large datasets where data loading becomes the bottleneck benefit from distribute
 For inference or serving, the logic is similar. If the model exceeds single GPU memory, use model parallelism. A 70B model in BF16 needs 140GB for weights. With KV cache, you're looking at 160-180GB, which requires at least 2 A100 GPUs. If memory is fine but you need high throughput—thousands of requests per second—use multiple GPUs for distributed inference. Real-time services that need sub-second latency at high throughput often require tensor parallelism or multiple inference instances. When both memory and throughput fit within single GPU limits, stick with one GPU and use optimized engines like vLLM or SGLang to maximize efficiency.
 
 
-\fancydividerwithicon[center]{math.png}
+\fancydividerwithicon[center]{python.png}
 
-## 4. Environment Setup
+## Environment Setup
 
 In this book, we will use PyTorch as our main frame work, and the code can be cloned from git repo.
 
@@ -496,7 +496,7 @@ Running this should show your available GPUs:
 
 ![GPU setup - 2 Tesla T4 GPUs](img/2.png)
 
-## 5. Hands-On: Running Distributed Training and Inference
+## Hands-On: Running Distributed Training and Inference
 
 We'll begin with a simple baseline to establish a performance reference point, then move to distributed training to see the speedup in action.
 
@@ -633,7 +633,7 @@ With 2 GPUs using the data-split pattern, we achieve **1.89× speedup**, nearly 
 
 Both patterns demonstrate the power of distributed inference: throughput scales almost linearly with the number of GPUs, making it ideal for production serving workloads that require high request rates. The inference patterns shown here use data parallelism, suitable for models that fit on a single GPU. For large language models that exceed single-GPU memory, later chapters will explore advanced techniques such as expert parallelism, sequence parallelism, tensor parallelism, and serving frameworks like vLLM and SGLang.
 
-## 6. Distributed AI Fundamentals with PyTorch
+## Distributed AI Fundamentals with PyTorch
 
 Now that you've seen distributed training and inference in action, let's understand the fundamental concepts and APIs that make it work.
 

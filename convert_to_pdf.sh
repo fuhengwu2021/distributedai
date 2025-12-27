@@ -142,6 +142,8 @@ convert_md_to_pdf() {
         # Extract chapter title: "Chapter N: Title" -> "Title"
         chapter_title=$(grep "^# Chapter [0-9]\+:" "$original_md_basename" | sed 's/^# Chapter [0-9]\+: *//' | head -1)
         if [ -n "$chapter_title" ]; then
+            # Remove Pandoc attributes like {-} or {.unnumbered} from title
+            chapter_title=$(echo "$chapter_title" | sed 's/\s*{[^}]*}\s*$//')
             # Escape LaTeX special characters in chapter title
             header_title_text=$(echo "$chapter_title" | sed 's/\\/\\textbackslash{}/g; s/{/\\{/g; s/}/\\}/g; s/\$/\\$/g; s/&/\\&/g; s/%/\\%/g; s/#/\\#/g; s/\^/\\textasciicircum{}/g; s/_/\\_/g')
         fi
@@ -398,6 +400,9 @@ convert_md_to_pdf() {
 \renewcommand{\footnoterule}{\vspace*{8pt}\hrule width 0.4\columnwidth height 0.4pt \vspace*{4pt}}
 % Increase space between footnote rule and first footnote
 \setlength{\skip\footins}{1.2cm}
+% Modify subsection numbering to show only subsection number (not section.subsection)
+% This makes the first ## heading show as "1" instead of "0.1"
+\renewcommand{\thesubsection}{\arabic{subsection}}
 % Chapter title page styling
 % (Colors are already defined above, before listings package)
 % Fancy divider command for use in markdown
@@ -540,10 +545,18 @@ STATIC_EOF
         fi
     }
     
-    # Use Lua filters for code line numbers and note sections
+    # Use Lua filters for resetting section counter, code line numbers, and note sections
     local lua_filters=""
+    # Reset section counter filter must run first to insert counter reset before first ## heading
+    if [ -f "$SCRIPT_DIR/scripts/reset_section_counter.lua" ]; then
+        lua_filters="--lua-filter=$SCRIPT_DIR/scripts/reset_section_counter.lua"
+    fi
     if [ -f "$SCRIPT_DIR/scripts/code_line_numbers.lua" ]; then
-        lua_filters="--lua-filter=$SCRIPT_DIR/scripts/code_line_numbers.lua"
+        if [ -n "$lua_filters" ]; then
+            lua_filters="$lua_filters --lua-filter=$SCRIPT_DIR/scripts/code_line_numbers.lua"
+        else
+            lua_filters="--lua-filter=$SCRIPT_DIR/scripts/code_line_numbers.lua"
+        fi
     fi
     if [ -f "$SCRIPT_DIR/scripts/note_sections.lua" ]; then
         if [ -n "$lua_filters" ]; then
@@ -565,18 +578,18 @@ STATIC_EOF
         fi
     }
     
-    if pandoc_output=$(pandoc "$md_basename" -o "$pdf_basename" --from=markdown+raw_tex $lua_filters --pdf-engine=xelatex -V geometry:margin=1in --highlight-style=tango -H "$header_file" 2>&1); then
+    if pandoc_output=$(pandoc "$md_basename" -o "$pdf_basename" --from=markdown+raw_tex $lua_filters --pdf-engine=xelatex --number-sections -V geometry:margin=1in --highlight-style=tango -H "$header_file" 2>&1); then
         # Filter out font-related warnings but keep image warnings
         echo "$pandoc_output" | grep -E "\[WARNING\].*image|\[WARNING\].*resource" || true
         echo "✅ Successfully converted using xelatex"
         cleanup_all
         return 0
-    elif pandoc_output=$(pandoc "$md_basename" -o "$pdf_basename" --from=markdown+raw_tex $lua_filters --pdf-engine=pdflatex -V geometry:margin=1in --highlight-style=tango -V 'tolerance=1000' -V 'emergencystretch=3em' -H "$header_file" 2>&1); then
+    elif pandoc_output=$(pandoc "$md_basename" -o "$pdf_basename" --from=markdown+raw_tex $lua_filters --pdf-engine=pdflatex --number-sections -V geometry:margin=1in --highlight-style=tango -V 'tolerance=1000' -V 'emergencystretch=3em' -H "$header_file" 2>&1); then
         echo "$pandoc_output" | grep -E "\[WARNING\].*image|\[WARNING\].*resource" || true
         echo "✅ Successfully converted using pdflatex"
         cleanup_all
         return 0
-    elif pandoc_output=$(pandoc "$md_basename" -o "$pdf_basename" --from=markdown+raw_tex $lua_filters -V geometry:margin=1in --highlight-style=tango -V 'tolerance=1000' -V 'emergencystretch=3em' -H "$header_file" 2>&1); then
+    elif pandoc_output=$(pandoc "$md_basename" -o "$pdf_basename" --from=markdown+raw_tex $lua_filters --number-sections -V geometry:margin=1in --highlight-style=tango -V 'tolerance=1000' -V 'emergencystretch=3em' -H "$header_file" 2>&1); then
         echo "$pandoc_output" | grep -E "\[WARNING\].*image|\[WARNING\].*resource" || true
         echo "✅ Successfully converted using default engine"
         cleanup_all
