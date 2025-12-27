@@ -456,7 +456,12 @@ For inference or serving, the logic is similar. If the model exceeds single GPU 
 
 \fancydividerwithicon[center]{python.png}
 
-## Environment Setup
+
+## Hands-On: Running Distributed Training
+
+We'll begin with a simple baseline to establish a performance reference point, then move to distributed training to see the speedup in action.
+
+### Environment Setup
 
 In this book, we will use PyTorch as our main frame work, and the code can be cloned from git repo.
 
@@ -496,19 +501,17 @@ Running this should show your available GPUs:
 
 ![GPU setup - 2 Tesla T4 GPUs](img/2.png)
 
-## Hands-On: Running Distributed Training and Inference
-
-We'll begin with a simple baseline to establish a performance reference point, then move to distributed training to see the speedup in action.
-
 ### Single-GPU Baseline
 
-Let's start with a baseline. We train ResNet18 on FashionMNIST, which completes in under 30 seconds on a single GPU—perfect for quick experiments.
+We'll use ResNet18, a lightweight 18-layer convolutional neural network designed for image classification. It's small enough to train quickly while still demonstrating distributed training concepts effectively. For the dataset, we'll use FashionMNIST - 70,000 grayscale images (28×28 pixels) across 10 clothing categories. It's a drop-in replacement for MNIST that's slightly more challenging, making it ideal for quick experiments.
+
+Run the baseline training script:
 
 ```bash
 python code/single_gpu_baseline.py
 ```
 
-Example output after 3 epochs:
+After 3 epochs, you should see output similar to this:
 
 ```
 Epoch 1/3, Loss: 0.4164, Accuracy: 84.94%
@@ -518,9 +521,14 @@ Epoch 3/3, Loss: 0.2531, Accuracy: 90.58%
 Total training time: 8.78s
 ```
 
-Your results will vary depending on your hardware, but you should see similar loss and accuracy values.
+Your exact results will vary depending on your hardware, but the loss and accuracy values should be similar. This baseline gives us a reference point—we'll use the same model architecture in the distributed version for a fair comparison.
 
-This gives us a reference point. The same model architecture is used in the distributed version for a fair comparison.
+>NOTES: **ResNet18** and **FashionMNIST**
+
+ResNet18 from torchvision is designed for 3-channel RGB images, but FashionMNIST uses 1-channel grayscale images. To adapt ResNet18 for FashionMNIST, we modify two layers: (1) Replace the first convolutional layer to accept 1 input channel instead of 3: `model.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)`. (2) Replace the final fully connected layer to output 10 classes for FashionMNIST: `model.fc = nn.Linear(model.fc.in_features, 10)`. These minimal changes allow ResNet18 to process FashionMNIST's grayscale images while preserving the rest of the architecture's proven design.
+
+>NOTEE
+
 
 ### Multi-GPU Distributed Training
 
@@ -551,12 +559,6 @@ We tested scaling from 1 to 8 GPUs to see how performance improves:
 ![FashionMNIST Scaling Performance](code/fashionmnist_scaling_performance.png)
 
 Training time drops from 8.78 seconds to 2.44 seconds with 8 GPUs, achieving a **3.6× speedup**. Adding more GPUs significantly reduces training time and accelerates development cycles. The speedup becomes even more pronounced with larger workloads, as we'll see next.
-
->NOTES: **Paragraph1**
-
-Paragraph2 _Paragraph3_ [hello](http://www.mocksphere.com)A modern Turing test The best researchers can step outside conventional patterns and see things differently. This question tests your ability to think creatively and analytically about how we communicate. Write up to 140 characters that our human reviewer will recognize as human but our AI reviewer will classify as AI-generated.
-
->NOTEE
 
 ### Extended Training: CIFAR-10 with 20 Epochs
 
