@@ -430,17 +430,40 @@ convert_md_to_pdf() {
   \par\vspace{0.8cm}%
 }
 % Divider with icon
-\NewDocumentCommand{\fancydividerwithicon}{O{chapterbluelight} O{0.95\textwidth} m}{%
-  \par\vspace{0.4cm}%
+% Usage: \fancydividerwithicon[position]{image}
+%   position: end (default), begin, center
+%   image: automatically uses '../img/' prefix
+%   Note: color and width are fixed (chapterbluelight, 0.95\textwidth)
+\NewDocumentCommand{\fancydividerwithicon}{O{end} m}{%
+  \par\vspace{-0.1\baselineskip}%
   \noindent%
-  \begin{tikzpicture}%
-    \coordinate (line-end) at (#2,0);%
-    \draw[#1,line width=0.8pt] (0,0) -- (line-end);%
-    \node[anchor=center,inner sep=0] at (line-end) {%
-      \includegraphics[height=0.7cm,keepaspectratio]{#3}%
-    };%
+  \begin{tikzpicture}[baseline=(current bounding box.south)]%
+    \coordinate (lineend) at (0.95\textwidth,0);%
+    \ifstrequal{#1}{begin}{%
+      % Icon at beginning
+      \node[anchor=center,inner sep=0] at (0,0) {%
+        \includegraphics[height=0.7cm,keepaspectratio]{../img/#2}%
+      };%
+      \draw[chapterbluelight,line width=0.8pt] (0.4cm,0) -- (lineend,0);%
+    }{%
+      \ifstrequal{#1}{center}{%
+        % Icon at center - use calc library for coordinate calculation
+        \coordinate (linecenter) at ($(0,0)!0.5!(lineend)$);%
+        \draw[chapterbluelight,line width=0.8pt] (0,0) -- ($(linecenter) + (-0.4cm,0)$);%
+        \draw[chapterbluelight,line width=0.8pt] ($(linecenter) + (0.4cm,0)$) -- (lineend);%
+        \node[anchor=center,inner sep=0] at (linecenter) {%
+          \includegraphics[height=0.7cm,keepaspectratio]{../img/#2}%
+        };%
+      }{%
+        % Icon at end (default)
+        \draw[chapterbluelight,line width=0.8pt] (0,0) -- (lineend,0);%
+        \node[anchor=center,inner sep=0] at (lineend) {%
+          \includegraphics[height=0.7cm,keepaspectratio]{../img/#2}%
+        };%
+      }%
+    }%
   \end{tikzpicture}%
-  \par\vspace{0.4cm}%
+  \par\vspace{-0.1\baselineskip}%
 }
 \NewDocumentEnvironment{chaptertitlepage}{m m m O{} O{}}{%
   \newpage

@@ -38,7 +38,7 @@ Looking at recent models, the scale is clear[^model_size_comp]. GPT-4 has over 1
 | Grok-1 | 314B | xAI | 2023 |
 | Gemini-1 | 1.6T | Google | 2023 |
 | LLaMA-2 | 700B | Meta | 2023 |
-| PanGu-Σ | 1.085T | Huawei | 2023 |
+| PanGu-$\Sigma$ | 1.085T | Huawei | 2023 |
 | DeepSeek-V1 | 6.7B | DeepSeek | 2023 |
 | GPT-4V | 1.8T | OpenAI | 2024 |
 | DeepSeek-V2 | 236B MoE (16 experts, 2 active) | DeepSeek | 2024 |
@@ -454,7 +454,7 @@ Large datasets where data loading becomes the bottleneck benefit from distribute
 For inference or serving, the logic is similar. If the model exceeds single GPU memory, use model parallelism. A 70B model in BF16 needs 140GB for weights. With KV cache, you're looking at 160-180GB, which requires at least 2 A100 GPUs. If memory is fine but you need high throughput—thousands of requests per second—use multiple GPUs for distributed inference. Real-time services that need sub-second latency at high throughput often require tensor parallelism or multiple inference instances. When both memory and throughput fit within single GPU limits, stick with one GPU and use optimized engines like vLLM or SGLang to maximize efficiency.
 
 
-\fancydividerwithicon{python.png}
+\fancydividerwithicon[center]{math.png}
 
 ## 4. Environment Setup
 
