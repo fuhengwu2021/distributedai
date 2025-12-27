@@ -556,7 +556,7 @@ We tested scaling from 1 to 8 GPUs to see how performance improves:
 | 6    | 2.92s         | 3.01×   |
 | 8    | 2.44s         | 3.60×   |
 
-![FashionMNIST Scaling Performance](code/fashionmnist_scaling_performance.png)
+![FashionMNIST Scaling Performance](img/fashionmnist_scaling_performance.png)
 
 Training time drops from 8.78 seconds to 2.44 seconds with 8 GPUs, achieving a **3.6× speedup**. Adding more GPUs significantly reduces training time and accelerates development cycles. The speedup becomes even more pronounced with larger workloads, as we'll see next.
 
@@ -589,7 +589,7 @@ The results show even better scaling:
 | 6    | 21.24s (0.35 min) | 3.44×   |
 | 8    | 18.20s (0.30 min) | 4.01×   |
 
-![CIFAR-10 Scaling Performance](code/cifar10_scaling_performance.png)
+![CIFAR-10 Scaling Performance](img/cifar10_scaling_performance.png)
 
 Training time drops from 73 seconds to 18.2 seconds with 8 GPUs, achieving a **4.01× speedup**—better than the FashionMNIST results. The larger computation workload per epoch means gradient synchronization takes a smaller fraction of total time. With 20 epochs, communication overhead is amortized across more training steps. Each GPU has enough computation work between communication steps to maximize parallel efficiency.
 
