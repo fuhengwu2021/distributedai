@@ -110,10 +110,13 @@ function Image(img)
       end
     end
     
-    -- Extract caption from title (alt text)
+    -- Extract caption from cap attribute or title (alt text)
     local caption = ""
-    if img.title and #img.title > 0 then
-      -- Convert inline elements to text
+    -- First check for cap attribute
+    if attr.attributes.cap then
+      caption = attr.attributes.cap
+    elseif img.title and #img.title > 0 then
+      -- Fallback to title (alt text) if cap attribute not present
       local caption_parts = {}
       for _, elem in ipairs(img.title) do
         if elem.t == "Str" then
@@ -178,10 +181,13 @@ function Image(img)
       align_cmd = "\\raggedleft"
     end
     
-    -- Extract caption from title (alt text)
+    -- Extract caption from cap attribute or title (alt text)
     local caption = ""
-    if img.title and #img.title > 0 then
-      -- Convert inline elements to text
+    -- First check for cap attribute
+    if attr.attributes.cap then
+      caption = attr.attributes.cap
+    elseif img.title and #img.title > 0 then
+      -- Fallback to title (alt text) if cap attribute not present
       local caption_parts = {}
       for _, elem in ipairs(img.title) do
         if elem.t == "Str" then

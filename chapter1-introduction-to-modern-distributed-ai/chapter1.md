@@ -56,7 +56,7 @@ Looking at recent models, the scale is clear[^model_size_comp]. GPT-4 has over 1
 [^training_costs]: Epoch AI, "Trends in GPU price-performance," 2024; SemiAnalysis, "The Cost of Training Large Language Models," 2023; OpenAI, "GPT-4 Technical Report," 2023.
 
 
-![Model Parameters v.s. Year](code/model_comparison_plot.png)
+![](img/model_comparison_plot.png)
 
 ### The Scale Challenge
 
@@ -66,7 +66,7 @@ Training these models takes thousands of GPU-hours. A single GPU training run wo
 
 The mismatch is clear: model size and compute requirements have grown `exponentially`, while single-GPU memory and compute have grown `linearly` at best.
 
-![Growth Mismatch: Exponential Model Growth vs Linear GPU Growth](code/growth_mismatch.png)
+![](img/growth_mismatch.png)
 
 ### Estimating Model Resource Requirements
 
@@ -86,7 +86,7 @@ Here's a quick reference for common precision formats:
 | Int8 | 1 | 8-bit integer | Quantized inference |
 | Int4 | 0.5 | 4-bit integer | Quantized inference (extreme compression) |
 
-![Float32 vs Float16](img/f32vsf16.png)
+![](img/f32vsf16.png){.wrap width=40% align=right cap="Float32 vs Float16"}
 
 Note that FP8 has two formats: E4M3 (higher precision, used for inference activations and weights) and E5M2 (wider dynamic range, used for storage). Both use 1 byte per parameter but serve different purposes.
 
@@ -302,7 +302,7 @@ The activation memory scales with batch size and sequence length—larger batche
 During training, memory usage varies across different stages of the training loop. Understanding when each component is needed helps you estimate peak memory requirements and identify optimization opportunities.
 
 ```python
-#BKG:white;NOLINENUM
+#BKG:white
 for epoch in range(num_epochs):
     model.train()                         # set to training mode
     for x_batch, y_batch in dataloader:   # iterate over batches
@@ -326,7 +326,7 @@ Activations, gradients, and optimizer states don't all exist in memory at the sa
 The peak memory usage occurs during the backward pass when both activations and gradients are in memory simultaneously. After the backward pass, activations can be freed, so the optimizer step only needs gradients and optimizer states.
 
 
-![Training Memory Timeline](code/training_memory_timeline.png)
+![](img/training_memory_timeline.png){.wrap width=40% align=right cap="Training Memory Timeline"}
 
 The timeline shows memory usage across the training loop. Here's how each stage maps to the code. On line 2 (`y_hat = model(x_batch)`), the forward pass computes and stores activations. Memory usage is weights (14 GB) plus optimizer states (28 GB) plus activations (12 GB), totaling 54 GB. Gradients don't exist yet.
 
@@ -341,7 +341,7 @@ Memory breakdown:
 
 For a 7B model with BF16: model weights (14 GB), gradients (14 GB), optimizer states with Adam (28 GB for $m_{t-1}$ and $v_{t-1}$), and activations (8-16 GB depending on batch size and sequence length). That's 64-72 GB total per GPU. With SGD, you'd save 28 GB on optimizer states, but Adam's adaptive learning rates usually converge faster, so the trade-off is worth it for most cases. That's why a 7B model needs at least an A100 (80GB) for training with Adam, even with mixed precision (BF16). Smaller GPUs won't cut it.
 
-![Training Memory Breakdown for 7B Model](code/training_memory_breakdown.png)
+![](img/training_memory_breakdown.png){.wrap width=40% align=right cap="Training Memory Breakdown for 7B Model"}
 
 
 
@@ -392,7 +392,7 @@ Building AI models isn't a one-shot process. It's a cycle: you collect data, tra
 
 The lifecycle looks like this:
 
-![Modern AI Model Lifecycle](img/mdlc.png)
+![](img/mdlc.png){.wrap width=40% align=right cap="Modern AI Model Lifecycle"}
 
 The lifecycle begins with data engineering, where terabytes of data are collected, curated, transformed, validated, cleaned and prepared for training. Training follows, involving forward passes, backpropagation, gradient descent, hyperparameter tuning, and even fine-tuning. Once trained, models undergo inference optimization through quantization, ONNX conversion, operator fusion, and CUDA kernel optimization. Before deployment, comprehensive benchmarking evaluates model performance through precision and recall metrics, engineering performance profiling, bottleneck analysis, and stress testing, with distributed evaluation accelerating testing on large datasets. Production deployment requires autoscaling, scheduling, load balancing, observability, API gateways, and monitoring infrastructure to handle thousands of requests per second. Production feedback identifies data collection priorities and model failure modes, completing the cycle by informing subsequent data engineering efforts and model improvements.
 
@@ -439,7 +439,7 @@ Distributed systems add complexity, communication overhead, and cost. Use them w
 
 The decision framework is summarized in the decision tree below. Start by identifying your use case: training (or fine-tuning) versus inference and serving.
 
-![Decision Framework: When Do You Need Distributed Systems?](img/1.png)
+![](img/1.png){.wrap width=40% align=right cap="Decision Framework: When Do You Need Distributed Systems?"}
 
 ### Understanding the Decision Tree
 
@@ -471,11 +471,11 @@ git clone https://github.com/fuhengwu2021/coderepo.git
 
 To run the code, it is the best if you have access to a multiple-GPU machine, such as A10, A100 or H100/200 or even B200. If you don't have access to multiple GPUs locally, Kaggle offers free multi-GPU environments. Log in to [https://www.kaggle.com](https://www.kaggle.com), click Create, and select Notebook.
 
-![Kaggle Notebook Creation](img/1.5.png)
+![](img/1.5.png){.wrap width=40% align=right cap="Kaggle Notebook Creation"}
 
 Once you've created a Jupyter notebook, go to Settings → Accelerator and select GPU T4x2.
 
-![Kaggle GPU Settings](img/3.png)
+![](img/3.png){.wrap width=40% align=right cap="Kaggle GPU Settings"}
 
 You should now have 2 T4 GPUs available. To verify your GPU setup, run the code in `code/check_cuda.py`:
 
@@ -499,7 +499,7 @@ for i in range(torch.cuda.device_count()):
 
 Running this should show your available GPUs:
 
-![GPU setup - 2 Tesla T4 GPUs](img/2.png)
+![](img/2.png){.wrap width=40% align=right cap="GPU setup - 2 Tesla T4 GPUs"}
 
 ### Single-GPU Baseline
 
@@ -556,7 +556,7 @@ We tested scaling from 1 to 8 GPUs to see how performance improves:
 | 6    | 2.92s         | 3.01×   |
 | 8    | 2.44s         | 3.60×   |
 
-![FashionMNIST Scaling Performance](img/fashionmnist_scaling_performance.png)
+![](img/fashionmnist_scaling_performance.png){.wrap width=40% align=right cap="FashionMNIST Scaling Performance"}
 
 Training time drops from 8.78 seconds to 2.44 seconds with 8 GPUs, achieving a **3.6× speedup**. Adding more GPUs significantly reduces training time and accelerates development cycles. The speedup becomes even more pronounced with larger workloads, as we'll see next.
 
@@ -589,7 +589,7 @@ The results show even better scaling:
 | 6    | 21.24s (0.35 min) | 3.44×   |
 | 8    | 18.20s (0.30 min) | 4.01×   |
 
-![CIFAR-10 Scaling Performance](img/cifar10_scaling_performance.png)
+![](img/cifar10_scaling_performance.png){.wrap width=40% align=right cap="CIFAR-10 Scaling Performance"}
 
 Training time drops from 73 seconds to 18.2 seconds with 8 GPUs, achieving a **4.01× speedup**—better than the FashionMNIST results. The larger computation workload per epoch means gradient synchronization takes a smaller fraction of total time. With 20 epochs, communication overhead is amortized across more training steps. Each GPU has enough computation work between communication steps to maximize parallel efficiency.
 
@@ -645,7 +645,7 @@ Distributed AI systems are built in layers, from high-level frameworks down to p
 
 While the stack applies to all distributed frameworks (PyTorch, JAX, TensorFlow), this book uses PyTorch as the primary example. The concepts translate to other frameworks, but the APIs and implementation details differ. We'll focus on PyTorch's distributed APIs throughout.
 
-![The Distributed AI Stack](img/ai-stack.jpg)
+![](img/ai-stack.jpg){.wrap width=40% align=right cap="The Distributed AI Stack"}
 
 At the top sits the framework layer. This is where you write your code—PyTorch's `torch.distributed` module, `DDP`, `FSDP`, and the rest. When you define a model and call `loss.backward()`, PyTorch handles the gradient computation and decides when communication needs to happen. You don't think about network packets or hardware links at this level. You just write training loops and let PyTorch orchestrate the distributed operations.
 
