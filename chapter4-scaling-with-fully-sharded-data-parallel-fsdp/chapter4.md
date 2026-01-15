@@ -2,16 +2,13 @@
 
 *Training models larger than single GPU memory with parameter sharding*
 
-> FSDP extends DDP by sharding model parameters, gradients, and optimizer states across GPUs. Instead of each GPU holding a full copy of the model, each GPU only holds a shard. This lets you train models that are much larger than what fits in a single GPU's memory.
-- Adapted from Chapter 4
+> The data center is the new unit of computing.
+- Jensen Huang, CEO of NVIDIA
 
 **Code Summary**
 
-- `torch.distributed.fsdp.fully_shard()`: FSDP2 function to shard a module
-- `FullyShardedDataParallel`: Original FSDP wrapper class for CUDA/GPUs
-- `torch.distributed.fsdp.FSDP`: FSDP wrapper class (alternative API)
-- `torch.distributed.fsdp.StateDictType`: Enum for state dict types (FULL_STATE_DICT, SHARDED_STATE_DICT)
-- `torch.distributed.fsdp.api.FullyShardedDataParallel`: FSDP class for parameter sharding
+- `torch.distributed.fsdp.FullyShardedDataParallel(module...)`: FSDP1 wrapper class for sharding module parameters with FlatParameter
+- `torch.distributed.fsdp.fully_shard(module...)`: FSDP2 function to shard a module with DTensor
 - `torch.distributed.fsdp.wrap()`: Function to wrap submodules with FSDP
 - `torch.distributed.fsdp.set_state_dict_type()`: Configure state dict type for checkpointing
 - `torch.distributed.fsdp.StateDictConfig`: Configuration for state dict handling

@@ -49,3 +49,12 @@
 [submodule "resources/llm-d"]
 	path = resources/llm-d
 	url = https://github.com/llm-d/llm-d.git
+[submodule "resources/pytorch-tutorials"]
+	path = resources/pytorch-tutorials
+	url = https://github.com/pytorch/tutorials.git
+[submodule "resources/wan2.2"]
+	path = resources/wan2.2
+	url = https://github.com/Wan-Video/Wan2.2.git
+[submodule "resources/pytorch-examples"]
+	path = resources/pytorch-examples
+	url = https://github.com/pytorch/examples.git
