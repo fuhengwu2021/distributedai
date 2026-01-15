@@ -645,49 +645,7 @@ Distributed AI systems are built in layers, from high-level frameworks down to p
 
 While the stack applies to all distributed frameworks (PyTorch, JAX, TensorFlow), this book uses PyTorch as the primary example. The concepts translate to other frameworks, but the APIs and implementation details differ. We'll focus on PyTorch's distributed APIs throughout.
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│  Framework Layer                                            │
-│  PyTorch, JAX, TensorFlow                                   │
-│  High-level APIs for models, optimizers, data loaders       │
-└─────────────────────────────────────────────────────────────┘
-                          ↓
-┌─────────────────────────────────────────────────────────────┐
-│  Messaging Layer                                            │
-│  Tensor, Bucket                                             │
-│  Organizes data into chunks for efficient communication     │
-└─────────────────────────────────────────────────────────────┘
-                          ↓
-┌─────────────────────────────────────────────────────────────┐
-│  Collective Operations Layer                                │
-│  AllReduce, AllGather, Broadcast, Scatter, etc.             │
-│  Defines communication patterns between processes           │
-└─────────────────────────────────────────────────────────────┘
-                          ↓
-┌─────────────────────────────────────────────────────────────┐
-│  Data Transfer Layer                                        │
-│  NCCL (GPU), GLOO (CPU), MPI                                │
-│  Implements collective operations efficiently               │
-└─────────────────────────────────────────────────────────────┘
-                          ↓
-┌─────────────────────────────────────────────────────────────┐
-│  Topology Layer                                             │
-│  Ring, Fat-Tree, Mesh, Torus                                │
-│  Determines communication paths between devices             │
-└─────────────────────────────────────────────────────────────┘
-                          ↓
-┌─────────────────────────────────────────────────────────────┐
-│  Link Layer                                                 │
-│  NVLink, InfiniBand (RDMA), PCIe, Ethernet                  │
-│  Physical interconnects between devices                     │
-└─────────────────────────────────────────────────────────────┘
-                          ↓
-┌─────────────────────────────────────────────────────────────┐
-│  Physical Layer                                             │
-│  GPU, TPU, NPU, CPU                                         │
-│  Actual compute and memory hardware                         │
-└─────────────────────────────────────────────────────────────┘
-```
+![The Distributed AI Stack](img/ai-stack.jpg)
 
 At the top sits the framework layer. This is where you write your code—PyTorch's `torch.distributed` module, `DDP`, `FSDP`, and the rest. When you define a model and call `loss.backward()`, PyTorch handles the gradient computation and decides when communication needs to happen. You don't think about network packets or hardware links at this level. You just write training loops and let PyTorch orchestrate the distributed operations.
 

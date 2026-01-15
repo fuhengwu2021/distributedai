@@ -2,29 +2,26 @@
 -- This filter converts note sections into a special LaTeX environment with icon
 
 -- Helper function to extract text from inline elements
+-- Uses pandoc.utils.stringify for proper text extraction in Pandoc 3.x
 local function extract_text(inlines)
-  local text = ""
-  for i, inline in ipairs(inlines) do
-    if inline.t == "Str" then
-      text = text .. inline.c
-    elseif inline.t == "Space" then
-      text = text .. " "
-    elseif inline.t == "SoftBreak" or inline.t == "LineBreak" then
-      text = text .. " "
-    end
+  if not inlines then
+    return ""
   end
+  -- Use pandoc.utils.stringify which handles all inline types correctly
+  local para = pandoc.Para(inlines)
+  local text = pandoc.utils.stringify(para)
   return text
 end
 
 -- Helper function to check if a block quote starts with NOTES:
 local function starts_with_notes(block)
-  if block.t ~= "BlockQuote" or #block.c == 0 then
+  if not block or block.t ~= "BlockQuote" or not block.c or #block.c == 0 then
     return false
   end
   local first_block = block.c[1]
-  if first_block.t == "Para" then
+  if first_block and first_block.t == "Para" and first_block.c then
     local text = extract_text(first_block.c)
-    return text:match("^NOTES:")
+    return text:match("^NOTES:") ~= nil
   end
   return false
 end
@@ -38,6 +35,21 @@ local function ends_with_notee(block)
   if last_block.t == "Para" then
     local text = extract_text(last_block.c)
     return text:match("NOTEE%s*$")
+  end
+  return false
+end
+
+-- Helper function to check if a block quote starts with NOTEE (for standalone >NOTEE)
+local function starts_with_notee(block)
+  if not block or block.t ~= "BlockQuote" or not block.c or #block.c == 0 then
+    return false
+  end
+  local first_block = block.c[1]
+  if first_block and first_block.t == "Para" and first_block.c then
+    local text = extract_text(first_block.c)
+    -- Trim whitespace and check for exact match
+    text = text:gsub("^%s+", ""):gsub("%s+$", "")
+    return text == "NOTEE"
   end
   return false
 end
@@ -59,7 +71,8 @@ local function remove_notes_marker(block)
       
       for i, inline in ipairs(first_block.c) do
         if inline.t == "Str" then
-          local str = inline.c
+          -- Extract string content from Pandoc 3.x Str element
+          local str = pandoc.utils.stringify(inline)
           if not found_notes then
             if str:match("^NOTES") then
               found_notes = true
@@ -126,7 +139,8 @@ local function remove_notee_marker(block)
       for i = #last_block.c, 1, -1 do
         local inline = last_block.c[i]
         if inline.t == "Str" and not found_notee then
-          local str = inline.c
+          -- Extract string content from Pandoc 3.x Str element
+          local str = pandoc.utils.stringify(inline)
           if str:match("NOTEE%s*$") then
             found_notee = true
             local remaining = str:gsub("NOTEE%s*$", "")
@@ -186,15 +200,21 @@ function Pandoc(doc)
         -- Skip this block (don't add to new_blocks)
         i = i + 1
         
-      elseif ends_with_notee(block) and in_note_section then
-        -- End of note section
+      elseif in_note_section and (ends_with_notee(block) or starts_with_notee(block)) then
+        -- End of note section (NOTEE detected)
         in_note_section = false
         
-        -- Remove NOTEE from the last block if it exists
-        local cleaned_block = remove_notee_marker(block)
-        if #cleaned_block.c > 0 then
-          for j, blk in ipairs(cleaned_block.c) do
-            table.insert(note_blocks, blk)
+        -- If it's a standalone NOTEE blockquote, skip it entirely (don't add to content)
+        -- Otherwise, remove NOTEE from the last block and add the rest
+        if starts_with_notee(block) then
+          -- Skip this block entirely (it's just the NOTEE end marker)
+        else
+          -- Remove NOTEE from the last block if it exists
+          local cleaned_block = remove_notee_marker(block)
+          if #cleaned_block.c > 0 then
+            for j, blk in ipairs(cleaned_block.c) do
+              table.insert(note_blocks, blk)
+            end
           end
         end
         

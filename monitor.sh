@@ -11,6 +11,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 CONVERT_SCRIPT="$SCRIPT_DIR/convert_to_pdf.sh"
+CONVERT_PARTS_SCRIPT="$SCRIPT_DIR/convert_parts_to_pdf.sh"
 
 # Colors for output
 GREEN='\033[0;32m'
@@ -64,6 +65,23 @@ convert_appendix() {
     echo ""
 }
 
+# Function to convert a specific part
+convert_part() {
+    local part_num="$1"
+    local part_file="$2"
+    
+    echo -e "${BLUE}[$(date +'%Y-%m-%d %H:%M:%S')]${NC} Detected change in ${YELLOW}$part_file${NC}"
+    echo -e "${BLUE}[$(date +'%Y-%m-%d %H:%M:%S')]${NC} Converting part $part_num to PDF..."
+    
+    if "$CONVERT_PARTS_SCRIPT" "$part_num" > /tmp/convert_part_${part_num}.log 2>&1; then
+        echo -e "${GREEN}[$(date +'%Y-%m-%d %H:%M:%S')]${NC} ✓ Successfully converted part $part_num"
+    else
+        echo -e "${YELLOW}[$(date +'%Y-%m-%d %H:%M:%S')]${NC} ✗ Conversion failed for part $part_num"
+        echo -e "${YELLOW}Check log: /tmp/convert_part_${part_num}.log${NC}"
+    fi
+    echo ""
+}
+
 # Function to monitor files
 monitor_files() {
     local watch_dirs=()
@@ -79,11 +97,20 @@ monitor_files() {
         for chapter_num in "$@"; do
             # Find chapter directory
             chapter_dir=$(find . -maxdepth 1 -type d -name "chapter${chapter_num}-*" | head -1)
-            if [ -n "$chapter_dir" ] && [ -f "$chapter_dir/chapter${chapter_num}.md" ]; then
+            if [ -n "$chapter_dir" ]; then
                 watch_dirs+=("$chapter_dir")
-                echo -e "${GREEN}Monitoring:${NC} $chapter_dir/chapter${chapter_num}.md"
+                if [ -f "$chapter_dir/chapter${chapter_num}.md" ]; then
+                    echo -e "${GREEN}Monitoring:${NC} $chapter_dir/chapter${chapter_num}.md"
+                fi
+                # Also check for part files in this directory
+                for part_file in "$chapter_dir"/part*.md; do
+                    if [ -f "$part_file" ]; then
+                        part_num=$(basename "$part_file" | sed 's/part\([0-9]*\)\.md/\1/')
+                        echo -e "${GREEN}Monitoring:${NC} $part_file (Part $part_num)"
+                    fi
+                done
             else
-                echo -e "${YELLOW}Warning:${NC} Chapter $chapter_num not found or chapter${chapter_num}.md missing"
+                echo -e "${YELLOW}Warning:${NC} Chapter $chapter_num not found"
             fi
         done
     else
@@ -91,9 +118,18 @@ monitor_files() {
         echo -e "${GREEN}Monitoring all chapters...${NC}"
         while IFS= read -r -d '' dir; do
             chapter_num=$(get_chapter_number "$dir")
-            if [ -n "$chapter_num" ] && [ -f "$dir/chapter${chapter_num}.md" ]; then
+            if [ -n "$chapter_num" ]; then
                 watch_dirs+=("$dir")
-                echo -e "${GREEN}Monitoring:${NC} $dir/chapter${chapter_num}.md (Chapter $chapter_num)"
+                if [ -f "$dir/chapter${chapter_num}.md" ]; then
+                    echo -e "${GREEN}Monitoring:${NC} $dir/chapter${chapter_num}.md (Chapter $chapter_num)"
+                fi
+                # Also check for part files in this directory
+                for part_file in "$dir"/part*.md; do
+                    if [ -f "$part_file" ]; then
+                        part_num=$(basename "$part_file" | sed 's/part\([0-9]*\)\.md/\1/')
+                        echo -e "${GREEN}Monitoring:${NC} $part_file (Part $part_num)"
+                    fi
+                done
             fi
         done < <(find . -maxdepth 1 -type d -name "chapter*" -print0 | sort -z)
     fi
@@ -117,6 +153,15 @@ monitor_files() {
             # Small delay to ensure file is fully written
             sleep 0.5
             convert_appendix
+        # Process partX.md files
+        elif [[ "$file" =~ /part([0-9]+)\.md$ ]]; then
+            part_num="${BASH_REMATCH[1]}"
+            
+            if [ -n "$part_num" ]; then
+                # Small delay to ensure file is fully written
+                sleep 0.5
+                convert_part "$part_num" "$file"
+            fi
         # Process chapterX.md files
         elif [[ "$file" =~ /chapter([0-9]+)\.md$ ]]; then
             chapter_num="${BASH_REMATCH[1]}"
@@ -135,6 +180,12 @@ monitor_files() {
 # Check if convert_to_pdf.sh exists
 if [ ! -f "$CONVERT_SCRIPT" ]; then
     echo -e "${YELLOW}Error:${NC} convert_to_pdf.sh not found at $CONVERT_SCRIPT"
+    exit 1
+fi
+
+# Check if convert_parts_to_pdf.sh exists
+if [ ! -f "$CONVERT_PARTS_SCRIPT" ]; then
+    echo -e "${YELLOW}Error:${NC} convert_parts_to_pdf.sh not found at $CONVERT_PARTS_SCRIPT"
     exit 1
 fi
 

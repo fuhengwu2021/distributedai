@@ -100,6 +100,19 @@ def format_title_for_latex(title):
     return title
 
 
+def clean_title_for_metadata(title):
+    """
+    Remove LaTeX commands from title for use in PDF metadata (bookmarks, etc.).
+    This removes line break commands like \\[0.3cm] and replaces them with spaces.
+    """
+    import re
+    # Remove LaTeX line break commands: \\[0.3cm], \\[0.5cm], etc.
+    cleaned = re.sub(r'\\\\\[[^\]]+\]', ' ', title)
+    # Remove extra spaces
+    cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+    return cleaned
+
+
 def generate_latex_title_page(chapter_num, title, subtitle):
     """Generate LaTeX chaptertitlepage code."""
     formatted_title = format_title_for_latex(title)
@@ -142,13 +155,51 @@ def generate_latex_title_page_with_quote(chapter_num, title, subtitle, quote_tex
                     code_part = match.group(1)
                     desc_part = match.group(2)
                     # Escape LaTeX special characters in description
-                    desc_escaped = desc_part.replace('\\', '\\textbackslash{}').replace('{', '\\{').replace('}', '\\}').replace('&', '\\&').replace('%', '\\%').replace('$', '\\$').replace('#', '\\#').replace('^', '\\textasciicircum{}').replace('_', '\\_')
+                    # But preserve LaTeX commands and math mode expressions
+                    # Strategy: protect them first, escape the rest, then restore
+                    import re as re_module
+                    
+                    # Step 1: Protect math mode expressions $...$
+                    math_pattern = r'\$[^$]+\$'
+                    math_placeholders = {}
+                    math_counter = [0]
+                    def protect_math(match):
+                        placeholder = f"XXXMATH{math_counter[0]}XXX"
+                        math_placeholders[placeholder] = match.group(0)
+                        math_counter[0] += 1
+                        return placeholder
+                    desc_protected = re_module.sub(math_pattern, protect_math, desc_part)
+                    
+                    # Step 2: Protect LaTeX commands \command or \command{arg}
+                    # Match: \ followed by letters (command name), optionally followed by {arg}
+                    latex_cmd_pattern = r'\\[a-zA-Z]+\*?(?:\{[^}]*\})*'
+                    cmd_placeholders = {}
+                    cmd_counter = [0]
+                    def protect_cmd(match):
+                        placeholder = f"XXXCMD{cmd_counter[0]}XXX"
+                        cmd_placeholders[placeholder] = match.group(0)
+                        cmd_counter[0] += 1
+                        return placeholder
+                    desc_protected = re_module.sub(latex_cmd_pattern, protect_cmd, desc_protected)
+                    
+                    # Step 3: Now escape special characters in the remaining text
+                    desc_escaped = desc_protected.replace('\\', '\\textbackslash{}').replace('{', '\\{').replace('}', '\\}').replace('&', '\\&').replace('%', '\\%').replace('#', '\\#').replace('^', '\\textasciicircum{}').replace('_', '\\_')
+                    
+                    # Step 4: Restore LaTeX commands first (they may contain {})
+                    for placeholder, cmd_expr in sorted(cmd_placeholders.items(), key=lambda x: -len(x[0])):
+                        desc_escaped = desc_escaped.replace(placeholder, cmd_expr)
+                    
+                    # Step 5: Restore math mode expressions (they contain $ which is fine in LaTeX)
+                    for placeholder, math_expr in sorted(math_placeholders.items(), key=lambda x: -len(x[0])):
+                        desc_escaped = desc_escaped.replace(placeholder, math_expr)
                     # Escape LaTeX special characters in code part
                     code_escaped = code_part.replace('\\', '\\textbackslash{}').replace('{', '\\{').replace('}', '\\}').replace('_', '\\_')
                     # Add dark blue background with white text and rounded corners for code
                     #latex_items.append("\\item \\tcbox[colback=chapterblue,coltext=white,boxrule=0pt,arc=2pt,left=2pt,right=2pt,top=1pt,bottom=1pt]{\\texttt{" + code_escaped + "}} " + desc_escaped)
                     # Add dark blue border with dark blue text and white background for code
-                    latex_items.append("\\item \\tcbox[colback=white,coltext=chapterblue,colframe=chapterbluelight,boxrule=0.8pt,arc=2pt,left=2pt,right=2pt,top=1pt,bottom=1pt]{\\texttt{" + code_escaped + "}} " + desc_escaped)
+                    # Use \mbox to keep code box and description on the same line
+                    # Adjust baseline to align box with text vertically
+                    latex_items.append("\\item \\mbox{\\raisebox{-0.85ex}{\\tcbox[colback=white,coltext=chapterblue,colframe=chapterbluelight,boxrule=0.5pt,arc=2pt,left=2pt,right=2pt,top=1pt,bottom=0.5pt]{\\texttt{" + code_escaped + "}}}} " + desc_escaped)
         
         if latex_items:
             # Only generate the list items; decorative line and title are in LaTeX environment
@@ -156,25 +207,33 @@ def generate_latex_title_page_with_quote(chapter_num, title, subtitle, quote_tex
             code_summary_content = items_text
     
     # Build LaTeX code with separate parameters for quote (4th) and code summary (5th)
+    # IMPORTANT: Even though chaptertitlepage environment definition has \newpage,
+    # when the environment is inserted via ```{=latex} block, pandoc may not execute
+    # the environment's end code properly. We need to explicitly add \newpage after
+    # \end{chaptertitlepage} to ensure proper page separation for wrapfigure to work.
     if quote_content and code_summary_content:
         latex_code = f"""```{{=latex}}
 \\begin{{chaptertitlepage}}{{{chapter_num}}}{{{formatted_title}}}{{{subtitle or ''}}}[{quote_content}][{code_summary_content}]
 \\end{{chaptertitlepage}}
+\\newpage
 ```"""
     elif quote_content:
         latex_code = f"""```{{=latex}}
 \\begin{{chaptertitlepage}}{{{chapter_num}}}{{{formatted_title}}}{{{subtitle or ''}}}[{quote_content}]
 \\end{{chaptertitlepage}}
+\\newpage
 ```"""
     elif code_summary_content:
         latex_code = f"""```{{=latex}}
 \\begin{{chaptertitlepage}}{{{chapter_num}}}{{{formatted_title}}}{{{subtitle or ''}}}[][{code_summary_content}]
 \\end{{chaptertitlepage}}
+\\newpage
 ```"""
     else:
         latex_code = f"""```{{=latex}}
 \\begin{{chaptertitlepage}}{{{chapter_num}}}{{{formatted_title}}}{{{subtitle or ''}}}
 \\end{{chaptertitlepage}}
+\\newpage
 ```"""
     
     return latex_code
@@ -316,6 +375,9 @@ def process_file_for_pdf(input_file, output_file):
             quote_text = quote_match.group(1) or quote_match.group(2)
             if quote_text and quote_text.strip():
                 quote_text = quote_text.strip()
+                # Skip NOTES: and NOTEE blocks (these are note sections, not quotes)
+                if quote_text.startswith('NOTES:') or quote_text.startswith('NOTEE'):
+                    continue
                 # Look for author on next line
                 if i + 1 < len(lines):
                     # Skip empty lines
@@ -435,10 +497,11 @@ def process_file_for_pdf(input_file, output_file):
             # Skip empty line if present
             while i < len(lines) and not lines[i].strip():
                 i += 1
-            # Skip all summary lines (starting with -)
-            while i < len(lines) and lines[i].strip().startswith('-'):
+            # Skip author line (starting with -) - always skip it, Code Summary handler will handle Code Summary separately
+            # The author line is the first line starting with - after the quote
+            if i < len(lines) and lines[i].strip().startswith('-'):
                 i += 1
-            # Skip empty lines after summary
+            # Skip empty lines after author
             while i < len(lines) and not lines[i].strip():
                 i += 1
             continue
@@ -447,8 +510,15 @@ def process_file_for_pdf(input_file, output_file):
         output_lines.append(line)
         i += 1
     
-    # Write output
+    # Write output - ensure parent directory exists
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text('\n'.join(output_lines), encoding='utf-8')
+    
+    # Verify file was created
+    if not output_path.exists():
+        print(f"Error: Failed to create output file: {output_file}", file=sys.stderr)
+        return False
+    
     return True
 
 
