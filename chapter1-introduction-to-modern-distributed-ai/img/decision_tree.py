@@ -5,16 +5,17 @@ import os
 dot = Digraph(comment='GPU Usage Flowchart')
 dot.attr(rankdir='TD', size='10', ranksep='1.5', nodesep='.1', dpi='300')
 
-# Define node styles with rounded corners
+# Define node styles with rounded corners and gradient fills
 dot.attr('node', 
          shape='box', 
          style='rounded,filled', 
-         fillcolor='#E3F2FD', 
+         fillcolor='#E3F2FD:#BBDEFB',  # Gradient from light blue to lighter blue
          fontname='Helvetica',
          fontsize='16',
          penwidth='1.5',
          color='#1976D2',
-         margin='0.05')
+         margin='0.05',
+         gradientangle='90')  # Vertical gradient (top to bottom)
 
 # --- Nodes ---
 # Start
@@ -23,22 +24,22 @@ dot.node('A', 'Start: What is your use case')
 # Training Branch
 dot.node('B', 'Training or Fine tuning')
 dot.node('B1', 'Model exceeds single GPU memory?')
-dot.node('B1Y', 'Distributed Training\n(Model/Parameter Parallelism)', fillcolor='#C8E6C9', color='#2E7D32')
+dot.node('B1Y', 'Distributed Training\n(Model/Parameter Parallelism)', fillcolor='#A5D6A7:#C8E6C9', color='#2E7D32', gradientangle='90')
 dot.node('B2', 'Training time too long?')
-dot.node('B2Y', 'Distributed Training\n(Data Parallelism)', fillcolor='#C8E6C9', color='#2E7D32')
+dot.node('B2Y', 'Distributed Training\n(Data Parallelism)', fillcolor='#A5D6A7:#C8E6C9', color='#2E7D32', gradientangle='90')
 dot.node('B3', 'Fine tuning with LoRA/QLoRA?')
-dot.node('B3Y', 'Single GPU', fillcolor='#FFF9C4', color='#F57F17')
+dot.node('B3Y', 'Single GPU', fillcolor='#FFF59D:#FFF9C4', color='#F57F17', gradientangle='90')
 dot.node('B4', 'Large dataset?')
-dot.node('B4Y', 'Consider Distributed Setup', fillcolor='#C8E6C9', color='#2E7D32')
-dot.node('B4N', 'Single GPU', fillcolor='#FFF9C4', color='#F57F17')
+dot.node('B4Y', 'Consider Distributed Setup', fillcolor='#A5D6A7:#C8E6C9', color='#2E7D32', gradientangle='90')
+dot.node('B4N', 'Single GPU', fillcolor='#FFF59D:#FFF9C4', color='#F57F17', gradientangle='90')
 
 # Inference Branch
 dot.node('D', 'Inference or Serving')
 dot.node('D1', 'Model exceeds single GPU memory?')
-dot.node('D1Y', 'Distributed Inference\n(Model Parallelism)', fillcolor='#C8E6C9', color='#2E7D32')
+dot.node('D1Y', 'Distributed Inference\n(Model Parallelism)', fillcolor='#A5D6A7:#C8E6C9', color='#2E7D32', gradientangle='90')
 dot.node('D2', 'High throughput required?')
-dot.node('D2Y', 'Distributed Inference\n(Multiple GPUs)', fillcolor='#C8E6C9', color='#2E7D32')
-dot.node('D2N', 'Single GPU', fillcolor='#FFF9C4', color='#F57F17')
+dot.node('D2Y', 'Distributed Inference\n(Multiple GPUs)', fillcolor='#A5D6A7:#C8E6C9', color='#2E7D32', gradientangle='90')
+dot.node('D2N', 'Single GPU', fillcolor='#FFF59D:#FFF9C4', color='#F57F17', gradientangle='90')
 
 # --- Edges ---
 # Main Split
