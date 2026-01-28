@@ -5,8 +5,16 @@ import os
 dot = Digraph(comment='GPU Usage Flowchart')
 dot.attr(rankdir='TD', size='10', ranksep='1.5', nodesep='.1', dpi='300')
 
-# Define node styles
-dot.attr('node', shape='box', style='filled', fillcolor='lightblue', fontname='Helvetica')
+# Define node styles with rounded corners
+dot.attr('node', 
+         shape='box', 
+         style='rounded,filled', 
+         fillcolor='#E3F2FD', 
+         fontname='Helvetica',
+         fontsize='16',
+         penwidth='1.5',
+         color='#1976D2',
+         margin='0.05')
 
 # --- Nodes ---
 # Start
@@ -15,22 +23,22 @@ dot.node('A', 'Start: What is your use case')
 # Training Branch
 dot.node('B', 'Training or Fine tuning')
 dot.node('B1', 'Model exceeds single GPU memory?')
-dot.node('B1Y', 'Distributed Training\n(Model/Parameter Parallelism)', fillcolor='lightgreen')
+dot.node('B1Y', 'Distributed Training\n(Model/Parameter Parallelism)', fillcolor='#C8E6C9', color='#2E7D32')
 dot.node('B2', 'Training time too long?')
-dot.node('B2Y', 'Distributed Training\n(Data Parallelism)', fillcolor='lightgreen')
+dot.node('B2Y', 'Distributed Training\n(Data Parallelism)', fillcolor='#C8E6C9', color='#2E7D32')
 dot.node('B3', 'Fine tuning with LoRA/QLoRA?')
-dot.node('B3Y', 'Single GPU', fillcolor='lightyellow')
+dot.node('B3Y', 'Single GPU', fillcolor='#FFF9C4', color='#F57F17')
 dot.node('B4', 'Large dataset?')
-dot.node('B4Y', 'Consider Distributed Setup', fillcolor='lightgreen')
-dot.node('B4N', 'Single GPU', fillcolor='lightyellow')
+dot.node('B4Y', 'Consider Distributed Setup', fillcolor='#C8E6C9', color='#2E7D32')
+dot.node('B4N', 'Single GPU', fillcolor='#FFF9C4', color='#F57F17')
 
 # Inference Branch
 dot.node('D', 'Inference or Serving')
 dot.node('D1', 'Model exceeds single GPU memory?')
-dot.node('D1Y', 'Distributed Inference\n(Model Parallelism)', fillcolor='lightgreen')
+dot.node('D1Y', 'Distributed Inference\n(Model Parallelism)', fillcolor='#C8E6C9', color='#2E7D32')
 dot.node('D2', 'High throughput required?')
-dot.node('D2Y', 'Distributed Inference\n(Multiple GPUs)', fillcolor='lightgreen')
-dot.node('D2N', 'Single GPU', fillcolor='lightyellow')
+dot.node('D2Y', 'Distributed Inference\n(Multiple GPUs)', fillcolor='#C8E6C9', color='#2E7D32')
+dot.node('D2N', 'Single GPU', fillcolor='#FFF9C4', color='#F57F17')
 
 # --- Edges ---
 # Main Split

@@ -489,16 +489,15 @@ for i in range(torch.cuda.device_count()):
     vram_gb = props.total_memory / (1024**3) #HL
     print(f"GPU {i}: {props.name} ({vram_gb:.1f} GB)")
 ```
+CODE_EXPLAIN_START:
+- 2: Checks if CUDA is available on the system
+- 3: Gets the total number of GPUs
+- 5: Retrieves properties for the current GPU
+- 6: Converts memory from bytes to GB
 
-![GPU setup - 2 Tesla T4 GPUs](img/2.png){#fig:gpu-setup .wrap width=65% align=top-right}
+CODE_EXPLAIN_END
 
-
-\begin{codeexplanation}
-\codelineannotation{2}{Checks if CUDA is available on the system}
-\codelineannotation{3}{Gets the total number of GPUs}
-\codelineannotation{5}{Retrieves properties for the current GPU}
-\codelineannotation{6}{Converts memory from bytes to GB}
-\end{codeexplanation}
+![GPU setup - 2 Tesla T4 GPUs](img/2.png){#fig:gpu-setup .wrap width=65% align=top-right lines=10}
 
 As shown in @fig:gpu-setup, running this should show your available GPUs.
 
