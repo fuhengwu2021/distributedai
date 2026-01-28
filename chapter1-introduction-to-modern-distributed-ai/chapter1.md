@@ -450,7 +450,7 @@ Large datasets where data loading becomes the bottleneck benefit from distribute
 
 For inference or serving, the logic is similar. If the model exceeds single GPU memory, use model parallelism. A 70B model in BF16 needs 140GB for weights. With KV cache, you're looking at 160-180GB, which requires at least 2 A100 GPUs. If memory is fine but you need high throughput—thousands of requests per second—use multiple GPUs for distributed inference. Real-time services that need sub-second latency at high throughput often require tensor parallelism or multiple inference instances. When both memory and throughput fit within single GPU limits, stick with one GPU and use optimized engines like vLLM or SGLang to maximize efficiency.
 
-![Decision Framework: When Do You Need Distributed Systems?](img/1.png){#fig:decision-framework .block width=100%}
+![Decision Framework: When Do You Need Distributed Systems?](img/decision_tree.png){#fig:decision-framework .block width=100%}
 
 
 \fancydividerwithicon[center]{python.png}
