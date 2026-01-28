@@ -90,7 +90,6 @@ Here's a quick reference for common precision formats:
 | Int8 | 1 | 8-bit integer | Quantized inference |
 | Int4 | 0.5 | 4-bit integer | Quantized inference (extreme compression) |
 
-![Float32 vs Float16](img/f32vsf16.png)
 
 Note that FP8 has two formats: E4M3 (higher precision, used for inference activations and weights) and E5M2 (wider dynamic range, used for storage). Both use 1 byte per parameter but serve different purposes.
 
@@ -392,7 +391,7 @@ This transition to distributed AI has enabled breakthrough capabilities, includi
 
 Building AI models isn't a one-shot process. It's a cycle: you collect data, train a model, deploy it, see how it performs, then go back and improve the data or model. Each stage feeds into the next.
 
-![Modern AI Model Lifecycle](img/mdlc.png){#fig:lifecycle .wrap width=51% align=top-right}
+![Modern AI Model Lifecycle](img/mdlc.png){#fig:lifecycle .block width=75% align=top-right}
 
 As shown in @fig:lifecycle, the lifecycle begins with data engineering, where terabytes of data are collected, curated, transformed, validated, cleaned and prepared for training. Training follows, involving forward passes, backpropagation, gradient descent, hyperparameter tuning, and even fine-tuning. Once trained, models undergo inference optimization through quantization, ONNX conversion, operator fusion, and CUDA kernel optimization. Before deployment, comprehensive benchmarking evaluates model performance through precision and recall metrics, engineering performance profiling, bottleneck analysis, and stress testing, with distributed evaluation accelerating testing on large datasets. Production deployment requires autoscaling, scheduling, load balancing, observability, API gateways, and monitoring infrastructure to handle thousands of requests per second. Production feedback identifies data collection priorities and model failure modes, completing the cycle by informing subsequent data engineering efforts and model improvements.
 
@@ -790,19 +789,18 @@ OMP_NUM_THREADS=1 torchrun --nproc_per_node=2 code/collective-operation/demo_all
 
 The communication cost of AllGather scales with data size and world size. Each rank sends N values and receives world_size × N values, so the total data movement is world_size² × N. This quadratic scaling makes AllGather expensive for large world sizes, which is why FSDP and other sharding strategies use AllGather selectively and combine it with ReduceScatter to minimize communication overhead.
 
->NOTES:
-
- **AllReduce Decomposition**: ReduceScatter followed by AllGather is equivalent to AllReduce. Some systems use this decomposition for optimization, particularly in FSDP where the ReduceScatter and AllGather operations can be overlapped with computation to hide communication latency.
+>NOTES: **AllReduce Decomposition**
+ReduceScatter followed by AllGather is equivalent to AllReduce. Some systems use this decomposition for optimization, particularly in FSDP where the ReduceScatter and AllGather operations can be overlapped with computation to hide communication latency.
 
 >NOTEE
 
 #### Broadcast
 
-![Broadcast Operation: Sending Data from Root to All Ranks](img/broadcast.png){#fig:broadcast}
-
 As shown in @fig:broadcast, Broadcast copies data from a root rank to all other ranks. Only the root rank needs to have the data initially. After the operation, all ranks have identical data. This is a one-to-all communication pattern—the simplest form of data distribution in distributed systems.
 
 Broadcast is fundamental to distributed training initialization. When you start training, rank 0 typically loads the model weights, optimizer state, or checkpoint data. These must be distributed to all ranks so every process starts with identical model parameters. Without Broadcast, each rank would need to independently load the same data, which wastes I/O bandwidth and storage access. Broadcast ensures all ranks begin training with synchronized state.
+
+![Broadcast Operation: Sending Data from Root to All Ranks](img/broadcast.png){#fig:broadcast}
 
 Use Broadcast for distributing model weights after loading from disk, sharing hyperparameters (learning rate, batch size, training configuration), synchronizing random seeds for reproducibility, and sending control signals or flags to coordinate distributed execution. In custom parallelism strategies, Broadcast is used to replicate model shards or synchronize state across pipeline stages.
 
@@ -828,11 +826,11 @@ The communication cost of Broadcast scales with the data size but is independent
 
 #### Reduce
 
-![Reduce Operation: Reduction to Root Rank Only](img/reduce.png){#fig:reduce}
-
 As illustrated in @fig:reduce, Reduce performs the same reduction as AllReduce, but only the root rank receives the result. Other ranks' buffers are unchanged. This is an all-to-one communication pattern, where data flows from all ranks toward a single destination.
 
 Reduce is more efficient than AllReduce when only one rank needs the aggregated result. Since AllReduce distributes the result to all ranks, it requires an additional Broadcast step that Reduce avoids. This saves bandwidth and reduces communication overhead when the aggregated data is only needed for centralized operations like logging, checkpointing, or decision-making.
+
+![Reduce Operation: Reduction to Root Rank Only](img/reduce.png){#fig:reduce}
 
 The primary use case for Reduce is collecting metrics and statistics from all ranks to rank 0. During training, each rank computes local metrics (loss, accuracy, gradient norms) on its data shard. Reduce aggregates these metrics so rank 0 can log the global statistics, save checkpoints with aggregated values, or make training decisions (early stopping, learning rate scheduling) based on global state. Other common use cases include collecting validation results from all ranks, aggregating profiling data for performance analysis, and gathering error counts or convergence indicators for distributed monitoring.
 
@@ -855,13 +853,13 @@ Reduce followed by Broadcast is equivalent to AllReduce. However, NCCL optimizes
 
 #### Gather
 
-![Gather Operation: Collecting Data from All Ranks to Root](img/gather.png){#fig:gather}
-
 As shown in @fig:gather, Gather collects data from all ranks to the root rank. Each rank sends N values, and the root receives world_size × N values concatenated and ordered by rank index. This is an all-to-one communication pattern, where data flows from all ranks toward a single destination.
 
 Gather is the inverse of Scatter and is essential for centralized operations in distributed training. Unlike AllGather, which distributes collected data back to all ranks, Gather only sends data to the root rank, making it more efficient when only one rank needs the complete dataset. This is particularly useful for I/O operations, logging, checkpointing, and centralized decision-making.
 
 The primary use case for Gather is collecting results from all ranks to rank 0 for processing or saving. During training, each rank computes predictions, metrics, or intermediate results on its local data shard. Gather collects these results so rank 0 can aggregate them, save checkpoints, log global statistics, or perform centralized evaluation. Other common use cases include collecting validation predictions for ensemble evaluation, gathering feature representations for centralized analysis, collecting debugging information from all ranks, and aggregating model outputs for final inference or serving.
+
+![Gather Operation: Collecting Data from All Ranks to Root](img/gather.png){#fig:gather}
 
 The output ordering is deterministic—rank 0's data comes first, followed by rank 1's data, and so on. This ordering is crucial when reconstructing distributed data structures or when rank order matters for downstream processing. The root rank must pre-allocate the output list with space for all ranks' contributions, while non-root ranks pass `None` for the output list parameter.
 
@@ -883,6 +881,7 @@ OMP_NUM_THREADS=1 torchrun --nproc_per_node=2 code/collective-operation/demo_gat
 ```
 
 The communication cost of Gather scales with data size and world size. The root rank receives world_size × N values, so bandwidth requirements increase linearly with the number of ranks. For large datasets, this can create a bottleneck at rank 0, which is why AllGather is preferred when all ranks need the collected data, as it distributes the bandwidth load across all ranks.
+
 
 #### Scatter
 
