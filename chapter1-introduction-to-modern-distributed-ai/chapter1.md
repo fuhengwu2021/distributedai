@@ -27,12 +27,16 @@ This chapter walks through resource estimation, decision frameworks for choosing
 
 ## Why Modern AI Requires Distribution
 
+![Model Parameters v.s. Year](img/model_comparison_table.png){#fig:model-comparison .block width=100%}
+
 A few years ago, you could train most models on a single GPU. ResNet-50 on ImageNet took a couple of days. Today, training a 70B parameter language model on a single GPU would take months, if it even fits in memory. The models got bigger, the datasets got bigger, and single-GPU training became impractical.
 
-Looking at recent models, the scale is clear[^model_size_comp]. GPT-4 has over 1 trillion parameters. Training it requires thousands of GPUs working together[^gpt4_training]. Even smaller models like Llama 2 (70B parameters) need multiple GPUs just to fit in memory, let alone train efficiently. This isn't just a training problem—serving these models at scale for production workloads demands distributed inference architectures that can handle thousands of concurrent requests. The era of single-machine AI is over; modern AI systems are inherently distributed by design. According to PyTorch's distributed training documentation, distributed training involves spreading the training workload across multiple worker nodes, which is particularly beneficial for large models and compute-intensive tasks in deep learning. Additionally, industry reports indicate that training trillion-parameter models requires infrastructure investments of tens of millions of dollars[^training_costs], making distributed computing not just a technical necessity but an economic imperative for modern AI development.
+As shown in @fig:model-comparison, the exponential growth in model parameters over recent years is evident. Looking at recent models detailed in @tbl:model-comparison, the scale is clear[^model_size_comp]. GPT-4 has over 1 trillion parameters. Training it requires thousands of GPUs working together[^gpt4_training]. Even smaller models like Llama 2 (70B parameters) need multiple GPUs just to fit in memory, let alone train efficiently. This isn't just a training problem—serving these models at scale for production workloads demands distributed inference architectures that can handle thousands of concurrent requests. The era of single-machine AI is over; modern AI systems are inherently distributed by design. According to PyTorch's distributed training documentation, distributed training involves spreading the training workload across multiple worker nodes, which is particularly beneficial for large models and compute-intensive tasks in deep learning. Additionally, industry reports indicate that training trillion-parameter models requires infrastructure investments of tens of millions of dollars[^training_costs], making distributed computing not just a technical necessity but an economic imperative for modern AI development.
 
-| Model Name | Parameters | Company | Year |
-|------------|------------|---------|------|
+::: {width=80%}
+
+| Model | Parameters | Company | Year |
+|--|----------------------|-|-|
 | ViT-22B | 22B | Google | 2023 |
 | Sora | 30B | OpenAI | 2023 |
 | Grok-1 | 314B | xAI | 2023 |
@@ -41,13 +45,15 @@ Looking at recent models, the scale is clear[^model_size_comp]. GPT-4 has over 1
 | PanGu-$\Sigma$ | 1.085T | Huawei | 2023 |
 | DeepSeek-V1 | 6.7B | DeepSeek | 2023 |
 | GPT-4V | 1.8T | OpenAI | 2024 |
-| DeepSeek-V2 | 236B MoE (16 experts, 2 active) | DeepSeek | 2024 |
-| Grok-4 | ~1.7T (MoE) | xAI | 2025 |
+| DeepSeek-V2 | 236B | DeepSeek | 2024 |
+| Grok-4 | ~1.7T | xAI | 2025 |
 | Qwen-Max | ~1.2T | Alibaba | 2025 |
 | GPT-5 | ~2–5T | OpenAI | 2025 |
-| DeepSeek-V3 | 671B MoE (64 experts, 8 active) | DeepSeek | 2025 |
+| DeepSeek-V3 | 671B | DeepSeek | 2025 |
 | Gemini-3-Pro | ~7.5T | Google | 2025 |
 
+Table: Comparison of Large AI Models {#tbl:model-comparison}
+:::
 
 [^model_size_comp]: The tilde (~) indicates approximate parameter counts. Many large models are closed-source, so exact parameter counts are not publicly disclosed. These approximations are based on inference from model architecture, training costs, and industry estimates.
 
@@ -55,8 +61,6 @@ Looking at recent models, the scale is clear[^model_size_comp]. GPT-4 has over 1
 
 [^training_costs]: Epoch AI, "Trends in GPU price-performance," 2024; SemiAnalysis, "The Cost of Training Large Language Models," 2023; OpenAI, "GPT-4 Technical Report," 2023.
 
-
-![Model Parameters v.s. Year](code/model_comparison_plot.png)
 
 ### The Scale Challenge
 
@@ -66,7 +70,7 @@ Training these models takes thousands of GPU-hours. A single GPU training run wo
 
 The mismatch is clear: model size and compute requirements have grown `exponentially`, while single-GPU memory and compute have grown `linearly` at best.
 
-![Growth Mismatch: Exponential Model Growth vs Linear GPU Growth](code/growth_mismatch.png)
+![Growth Mismatch: Exponential Model Growth vs Linear GPU Growth](img/growth_mismatch.png)
 
 ### Estimating Model Resource Requirements
 
@@ -141,10 +145,10 @@ That's why Adam needs 2× the model size for optimizer states compared to SGD's 
 
 Here's a summary of optimizer state memory requirements for common optimizers:
 
-| Optimizer | Optimizer States | Memory (relative to model size) |
-|-----------|------------------|--------------------------------|
+| Optimizer | Optimizer States | Memory|
+|-------|------------------|-----|
 | SGD | Learning rate $\eta$ (scalar) | ~0× |
-| SGD with Momentum | $v_{t-1}$ (velocity/momentum) | 1× |
+| SGD+Momentum | $v_{t-1}$ (velocity/momentum) | 1× |
 | Nesterov | $v_{t-1}$ (velocity/momentum) | 1× |
 | Adagrad | Accumulated gradient squares | 1× |
 | RMSProp | $v_{t-1}$ (second moment) | 1× |
@@ -229,17 +233,18 @@ To understand which activation functions require storing the pre-activation valu
 |------------|---------------------------|-------------------------------------|
 | **Sigmoid** | $\sigma(z) = \frac{1}{1 + e^{-z}}$ | $\sigma'(z) = \sigma(z)(1 - \sigma(z))$ |
 | **Tanh** | $\tanh(z) = \frac{e^z - e^{-z}}{e^z + e^{-z}} = 2\sigma(2 \cdot z) - 1$ | $\tanh'(z) = 1 - \tanh^2(z) = \text{sech}^2(z)$ |
-| **ReLU** | $\text{ReLU}(z) = \max(0, z)$ | $\text{ReLU}'(z) = \begin{cases} 1 & \text{if } z > 0 \\ 0 & \text{if } z \leq 0 \end{cases}$ |
-| **Leaky ReLU** | $\text{LeakyReLU}(z) = \max(\alpha z, z)$ | $\text{LeakyReLU}'(z) = \begin{cases} 1 & \text{if } z > 0 \\ \alpha & \text{if } z \leq 0 \end{cases}$ |
-| **ELU** | $\text{ELU}(z) = \begin{cases} z & \text{if } z > 0 \\ \alpha(e^z - 1) & \text{if } z \leq 0 \end{cases}$ | $\text{ELU}'(z) = \begin{cases} 1 & \text{if } z > 0 \\ \alpha e^z & \text{if } z \leq 0 \end{cases}$ |
+| **ReLU** | $\text{ReLU}(z) = \max(0, z)$ | $\text{ReLU}'(z) = 1$ if $z > 0$, $0$ if $z \leq 0$ |
+| **Leaky ReLU** | $\text{LeakyReLU}(z) = \max(\alpha z, z)$ | $\text{LeakyReLU}'(z) = 1$ if $z > 0$, $\alpha$ if $z \leq 0$ |
+| **ELU** | $\text{ELU}(z) = z$ if $z > 0$, $\alpha(e^z - 1)$ if $z \leq 0$ | $\text{ELU}'(z) = 1$ if $z > 0$, $\alpha e^z$ if $z \leq 0$ |
 | **GELU** | $\text{GELU}(z) = z \cdot \Phi(z)$ | $\text{GELU}'(z) = \Phi(z) + z \cdot \phi(z)$ |
 | **Swish** | $\text{Swish}(z) = z \cdot \sigma(z)$ | $\text{Swish}'(z) = \sigma(z) + z \cdot \sigma(z)(1 - \sigma(z))$ |
 | **Mish** | $\text{Mish}(z) = z \cdot \tanh(\text{Softplus}(z)) = z \cdot \tanh(\ln(1 + e^z))$ | $\text{Mish}'(z) = \frac{e^z (4(z+1) + 4e^{2z} + e^{3z} + e^z(4z+6))}{(1 + e^z)^2 (1 + e^{2z})}$ |
 | **GEGLU** | $\text{GEGLU}(z) = z \odot \text{GELU}(z)$ | $\text{GEGLU}'(z) = \text{GELU}(z) + z \cdot \text{GELU}'(z) = \text{GELU}(z) + z(\Phi(z) + z \cdot \phi(z))$ |
-| **ReGLU** | $\text{ReGLU}(z) = z \odot \text{ReLU}(z)$ | $\text{ReGLU}'(z) = \begin{cases} 2z & \text{if } z > 0 \\ 0 & \text{if } z \leq 0 \end{cases}$ |
+| **ReGLU** | $\text{ReGLU}(z) = z \odot \text{ReLU}(z)$ | $\text{ReGLU}'(z) = 2z$ if $z > 0$, $0$ if $z \leq 0$ |
 | **SwiGLU** | $\text{SwiGLU}(z) = z \odot \text{Swish}(z) = z^2 \cdot \sigma(z)$ | $\text{SwiGLU}'(z) = 2z \cdot \sigma(z) + z^2 \cdot \sigma(z)(1 - \sigma(z))$ |
 | **Softplus** | $\text{Softplus}(z) = \ln(1 + e^z)$ | $\text{Softplus}'(z) = \sigma(z) = \frac{1}{1 + e^{-z}}$ |
-| **Softmax** | $\text{Softmax}(\mathbf{z})_i = \frac{e^{z_i}}{\sum_{j=1}^{n} e^{z_j}}$ | $\nabla_{\mathbf{z}} \text{Softmax}(\mathbf{z})_{ij} = \begin{cases} \text{Softmax}(\mathbf{z})_i(1 - \text{Softmax}(\mathbf{z})_i) & \text{if } i = j \\ -\text{Softmax}(\mathbf{z})_i \cdot \text{Softmax}(\mathbf{z})_j & \text{if } i \neq j \end{cases}$ |
+| **Softmax** | $\text{Softmax}(\mathbf{z})_i = \frac{e^{z_i}}{\sum_{j=1}^{n} e^{z_j}}$ | $\nabla_{\mathbf{z}} \text{Softmax}(\mathbf{z})_{ij} = \text{Softmax}(\mathbf{z})_i(1 - \text{Softmax}(\mathbf{z})_i)$ if $i = j$, $-\text{Softmax}(\mathbf{z})_i \cdot \text{Softmax}(\mathbf{z})_j$ if $i \neq j$ |
+
 
 *Note: All activations above are element-wise (each output depends only on its corresponding input), except Softmax which is vector-valued (takes a vector input and produces a probability distribution that sums to 1). The derivative of Softmax is a Jacobian matrix, denoted by $\nabla_{\mathbf{z}}$. The parameter $\alpha$ in Leaky ReLU and ELU is a constant hyperparameter (typically $\alpha = 0.01$ for Leaky ReLU and $\alpha = 1.0$ for ELU). The GLU (Gated Linear Unit) family (GEGLU, ReGLU, SwiGLU) are gated activations that use element-wise multiplication ($\odot$) to combine two branches: one branch passes through unchanged ($z$) and the other branch applies an activation function. In practice, GLU variants are often implemented with separate linear projections for the two branches, but the simplified form shown here uses the same input $z$ for both branches.*
 
@@ -302,7 +307,6 @@ The activation memory scales with batch size and sequence length—larger batche
 During training, memory usage varies across different stages of the training loop. Understanding when each component is needed helps you estimate peak memory requirements and identify optimization opportunities.
 
 ```python
-#BKG:white;NOLINENUM
 for epoch in range(num_epochs):
     model.train()                         # set to training mode
     for x_batch, y_batch in dataloader:   # iterate over batches
@@ -326,9 +330,9 @@ Activations, gradients, and optimizer states don't all exist in memory at the sa
 The peak memory usage occurs during the backward pass when both activations and gradients are in memory simultaneously. After the backward pass, activations can be freed, so the optimizer step only needs gradients and optimizer states.
 
 
-![Training Memory Timeline](code/training_memory_timeline.png)
+![Training Memory Timeline](img/training_memory_timeline.png){.wrap #fig:training-memory-timeline width=60% align=top-right}
 
-The timeline shows memory usage across the training loop. Here's how each stage maps to the code. On line 2 (`y_hat = model(x_batch)`), the forward pass computes and stores activations. Memory usage is weights (14 GB) plus optimizer states (28 GB) plus activations (12 GB), totaling 54 GB. Gradients don't exist yet.
+As illustrated in @fig:training-memory-timeline, the timeline shows memory usage across the training loop. Here's how each stage maps to the code. On line 2 (`y_hat = model(x_batch)`), the forward pass computes and stores activations. Memory usage is weights (14 GB) plus optimizer states (28 GB) plus activations (12 GB), totaling 54 GB. Gradients don't exist yet.
 
 On line 4 (`loss.backward()`), the backward pass is where peak memory occurs. During backpropagation, you need both activations to compute gradients and the gradients being computed. Memory usage is weights (14 GB) plus optimizer states (28 GB) plus activations (12 GB) plus gradients (14 GB), totaling 68 GB. This is the peak because activations and gradients overlap in memory.
 
@@ -337,11 +341,9 @@ On line 5 (`optimizer.step()`), after the backward pass completes, activations c
 The peak memory of 68 GB occurs during `loss.backward()` (line 4) when both activations and gradients are simultaneously in memory. This is why reducing batch size or using gradient checkpointing helps when you hit out-of-memory errors - they reduce activation memory during the backward pass.
 
 
-Memory breakdown:
+__Memory breakdown:__
 
 For a 7B model with BF16: model weights (14 GB), gradients (14 GB), optimizer states with Adam (28 GB for $m_{t-1}$ and $v_{t-1}$), and activations (8-16 GB depending on batch size and sequence length). That's 64-72 GB total per GPU. With SGD, you'd save 28 GB on optimizer states, but Adam's adaptive learning rates usually converge faster, so the trade-off is worth it for most cases. That's why a 7B model needs at least an A100 (80GB) for training with Adam, even with mixed precision (BF16). Smaller GPUs won't cut it.
-
-![Training Memory Breakdown for 7B Model](code/training_memory_breakdown.png)
 
 
 
@@ -390,11 +392,9 @@ This transition to distributed AI has enabled breakthrough capabilities, includi
 
 Building AI models isn't a one-shot process. It's a cycle: you collect data, train a model, deploy it, see how it performs, then go back and improve the data or model. Each stage feeds into the next.
 
-The lifecycle looks like this:
+![Modern AI Model Lifecycle](img/mdlc.png){#fig:lifecycle .wrap width=51% align=top-right}
 
-![Modern AI Model Lifecycle](img/mdlc.png)
-
-The lifecycle begins with data engineering, where terabytes of data are collected, curated, transformed, validated, cleaned and prepared for training. Training follows, involving forward passes, backpropagation, gradient descent, hyperparameter tuning, and even fine-tuning. Once trained, models undergo inference optimization through quantization, ONNX conversion, operator fusion, and CUDA kernel optimization. Before deployment, comprehensive benchmarking evaluates model performance through precision and recall metrics, engineering performance profiling, bottleneck analysis, and stress testing, with distributed evaluation accelerating testing on large datasets. Production deployment requires autoscaling, scheduling, load balancing, observability, API gateways, and monitoring infrastructure to handle thousands of requests per second. Production feedback identifies data collection priorities and model failure modes, completing the cycle by informing subsequent data engineering efforts and model improvements.
+As shown in @fig:lifecycle, the lifecycle begins with data engineering, where terabytes of data are collected, curated, transformed, validated, cleaned and prepared for training. Training follows, involving forward passes, backpropagation, gradient descent, hyperparameter tuning, and even fine-tuning. Once trained, models undergo inference optimization through quantization, ONNX conversion, operator fusion, and CUDA kernel optimization. Before deployment, comprehensive benchmarking evaluates model performance through precision and recall metrics, engineering performance profiling, bottleneck analysis, and stress testing, with distributed evaluation accelerating testing on large datasets. Production deployment requires autoscaling, scheduling, load balancing, observability, API gateways, and monitoring infrastructure to handle thousands of requests per second. Production feedback identifies data collection priorities and model failure modes, completing the cycle by informing subsequent data engineering efforts and model improvements.
 
 
 This book focuses on the distributed technologies you need for training, inference, benchmarking, and deployment. Data engineering gets a brief overview but isn't the main focus. Distributed data processing is important, but it's a well-established topic. Spark, Dask, and Ray have been around for years. This book's main focus is on AI-specific distributed challenges: training large models, optimizing inference, and serving them at scale.
@@ -430,16 +430,14 @@ Here is a table of `Training vs Inference vs Serving`:
 | **Latency** | Hours to days | Milliseconds to seconds | Milliseconds |
 | **Throughput** | Samples per second | Tokens per second | Requests per second |
 
-
 ## Decision Framework: When Do You Need Distributed Systems?
 
 Distributed systems add complexity, communication overhead, and cost. Use them when you have to, not when you want to.
 
 ### Decision Tree: Quick Reference
 
-The decision framework is summarized in the decision tree below. Start by identifying your use case: training (or fine-tuning) versus inference and serving.
+As shown in @fig:decision-framework, the decision framework is summarized in the decision tree below. Start by identifying your use case: training (or fine-tuning) versus inference and serving.
 
-![Decision Framework: When Do You Need Distributed Systems?](img/1.png)
 
 ### Understanding the Decision Tree
 
@@ -452,6 +450,8 @@ When both model size and training time are manageable, your fine-tuning approach
 Large datasets where data loading becomes the bottleneck benefit from distributed data loading. Multi-terabyte datasets are good candidates for data parallelism.
 
 For inference or serving, the logic is similar. If the model exceeds single GPU memory, use model parallelism. A 70B model in BF16 needs 140GB for weights. With KV cache, you're looking at 160-180GB, which requires at least 2 A100 GPUs. If memory is fine but you need high throughput—thousands of requests per second—use multiple GPUs for distributed inference. Real-time services that need sub-second latency at high throughput often require tensor parallelism or multiple inference instances. When both memory and throughput fit within single GPU limits, stick with one GPU and use optimized engines like vLLM or SGLang to maximize efficiency.
+
+![Decision Framework: When Do You Need Distributed Systems?](img/1.png){#fig:decision-framework .block width=100%}
 
 
 \fancydividerwithicon[center]{python.png}
@@ -471,35 +471,38 @@ git clone https://github.com/fuhengwu2021/coderepo.git
 
 To run the code, it is the best if you have access to a multiple-GPU machine, such as A10, A100 or H100/200 or even B200. If you don't have access to multiple GPUs locally, Kaggle offers free multi-GPU environments. Log in to [https://www.kaggle.com](https://www.kaggle.com), click Create, and select Notebook.
 
-![Kaggle Notebook Creation](img/1.5.png)
+![Kaggle Notebook Creation](img/1.5.png){.block align=center}
 
 Once you've created a Jupyter notebook, go to Settings → Accelerator and select GPU T4x2.
 
-![Kaggle GPU Settings](img/3.png)
+![Kaggle GPU Settings](img/3.png){.block width=60% align=top-left}
 
 You should now have 2 T4 GPUs available. To verify your GPU setup, run the code in `code/check_cuda.py`:
 
 ```python
+#LINENUM
 import torch
 
 print(f"CUDA available: {torch.cuda.is_available()}") #HL
-print(f"Number of GPUs: {torch.cuda.device_count()}")
+print(f"Number of GPUs: {torch.cuda.device_count()}") #HL
 for i in range(torch.cuda.device_count()):
-    props = torch.cuda.get_device_properties(i)
-    vram_gb = props.total_memory / (1024**3)
+    props = torch.cuda.get_device_properties(i) #HL
+    vram_gb = props.total_memory / (1024**3) #HL
     print(f"GPU {i}: {props.name} ({vram_gb:.1f} GB)")
 ```
 
+![GPU setup - 2 Tesla T4 GPUs](img/2.png){#fig:gpu-setup .wrap width=65% align=top-right}
+
+
 \begin{codeexplanation}
-\codelineannotation{1}{Checks if CUDA is available on the system}
-\codelineannotation{2}{Gets the total number of GPUs}
-\codelineannotation{4}{Retrieves properties for the current GPU}
-\codelineannotation{5}{Converts memory from bytes to GB}
+\codelineannotation{2}{Checks if CUDA is available on the system}
+\codelineannotation{3}{Gets the total number of GPUs}
+\codelineannotation{5}{Retrieves properties for the current GPU}
+\codelineannotation{6}{Converts memory from bytes to GB}
 \end{codeexplanation}
 
-Running this should show your available GPUs:
+As shown in @fig:gpu-setup, running this should show your available GPUs.
 
-![GPU setup - 2 Tesla T4 GPUs](img/2.png)
 
 ### Single-GPU Baseline
 
@@ -620,16 +623,21 @@ torchrun --nproc_per_node=8 code/multi_gpu_inference.py --requests 1000
 And the request-split pattern:
 
 ```bash
-torchrun --nproc_per_node=2 code/multi_gpu_inference_queue.py --requests 1000
+torchrun --nproc_per_node=2 code/multi_gpu_inference_queue.py \
+  --requests 1000
 ```
 
 Example results from benchmarking:
 
-| GPUs | Pattern | Time (s) | Throughput (req/s) | Speedup |
-|------|---------|----------|---------------------|---------|
+::: {width=100%}
+
+| GPUs | Pattern | Time | Throughput | Speedup |
+|--|---|---|----------------------------------|---|
 | 1    | Baseline| 1.85s    | 541.00 req/s        | 1.00×   |
 | 2    | Data-split | 0.98s  | 1025.45 req/s       | 1.89×   |
 | 2    | Request-split | 1.22s | 819.09 req/s       | 1.51×   |
+
+:::
 
 With 2 GPUs using the data-split pattern, we achieve **1.89× speedup**, nearly doubling the throughput. The data-split pattern achieves near-linear scaling because each GPU processes independent requests with minimal coordination overhead. The request-split pattern shows slightly lower throughput (1.51×) due to the overhead of round-robin assignment and all GPUs needing to iterate through the dataset, but it's more flexible for dynamic request handling in production environments where requests arrive asynchronously.
 
@@ -645,49 +653,7 @@ Distributed AI systems are built in layers, from high-level frameworks down to p
 
 While the stack applies to all distributed frameworks (PyTorch, JAX, TensorFlow), this book uses PyTorch as the primary example. The concepts translate to other frameworks, but the APIs and implementation details differ. We'll focus on PyTorch's distributed APIs throughout.
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│  Framework Layer                                            │
-│  PyTorch, JAX, TensorFlow                                   │
-│  High-level APIs for models, optimizers, data loaders       │
-└─────────────────────────────────────────────────────────────┘
-                          ↓
-┌─────────────────────────────────────────────────────────────┐
-│  Messaging Layer                                            │
-│  Tensor, Bucket                                             │
-│  Organizes data into chunks for efficient communication     │
-└─────────────────────────────────────────────────────────────┘
-                          ↓
-┌─────────────────────────────────────────────────────────────┐
-│  Collective Operations Layer                                │
-│  AllReduce, AllGather, Broadcast, Scatter, etc.             │
-│  Defines communication patterns between processes           │
-└─────────────────────────────────────────────────────────────┘
-                          ↓
-┌─────────────────────────────────────────────────────────────┐
-│  Data Transfer Layer                                        │
-│  NCCL (GPU), GLOO (CPU), MPI                                │
-│  Implements collective operations efficiently               │
-└─────────────────────────────────────────────────────────────┘
-                          ↓
-┌─────────────────────────────────────────────────────────────┐
-│  Topology Layer                                             │
-│  Ring, Fat-Tree, Mesh, Torus                                │
-│  Determines communication paths between devices             │
-└─────────────────────────────────────────────────────────────┘
-                          ↓
-┌─────────────────────────────────────────────────────────────┐
-│  Link Layer                                                 │
-│  NVLink, InfiniBand (RDMA), PCIe, Ethernet                  │
-│  Physical interconnects between devices                     │
-└─────────────────────────────────────────────────────────────┘
-                          ↓
-┌─────────────────────────────────────────────────────────────┐
-│  Physical Layer                                             │
-│  GPU, TPU, NPU, CPU                                         │
-│  Actual compute and memory hardware                         │
-└─────────────────────────────────────────────────────────────┘
-```
+![The Distributed AI Stack: From Framework to Physical Layer](img/distai-stack.png){.wrap width=40% align=top-right}
 
 At the top sits the framework layer. This is where you write your code—PyTorch's `torch.distributed` module, `DDP`, `FSDP`, and the rest. When you define a model and call `loss.backward()`, PyTorch handles the gradient computation and decides when communication needs to happen. You don't think about network packets or hardware links at this level. You just write training loops and let PyTorch orchestrate the distributed operations.
 
@@ -767,13 +733,17 @@ PyTorch provides eight main collective operations. Let's walk through each one w
 
 #### AllReduce
 
-![](https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/_images/allreduce.png)
+![AllReduce Operation: Reduction Across All Ranks](img/all_reduce.png){#fig:allreduce}
 
-AllReduce is the most common operation in distributed training. It performs a reduction (sum, max, min) across all ranks and stores the result in every rank's buffer.
-DDP uses AllReduce to synchronize gradients—each rank computes gradients on its local data, then AllReduce sums them and distributes the averaged result back to all ranks[^allreduce-note].
+As shown in @fig:allreduce, AllReduce is the most common operation in distributed training. It performs a reduction (sum, max, min) across all ranks and stores the result in every rank's buffer. This is an all-to-all communication pattern where every rank contributes data and every rank receives the aggregated result.
+
+AllReduce is the fundamental building block of data-parallel training. In DistributedDataParallel (DDP), each rank computes gradients on its local data shard during the backward pass. These local gradients must be synchronized across all ranks to ensure model consistency. DDP uses AllReduce to sum gradients from all ranks and distributes the averaged result back to every rank[^allreduce-note]. After AllReduce, all ranks have identical gradient values, allowing them to update their model parameters in lockstep. Without AllReduce, each rank would update parameters using only its local gradients, causing model divergence and training instability.
 
 [^allreduce-note]: AllReduce is the most common collective operation in distributed training.
 
+The reduction operation can be SUM (most common for gradients), MAX (for finding maximum values), MIN (for finding minimum values), or PRODUCT (rarely used). For gradient synchronization, SUM is used, and the result is typically divided by world_size to compute the average. This averaging ensures that the effective batch size scales with the number of ranks—training with 8 GPUs processes 8× more data per step than single-GPU training.
+
+AllReduce is more efficient than the equivalent sequence of Reduce followed by Broadcast. While both achieve the same result, NCCL optimizes AllReduce as a single operation using algorithms like ring AllReduce or tree AllReduce, which minimize communication steps and bandwidth usage. The ring algorithm, for example, requires only (world_size - 1) communication steps, compared to 2 × (world_size - 1) steps for the Reduce+Broadcast sequence.
 
 ```python
 # Each rank has different input
@@ -789,15 +759,19 @@ Run the demo:
 OMP_NUM_THREADS=1 torchrun --nproc_per_node=2 code/collective-operation/demo_allreduce.py
 ```
 
-AllReduce is equivalent to Reduce followed by Broadcast, but it's more efficient because NCCL can optimize the combined operation.
+The communication cost of AllReduce scales with both data size and world size, but optimized implementations like NCCL's ring AllReduce achieve near-linear scaling efficiency. For large models with millions of parameters, AllReduce can become a bottleneck, which is why techniques like gradient compression, bucketing, and overlapping communication with computation are crucial for performance.
 
 #### AllGather
 
-![](https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/_images/allgather.png)
+![AllGather Operation: Gathering Data from All Ranks](img/all_gather.png){#fig:allgather}
 
-AllGather collects data from all ranks and distributes the concatenated result to every rank. Each rank contributes N values, and every rank receives world_size × N values. The output is ordered by rank index.
+As illustrated in @fig:allgather, AllGather collects data from all ranks and distributes the concatenated result to every rank. Each rank contributes N values, and every rank receives world_size × N values. The output is ordered by rank index, with rank 0's data first, followed by rank 1's data, and so on. This is an all-to-all communication pattern where every rank both sends and receives data from all other ranks.
 
-Use AllGather when you need every rank to have data from all other ranks. For example, collecting embeddings from all GPUs for a global operation.
+AllGather is essential when you need every rank to have a complete view of data distributed across all ranks. Unlike AllReduce, which aggregates data (sum, max, min), AllGather preserves all individual contributions and concatenates them. This makes AllGather ideal for collecting embeddings, feature representations, or intermediate activations from all GPUs for global operations like attention mechanisms, batch normalization across ranks, or distributed evaluation metrics.
+
+In Fully Sharded Data Parallel (FSDP) training, AllGather is used to reconstruct full parameter shards before forward and backward passes. Each rank holds a shard of the model parameters, and AllGather collects all shards so each rank can compute on the complete model. After computation, the shards are redistributed using ReduceScatter. This pattern allows training models larger than single-GPU memory while maintaining parameter consistency.
+
+Other common use cases include collecting predictions from all ranks for ensemble evaluation, gathering feature maps for cross-rank attention in transformer models, collecting statistics for distributed batch normalization, and synchronizing embeddings or token representations in language model training. AllGather is also used in pipeline parallelism to collect outputs from different pipeline stages.
 
 ```python
 # Each rank has different input
@@ -814,15 +788,25 @@ Run the demo:
 OMP_NUM_THREADS=1 torchrun --nproc_per_node=2 code/collective-operation/demo_allgather.py
 ```
 
-Note: ReduceScatter followed by AllGather is equivalent to AllReduce. Some systems use this decomposition for optimization.
+The communication cost of AllGather scales with data size and world size. Each rank sends N values and receives world_size × N values, so the total data movement is world_size² × N. This quadratic scaling makes AllGather expensive for large world sizes, which is why FSDP and other sharding strategies use AllGather selectively and combine it with ReduceScatter to minimize communication overhead.
+
+>NOTES:
+
+ **AllReduce Decomposition**: ReduceScatter followed by AllGather is equivalent to AllReduce. Some systems use this decomposition for optimization, particularly in FSDP where the ReduceScatter and AllGather operations can be overlapped with computation to hide communication latency.
+
+>NOTEE
 
 #### Broadcast
 
-![](https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/_images/broadcast.png)
+![Broadcast Operation: Sending Data from Root to All Ranks](img/broadcast.png){#fig:broadcast}
 
-Broadcast copies data from a root rank to all other ranks. Only the root rank needs to have the data initially. After the operation, all ranks have identical data.
+As shown in @fig:broadcast, Broadcast copies data from a root rank to all other ranks. Only the root rank needs to have the data initially. After the operation, all ranks have identical data. This is a one-to-all communication pattern—the simplest form of data distribution in distributed systems.
 
-Use Broadcast to send model weights, hyperparameters, or other shared data from rank 0 to all ranks.
+Broadcast is fundamental to distributed training initialization. When you start training, rank 0 typically loads the model weights, optimizer state, or checkpoint data. These must be distributed to all ranks so every process starts with identical model parameters. Without Broadcast, each rank would need to independently load the same data, which wastes I/O bandwidth and storage access. Broadcast ensures all ranks begin training with synchronized state.
+
+Use Broadcast for distributing model weights after loading from disk, sharing hyperparameters (learning rate, batch size, training configuration), synchronizing random seeds for reproducibility, and sending control signals or flags to coordinate distributed execution. In custom parallelism strategies, Broadcast is used to replicate model shards or synchronize state across pipeline stages.
+
+Broadcast is also a building block for other collective operations. As mentioned in the AllReduce section, AllReduce can be decomposed into Reduce (collect data to root) followed by Broadcast (distribute result back to all ranks). However, NCCL optimizes AllReduce as a single operation, making it more efficient than the two-step decomposition.
 
 ```python
 root = 0
@@ -840,13 +824,19 @@ Run the demo:
 OMP_NUM_THREADS=1 torchrun --nproc_per_node=2 code/collective-operation/demo_broadcast.py
 ```
 
+The communication cost of Broadcast scales with the data size but is independent of the number of ranks—the root sends the same amount of data regardless of world size. This makes Broadcast efficient for distributing large tensors (like model weights) across many GPUs, as the bandwidth is amortized across all receiving ranks.
+
 #### Reduce
 
-![](https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/_images/reduce.png)
+![Reduce Operation: Reduction to Root Rank Only](img/reduce.png){#fig:reduce}
 
-Reduce performs the same reduction as AllReduce, but only the root rank receives the result. Other ranks' buffers are unchanged.
+As illustrated in @fig:reduce, Reduce performs the same reduction as AllReduce, but only the root rank receives the result. Other ranks' buffers are unchanged. This is an all-to-one communication pattern, where data flows from all ranks toward a single destination.
 
-Use Reduce when only one rank needs the aggregated result, such as collecting metrics to rank 0 for logging.
+Reduce is more efficient than AllReduce when only one rank needs the aggregated result. Since AllReduce distributes the result to all ranks, it requires an additional Broadcast step that Reduce avoids. This saves bandwidth and reduces communication overhead when the aggregated data is only needed for centralized operations like logging, checkpointing, or decision-making.
+
+The primary use case for Reduce is collecting metrics and statistics from all ranks to rank 0. During training, each rank computes local metrics (loss, accuracy, gradient norms) on its data shard. Reduce aggregates these metrics so rank 0 can log the global statistics, save checkpoints with aggregated values, or make training decisions (early stopping, learning rate scheduling) based on global state. Other common use cases include collecting validation results from all ranks, aggregating profiling data for performance analysis, and gathering error counts or convergence indicators for distributed monitoring.
+
+Unlike AllReduce, which ensures all ranks have synchronized state, Reduce leaves other ranks' buffers unchanged. This means after Reduce, only the root rank has the aggregated result—other ranks still have their original local values. If you need all ranks to have the result, use AllReduce instead, or follow Reduce with a Broadcast operation.
 
 ```python
 root = 0
@@ -861,15 +851,19 @@ Run the demo:
 OMP_NUM_THREADS=1 torchrun --nproc_per_node=2 code/collective-operation/demo_reduce.py
 ```
 
-Reduce followed by Broadcast is equivalent to AllReduce.
+Reduce followed by Broadcast is equivalent to AllReduce. However, NCCL optimizes AllReduce as a single operation, making it more efficient than the explicit two-step sequence. Use Reduce only when you specifically need the aggregated result on a single rank and don't need to distribute it back to others.
 
 #### Gather
 
-![](https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/_images/gather.png)
+![Gather Operation: Collecting Data from All Ranks to Root](img/gather.png){#fig:gather}
 
-Gather collects data from all ranks to the root rank. Each rank sends N values, and the root receives world_size × N values concatenated and ordered by rank index.
+As shown in @fig:gather, Gather collects data from all ranks to the root rank. Each rank sends N values, and the root receives world_size × N values concatenated and ordered by rank index. This is an all-to-one communication pattern, where data flows from all ranks toward a single destination.
 
-Use Gather to collect results from all ranks to a single rank for processing or saving.
+Gather is the inverse of Scatter and is essential for centralized operations in distributed training. Unlike AllGather, which distributes collected data back to all ranks, Gather only sends data to the root rank, making it more efficient when only one rank needs the complete dataset. This is particularly useful for I/O operations, logging, checkpointing, and centralized decision-making.
+
+The primary use case for Gather is collecting results from all ranks to rank 0 for processing or saving. During training, each rank computes predictions, metrics, or intermediate results on its local data shard. Gather collects these results so rank 0 can aggregate them, save checkpoints, log global statistics, or perform centralized evaluation. Other common use cases include collecting validation predictions for ensemble evaluation, gathering feature representations for centralized analysis, collecting debugging information from all ranks, and aggregating model outputs for final inference or serving.
+
+The output ordering is deterministic—rank 0's data comes first, followed by rank 1's data, and so on. This ordering is crucial when reconstructing distributed data structures or when rank order matters for downstream processing. The root rank must pre-allocate the output list with space for all ranks' contributions, while non-root ranks pass `None` for the output list parameter.
 
 ```python
 root = 0
@@ -888,13 +882,19 @@ Run the demo:
 OMP_NUM_THREADS=1 torchrun --nproc_per_node=2 code/collective-operation/demo_gather.py
 ```
 
+The communication cost of Gather scales with data size and world size. The root rank receives world_size × N values, so bandwidth requirements increase linearly with the number of ranks. For large datasets, this can create a bottleneck at rank 0, which is why AllGather is preferred when all ranks need the collected data, as it distributes the bandwidth load across all ranks.
+
 #### Scatter
 
-![](https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/_images/scatter.png)
+![Scatter Operation: Distributing Data from Root to All Ranks](img/scatter.png){#fig:scatter}
 
-Scatter is the inverse of Gather. The root rank distributes data to all ranks, with each rank receiving a different chunk.
+As illustrated in @fig:scatter, Scatter is the inverse of Gather. The root rank distributes data to all ranks, with each rank receiving a different chunk. This is a one-to-all communication pattern where a single source distributes different data to multiple destinations.
 
-Use Scatter to distribute different data chunks from one rank to all ranks, such as splitting a large dataset.
+Scatter is essential for initializing distributed training when data needs to be partitioned across ranks. Unlike Broadcast, which sends identical data to all ranks, Scatter sends different chunks to each rank, enabling data parallelism where each rank processes a unique subset of the dataset. This is particularly useful for distributing large datasets that are too big to fit on a single rank, or when you want to pre-partition data for efficient distributed processing.
+
+The primary use case for Scatter is distributing different data chunks from one rank to all ranks, such as splitting a large dataset across GPUs. The root rank prepares a list of tensors, one for each rank, and Scatter distributes them so rank 0 receives the first chunk, rank 1 receives the second chunk, and so on. Other common use cases include distributing model shards in custom parallelism strategies, splitting input batches across ranks for data-parallel processing, distributing configuration parameters that differ per rank, and initializing distributed state with rank-specific data.
+
+The root rank must prepare a scatter_list containing world_size tensors, each of the same shape. Each rank receives the tensor corresponding to its rank index. Non-root ranks pass `None` for the scatter_list parameter, as they don't need to provide input data. All ranks must pre-allocate the output_tensor with the correct shape to receive their chunk.
 
 ```python
 root = 0
@@ -915,13 +915,19 @@ Run the demo:
 OMP_NUM_THREADS=1 torchrun --nproc_per_node=2 code/collective-operation/demo_scatter.py
 ```
 
+The communication cost of Scatter scales with data size but is independent of world size from the root's perspective—the root sends the same total amount of data regardless of the number of ranks. However, in practice, Scatter is often less efficient than using DistributedSampler for data partitioning, as DistributedSampler avoids the need to load all data on rank 0 before distribution.
+
 #### ReduceScatter
 
-![](https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/_images/reducescatter.png)
+![ReduceScatter Operation: Reduce Then Scatter](img/reduce_scatter.png){#fig:reducescatter}
 
-ReduceScatter combines Reduce and Scatter. It performs a reduction across all ranks, then scatters the result in equal-sized chunks. Each rank receives a different chunk based on its rank index.
+As shown in @fig:reducescatter, ReduceScatter combines Reduce and Scatter. It performs a reduction across all ranks, then scatters the result in equal-sized chunks. Each rank receives a different chunk based on its rank index. This is a key operation in sharded parallelism strategies, enabling efficient gradient synchronization and parameter update distribution.
 
-Use ReduceScatter in FSDP and other sharded parallelism strategies where each rank needs a shard of the reduced result.
+ReduceScatter is fundamental to Fully Sharded Data Parallel (FSDP) training. In FSDP, model parameters are sharded across ranks, with each rank holding a fraction of the total parameters. During backward pass, each rank computes gradients for its local parameter shard. However, since parameters are sharded, gradients from all ranks must be reduced and then redistributed so each rank updates its shard with the corresponding gradient chunk. ReduceScatter performs this operation efficiently in a single step, avoiding the overhead of separate Reduce and Scatter operations.
+
+The input to ReduceScatter is structured as a list of tensors on each rank, where each tensor corresponds to a shard that will be reduced with corresponding shards from other ranks. After reduction, each rank receives the reduced chunk corresponding to its rank index. This pattern ensures that rank 0 gets the first chunk of the reduced result, rank 1 gets the second chunk, and so on, maintaining shard alignment with the parameter distribution.
+
+Use ReduceScatter in FSDP and other sharded parallelism strategies where each rank needs a shard of the reduced result. This includes gradient synchronization in FSDP (reducing gradients and distributing shards), parameter update distribution after optimization, gradient accumulation across micro-batches in large model training, and custom sharding strategies that require per-shard reductions.
 
 ```python
 # Each rank has input of size world_size * N
@@ -939,13 +945,19 @@ Run the demo:
 OMP_NUM_THREADS=1 torchrun --nproc_per_node=2 code/collective-operation/demo_reducescatter.py
 ```
 
+The communication cost of ReduceScatter is similar to AllReduce, but the output is distributed rather than replicated. Each rank sends world_size × N values (for reduction) and receives N values (its shard), resulting in more efficient memory usage than AllReduce when only shards are needed. ReduceScatter followed by AllGather is equivalent to AllReduce, and some systems use this decomposition for optimization, particularly in FSDP where the operations can be overlapped with computation.
+
 #### AlltoAll
 
-![](https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/_images/alltoall.png)
+![AlltoAll Operation: All-to-All Communication](img/all2all.png){#fig:alltoall}
 
-AlltoAll is the most general operation. Each rank sends different data to every other rank. Each rank provides world_size chunks, and receives world_size chunks—one from each rank.
+As illustrated in @fig:alltoall, AlltoAll is the most general operation. Each rank sends different data to every other rank. Each rank provides world_size chunks, and receives world_size chunks—one from each rank. This creates a complete all-to-all communication pattern where every rank exchanges data with every other rank simultaneously.
 
-Use AlltoAll in tensor parallelism where each rank needs to exchange different parts of tensors with all other ranks.
+AlltoAll is the most complex and general collective operation, enabling sophisticated communication patterns that other collectives cannot express. Unlike AllGather, which concatenates data from all ranks, AlltoAll allows each rank to send different data to each destination rank, creating a personalized communication pattern. This flexibility makes AlltoAll essential for tensor parallelism, where different parts of tensors need to be exchanged between ranks in specific patterns.
+
+The primary use case for AlltoAll is tensor parallelism, where model layers are split across ranks and different tensor slices need to be exchanged. For example, in column-parallel linear layers, each rank holds a different column slice of the weight matrix. During forward pass, input activations must be distributed across ranks (one slice per rank), and during backward pass, output gradients must be collected and redistributed. AlltoAll handles these complex exchange patterns efficiently. Other common use cases include sequence parallelism in transformer models (exchanging sequence chunks), expert parallelism in Mixture-of-Experts models (routing tokens to different experts), and custom parallelism strategies requiring arbitrary data exchanges.
+
+Each rank prepares an input_list containing world_size chunks, where chunk[i] is sent to rank i. After AlltoAll, each rank receives an output_list where output_list[i] contains data received from rank i. This creates a complete permutation of data across all ranks, enabling complex communication topologies that cannot be achieved with simpler collectives.
 
 ```python
 # Each rank prepares data to send to each other rank
@@ -965,17 +977,19 @@ Run the demo:
 OMP_NUM_THREADS=1 torchrun --nproc_per_node=2 code/collective-operation/demo_alltoall.py
 ```
 
-Note: AlltoAll requires NCCL backend. GLOO (CPU backend) doesn't support it. If you see an error with `--use_cpu`, switch to GPU mode.
+The communication cost of AlltoAll is the highest among all collectives, as it requires every rank to send data to every other rank. The total data movement is world_size² × chunk_size, creating quadratic scaling with world size. This makes AlltoAll expensive for large world sizes, which is why it's used selectively in tensor parallelism and other advanced parallelism strategies where the communication pattern cannot be expressed with simpler collectives.
+
+Note: AlltoAll requires NCCL backend. GLOO (CPU backend) doesn't support it. If you see an error with `--use_cpu`, switch to GPU mode. This limitation exists because AlltoAll's complex communication pattern benefits significantly from GPU-optimized communication libraries like NCCL.
 
 #### Choosing the Right Operation
 
-So when do you use which operation? For gradient synchronization, AllReduce is the standard choice. DDP uses it automatically when you wrap your model—you don't need to call it yourself. If you need to collect embeddings or metrics from all ranks, AllGather is what you want. It gives every rank a copy of data from all other ranks.
+So when do you use which operation? For gradient synchronization, AllReduce (see @fig:allreduce) is the standard choice. DDP uses it automatically when you wrap your model—you don't need to call it yourself. If you need to collect embeddings or metrics from all ranks, AllGather (see @fig:allgather) is what you want. It gives every rank a copy of data from all other ranks.
 
-When you have data on one rank that needs to go to everyone else, Broadcast is the simplest option. Think of it as one-to-all communication. The inverse is Gather—when all ranks have data and you need to collect it on one rank, usually rank 0 for logging or saving. Scatter does the opposite, distributing different chunks from one rank to all others.
+When you have data on one rank that needs to go to everyone else, Broadcast (see @fig:broadcast) is the simplest option. Think of it as one-to-all communication. The inverse is Gather (see @fig:gather)—when all ranks have data and you need to collect it on one rank, usually rank 0 for logging or saving. Scatter (see @fig:scatter) does the opposite, distributing different chunks from one rank to all others.
 
-For sharded parallelism strategies like FSDP, you'll see ReduceScatter and AlltoAll. ReduceScatter combines reduction with scattering, which is efficient when each rank only needs a shard of the result. AlltoAll is the most general case, where every rank sends different data to every other rank. This shows up in tensor parallelism.
+For sharded parallelism strategies like FSDP, you'll see ReduceScatter (see @fig:reducescatter) and AlltoAll (see @fig:alltoall). ReduceScatter combines reduction with scattering, which is efficient when each rank only needs a shard of the result. AlltoAll is the most general case, where every rank sends different data to every other rank. This shows up in tensor parallelism.
 
-Most of the time, you won't call these operations directly. DDP handles AllReduce for you during gradient synchronization. FSDP uses ReduceScatter and AllGather under the hood. But understanding what each operation does helps when you're debugging why communication is slow or when you need to implement custom parallelism strategies that the standard APIs don't cover.
+Most of the time, you won't call these operations directly. DDP handles AllReduce (see @fig:allreduce) for you during gradient synchronization. FSDP uses ReduceScatter (see @fig:reducescatter) and AllGather (see @fig:allgather) under the hood. But understanding what each operation does helps when you're debugging why communication is slow or when you need to implement custom parallelism strategies that the standard APIs don't cover.
 
 
 ### DistributedDataParallel (DDP)
@@ -1030,12 +1044,10 @@ This chapter walked through resource estimation, decision frameworks, and practi
 
 Now that we understand when and why to use distributed systems, we need to understand the hardware they run on. The next chapter explores GPU hardware, networking topologies, and the fundamental parallelism strategies that make distributed AI possible. Understanding these foundations is crucial for making informed decisions about which distributed approach to use.
 
-## Further Reading
+<!-- include: exercises/torch.md if include_math -->
+<!-- include: exercises/torch.md if include_torch -->
 
-- PyTorch Distributed Training: https://pytorch.org/tutorials/intermediate/ddp_tutorial.html
-- NVIDIA NCCL Documentation: https://docs.nvidia.com/deeplearning/nccl/
-- GPU Memory Management: https://pytorch.org/docs/stable/notes/cuda.html
-- Profiling PyTorch Models: https://pytorch.org/tutorials/recipes/recipes/profiler_recipe.html
+
 
 
 
