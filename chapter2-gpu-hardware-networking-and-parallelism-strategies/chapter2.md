@@ -20,7 +20,7 @@
 
 ## Computational Power: AI Clusters and Metrics
 
-Before diving into GPU specifics, let's step back and understand what we're really building: AI clusters that deliver massive computational power. The numbers matter here—when you're training a 70B parameter model, you're not just using a few GPUs. You're orchestrating hundreds or thousands of them, and the way they're connected determines whether your training job finishes in days or weeks.
+In Chapter 1, we established why distributed AI is essential—models have grown beyond single-GPU capacity, and the computational gap between model requirements and hardware capabilities continues to widen. Now we need to understand the hardware foundation that makes distributed training possible. Before diving into GPU specifics, let's step back and understand what we're really building: AI clusters that deliver massive computational power. The numbers matter here—when you're training a 70B parameter model, you're not just using a few GPUs. You're orchestrating hundreds or thousands of them, and the way they're connected determines whether your training job finishes in days or weeks.
 
 ### What is Computational Power?
 
@@ -67,10 +67,10 @@ An **AI cluster** is a cluster specifically designed for AI workloads. Unlike ge
 **For training**, AI clusters need:
 
 - **High-bandwidth interconnects**: Gradient synchronization happens every training step. If communication is slow, GPUs sit idle waiting for gradients. NVLink (300-900 GB/s per GPU, aggregate bidirectional) within nodes and InfiniBand (200-400 Gb/s per link) between nodes are standard.
-- **Large aggregate memory**: Model parameters, gradients, and optimizer states are sharded across GPUs. A 70B model might need 8-16 GPUs just to fit in memory, even with techniques like FSDP.
+- **Large aggregate memory**: Model parameters, gradients, and optimizer states are sharded across GPUs. A 70B model might need 8-16 GPUs just to fit in memory, even with techniques like FSDP (see Chapter~\ref{chap:scaling-with-fully-sharded-data-parallel-fsdp}).
 - **Fast storage**: Training datasets are large (ImageNet is 150 GB, text datasets can be terabytes). You need fast parallel filesystems or object storage to keep data pipelines fed.
 
-**For inference**, the requirements shift:
+**For inference**, the requirements shift (see Chapter~\ref{chap:distributed-inference-fundamentals-and-vllm} and Chapter~\ref{chap:production-llm-serving-stack}):
 
 - **Lower latency networking**: While training cares about bandwidth, inference cares about latency. Users expect responses in milliseconds, not seconds.
 - **Efficient memory usage**: KV caches for attention mechanisms can consume significant memory. You need to balance cache size (for longer context) against memory limits.
@@ -177,7 +177,7 @@ A PUE of 1.0 means all power goes to IT equipment (impossible in practice). Real
 
 When you're benchmarking a cluster, measure these metrics at different scales: 8 GPUs, 64 GPUs, 512 GPUs, 2048 GPUs. The metrics that degrade with scale (like linear scaling or communication efficiency) tell you where your bottlenecks are.
 
-In the rest of this chapter, we'll cover the hardware details that make clusters work: GPU memory hierarchies, interconnect technologies, and how to choose parallelism strategies based on your cluster's topology.
+With this foundation in place, let's examine the hardware components that make clusters work. We'll start with CPUs, which orchestrate the entire system, then move to GPUs where the actual computation happens, followed by alternative accelerators, interconnect technologies, and finally how to choose parallelism strategies based on your cluster's topology.
 
 ## Central Processing Unit (CPU)
 
@@ -232,7 +232,7 @@ For a typical 8-GPU server:
 - **Memory**: CPU RAM should be 1.5-2x GPU memory for data staging. With 8×80GB GPUs, you want at least 1 TB CPU RAM.
 - **PCIe lanes**: Each GPU needs PCIe x16. An 8-GPU system needs 128 PCIe lanes, which typically means dual-socket CPUs (AMD EPYC or Intel Xeon).
 
-The CPU doesn't need to be the latest generation—it's not doing the compute. But it needs enough cores and PCIe bandwidth to keep GPUs busy.
+The CPU doesn't need to be the latest generation—it's not doing the compute. But it needs enough cores and PCIe bandwidth to keep GPUs busy. Now let's turn to the component that does the heavy lifting: GPUs.
 
 ## Graphics Processing Unit (GPU)
 
@@ -246,12 +246,18 @@ GPUs are built for throughput, not latency. Unlike CPUs that optimize for fast s
 
 The memory hierarchy matters. Registers are fastest but tiny. Shared memory (L1 cache) is fast but limited. L2 cache sits between shared memory and device DRAM, which is your main GPU memory. When you see "out of memory" errors, it's usually the device DRAM that's full, not the caches.
 
+![GPU Memory Hierarchy Architecture](img/gpu_mem.png){#fig:gpu-memory-hierarchy .block width=60% align=top-right lines=8}
+
+As illustrated in @fig:gpu-memory-hierarchy, the GPU memory hierarchy consists of multiple levels, each with different characteristics: registers provide the highest bandwidth and lowest latency but have minimal capacity; L1/shared memory offers fast access with limited capacity per streaming multiprocessor (SM); L2 cache provides a larger shared cache with moderate bandwidth; and VRAM (HBM/GDDR) offers the largest capacity but with higher latency and lower bandwidth relative to the smaller memory levels. This hierarchy reflects the fundamental tradeoff in memory design: higher bandwidth and lower latency come at the cost of reduced capacity, while larger capacity requires accepting higher latency and lower bandwidth.
+
 One thing that trips people up: memory bandwidth often becomes the bottleneck before compute does. If your kernels are memory-bound, adding more compute won't help. You can spot this by profiling—if your GPU utilization is low but memory bandwidth is maxed out, you're memory-bound.
 
 To see what you're working with, check your GPU specs:
 
 ```bash
-nvidia-smi --query-gpu=name,memory.total,pcie.link.gen.max,pcie.link.width.max --format=csv
+nvidia-smi \
+  --query-gpu=name,memory.total,pcie.link.gen.max,pcie.link.width.max \
+  --format=csv
 ```
 
 Here's what you might see on different systems. An H200 system with 8 GPUs:
@@ -357,11 +363,13 @@ For inference, the calculus changes. B200's FP4 performance (20 PFLOP) makes it 
 
 When you're designing distributed systems, these architectural details determine your parallelism strategy. High NVLink bandwidth means tensor parallelism is viable. Large memory means you can fit bigger models or use fewer GPUs. Fast HBM means you can process larger batches without hitting memory bandwidth limits.
 
+While NVIDIA GPUs dominate the distributed training landscape, it's worth understanding alternative accelerators. Google's Tensor Processing Units (TPUs) offer a different architectural approach optimized specifically for neural networks, and Neural Processing Units (NPUs) represent another domain-specific option. Understanding these alternatives helps when choosing hardware or porting code between platforms.
+
 ## Tensor Processing Unit (TPU)
 
 ![](img/tpu.png){#fig:tpu-icon .wrap width=15% align=right}
 
-While NVIDIA GPUs dominate the distributed training landscape, Google's Tensor Processing Unit (TPU) offers a different approach. TPUs are application-specific integrated circuits (ASICs) designed from the ground up for neural network workloads. If you're working at Google or using Google Cloud, you'll encounter TPUs. Understanding how they differ from GPUs helps when choosing hardware or porting code between platforms.
+Google's Tensor Processing Unit (TPU) offers a different architectural approach from GPUs. TPUs are application-specific integrated circuits (ASICs) designed from the ground up for neural network workloads. If you're working at Google or using Google Cloud, you'll encounter TPUs. Understanding how they differ from GPUs helps when choosing hardware or porting code between platforms.
 
 ### Why TPU Exists
 
@@ -445,11 +453,13 @@ This is an example of algorithm-hardware co-design: Google identified that embed
 
 If you're training recommendation models or models with large embedding tables, TPU v4's Sparse Core is a significant advantage. For transformer-only models, it doesn't matter as much.
 
+Beyond GPUs and TPUs, another class of accelerators has emerged: Neural Processing Units (NPUs), which represent a broader category of domain-specific AI chips. While less common in large-scale training, NPUs are worth understanding as they represent a different tradeoff between flexibility and efficiency.
+
 ## Neural Processing Unit (NPU)
 
 ![](img/npu.png){#fig:npu-icon .wrap width=15% align=right}
 
-While GPUs and TPUs dominate large-scale training, **Neural Processing Units (NPUs)** represent a different approach: domain-specific architecture (DSA) chips optimized for AI workloads. NPUs are ASICs (Application-Specific Integrated Circuits) designed from the ground up for neural network operations, trading general-purpose flexibility for efficiency.
+**Neural Processing Units (NPUs)** represent another approach: domain-specific architecture (DSA) chips optimized for AI workloads. NPUs are ASICs (Application-Specific Integrated Circuits) designed from the ground up for neural network operations, trading general-purpose flexibility for efficiency.
 
 ### What Makes NPUs Different
 
@@ -543,6 +553,8 @@ This fragmentation means less software support, fewer frameworks, and more vendo
 
 For distributed training, NPUs are viable but require more vendor-specific knowledge than GPUs. If you're building a new cluster and have access to both, GPUs are usually the safer choice due to ecosystem maturity. But NPUs can be compelling for specific regions, workloads, or cost constraints.
 
+Now that we've covered the compute hardware (CPUs, GPUs, TPUs, and NPUs), we need to understand how these components communicate. The interconnect technology—how chips talk to each other—is often the bottleneck in distributed training. Fast interconnects enable efficient gradient synchronization and data movement, while slow interconnects can cripple performance regardless of how powerful your compute hardware is.
+
 ## High-Speed Interconnects: The Network Backbone
 
 There are several ways GPUs connect, and which one matters depends on whether you're talking about communication within a single server or across multiple servers.
@@ -576,6 +588,8 @@ For most on-premise clusters, InfiniBand is still the default choice. But if you
 If you're buying hardware, DGX systems are pre-integrated—NVIDIA ships you a complete system with GPUs, CPUs, networking (including InfiniBand), and software stack. HGX is more modular—it's a baseboard design that OEMs use to build custom servers. Both can include NVSwitch for intra-node communication and InfiniBand for inter-node.
 
 To actually measure your interconnect bandwidth, you can use NCCL tests or write a simple benchmark. The `code/bandwidth_test.py` script gives you a basic single-GPU test. For multi-GPU within a node, you'll want to use `nccl-tests`. For multi-node, NCCL tests will show you the InfiniBand bandwidth between nodes.
+
+Understanding hardware is only half the story. To write efficient distributed training code, you also need to understand how chips are programmed. The programming model (how you write code) and execution model (how hardware runs it) are different layers, and knowing both helps when debugging performance or porting code between platforms.
 
 ## Chip Programming Systems: SPMD and CUDA
 
@@ -708,7 +722,7 @@ SPMD extends naturally to distributed training. Each GPU runs the same program (
 
 The communication primitives (AllReduce, AllGather, etc.) coordinate between GPUs, but each GPU still executes the same program structure.
 
-This is why distributed training frameworks (DDP, FSDP) feel similar to single-GPU training—you're still writing SPMD code, just with communication added.
+This is why distributed training frameworks (DDP, see Chapter~\ref{chap:distributed-training-with-pytorch-ddp}; FSDP, see Chapter~\ref{chap:scaling-with-fully-sharded-data-parallel-fsdp}) feel similar to single-GPU training—you're still writing SPMD code, just with communication added.
 
 ### AMD and Other Alternatives
 
@@ -718,6 +732,7 @@ ROCm (AMD's CUDA alternative) provides a CUDA-like programming interface, but th
 
 For distributed training, stick with NVIDIA if possible. The ecosystem (CUDA, cuDNN, NCCL) is mature and well-optimized. AMD is catching up, but NVIDIA still has the advantage in software support.
 
+Now that we understand how individual chips work and how they're programmed, we need to understand how multiple chips communicate during distributed training. The communication patterns and primitives determine how efficiently gradients and data flow between GPUs.
 
 ## Distributed Communication: Patterns and Primitives
 
@@ -725,14 +740,15 @@ When you're running distributed training, GPUs need to communicate. The main pat
 
 **Broadcast** sends data from one GPU (usually rank 0) to all others. You use this during initialization to get the same model weights on every GPU.
 
-**AllReduce** aggregates data from all GPUs and distributes the result back. This is what DDP uses for gradient synchronization—each GPU computes gradients on its local data, then AllReduce averages them across all GPUs.
+**AllReduce** aggregates data from all GPUs and distributes the result back. This is what DDP (see Chapter~\ref{chap:distributed-training-with-pytorch-ddp}) uses for gradient synchronization—each GPU computes gradients on its local data, then AllReduce averages them across all GPUs.
 
 **ReduceScatter** and **AllGather** show up in sharded parallelism. ReduceScatter splits the result across GPUs, while AllGather collects data from all GPUs into each GPU.
 
-The thing to watch with communication is not just raw bandwidth, but also startup latency and whether you can overlap it with computation. A fast interconnect helps, but if your communication pattern has high latency, you'll still wait. DDP tries to overlap communication with computation by bucketing gradients, which we'll cover in the next chapter.
+The thing to watch with communication is not just raw bandwidth, but also startup latency and whether you can overlap it with computation. A fast interconnect helps, but if your communication pattern has high latency, you'll still wait. DDP tries to overlap communication with computation by bucketing gradients, which we'll cover in Chapter~\ref{chap:distributed-training-with-pytorch-ddp}.
 
-You can benchmark these operations yourself. The `code/allreduce_microbench.py` script shows a basic example, though you'll need to initialize the process group first (we'll cover that in Chapter 3).
+You can benchmark these operations yourself. The `code/allreduce_microbench.py` script shows a basic example, though you'll need to initialize the process group first (we'll cover that in Chapter~\ref{chap:distributed-training-with-pytorch-ddp}).
 
+With hardware, interconnects, and communication primitives covered, we can now address the central question: how do you actually split work across multiple GPUs? This brings us to parallelism strategies—the different ways to distribute computation, model state, and data across devices.
 
 ## Parallelism: Core Strategies
 
@@ -746,16 +762,16 @@ The following table provides a canonical taxonomy of all parallelization and sca
 
 | Parallelism | Category | Sub-Category | Phase | Implementation |
 | ----------------------- | ---------------- | -------------------------------- | ------------- | -------------------- |
-| Data Parallel (DP) | Data | Replicated model, data sharded | Training | PyTorch DDP / Horovod |
-| Fully Sharded Data Parallel (FSDP) | State | Full state sharding | Training | PyTorch FSDP |
-| ZeRO-1 | State | Optimizer state sharding | Training | DeepSpeed |
-| ZeRO-2 | State | Optimizer + gradient sharding | Training | DeepSpeed |
-| ZeRO-3 | State | Parameter + grad + opt sharding | Training | DeepSpeed |
-| Tensor Parallelism (TP) | Computation | Intra-layer (hidden/head) split | Training / Inference | Megatron-LM |
-| Sequence Parallelism | Computation | Sequence-length dimension split | Training | Megatron-LM |
-| Context Parallelism | Computation | Long-context attention/KV split | Inference | vLLM / SGLang |
-| Pipeline Parallelism (PP) | Computation | Inter-layer / stage split | Training / Inference | GPipe / DeepSpeed PP |
-| Expert Parallelism (MoE EP) | Computation | Sparse conditional compute | Training / Inference | DeepSpeed-MoE |
+| Data Parallel (DP) | Data | Replicated model, data sharded | Training | PyTorch DDP (Chapter~\ref{chap:distributed-training-with-pytorch-ddp}) / Horovod |
+| Fully Sharded Data Parallel (FSDP) | State | Full state sharding | Training | PyTorch FSDP (Chapter~\ref{chap:scaling-with-fully-sharded-data-parallel-fsdp}) |
+| ZeRO-1 | State | Optimizer state sharding | Training | DeepSpeed (Chapter~\ref{chap:beyond-state-sharding-with-deepspeed-and-megatron}) |
+| ZeRO-2 | State | Optimizer + gradient sharding | Training | DeepSpeed (Chapter~\ref{chap:beyond-state-sharding-with-deepspeed-and-megatron}) |
+| ZeRO-3 | State | Parameter + grad + opt sharding | Training | DeepSpeed (Chapter~\ref{chap:beyond-state-sharding-with-deepspeed-and-megatron}) |
+| Tensor Parallelism (TP) | Computation | Intra-layer (hidden/head) split | Training / Inference | Megatron-LM (Chapter~\ref{chap:beyond-state-sharding-with-deepspeed-and-megatron}) |
+| Sequence Parallelism | Computation | Sequence-length dimension split | Training | Megatron-LM (Chapter~\ref{chap:beyond-state-sharding-with-deepspeed-and-megatron}) |
+| Context Parallelism | Computation | Long-context attention/KV split | Inference | vLLM (Chapter~\ref{chap:distributed-inference-fundamentals-and-vllm}) / SGLang (Chapter~\ref{chap:request-level-routing-and-sglang}) |
+| Pipeline Parallelism (PP) | Computation | Inter-layer / stage split | Training / Inference | GPipe / DeepSpeed PP (Chapter~\ref{chap:beyond-state-sharding-with-deepspeed-and-megatron}) |
+| Expert Parallelism (MoE EP) | Computation | Sparse conditional compute | Training / Inference | DeepSpeed-MoE (Chapter~\ref{chap:beyond-state-sharding-with-deepspeed-and-megatron}) |
 | Operator / Intra-op Parallelism | Computation | Generic op-level sharding (SPMD) | Training / Inference | XLA SPMD / JAX pjit / PyTorch DTensor |
 
 ### The Three Questions for Parallelism Determination
@@ -772,15 +788,15 @@ To classify any parallelism technique, ask three questions:
 
 - **Model parallelism** (Computation category): Answers "Yes" to questions 1 and 2. Examples: TP, PP, EP, Sequence, Context Parallelism.
 
-- **State sharding** (State category): Answers "No" to questions 1 and 2, "Yes" to question 3. Examples: FSDP, ZeRO. These are NOT model parallelism—they shard state but don't split computation.
+- **State sharding** (State category): Answers "No" to questions 1 and 2, "Yes" to question 3. Examples: FSDP (Chapter~\ref{chap:scaling-with-fully-sharded-data-parallel-fsdp}), ZeRO (Chapter~\ref{chap:beyond-state-sharding-with-deepspeed-and-megatron}). These are NOT model parallelism—they shard state but don't split computation.
 
-- **Data parallelism** (Data category): Answers "No" to questions 1 and 2, "Yes" to question 3. Example: DDP. Each GPU processes different samples independently.
+- **Data parallelism** (Data category): Answers "No" to questions 1 and 2, "Yes" to question 3. Example: DDP (Chapter~\ref{chap:distributed-training-with-pytorch-ddp}). Each GPU processes different samples independently.
 
 ### Data Parallelism: Replicated and Sharded
 
-**Replicated Data Parallelism (DDP)** is the simplest. You replicate the entire model on each GPU and split the batch across GPUs. Each GPU processes different data samples independently, then you synchronize gradients using AllReduce. It's easy to implement and works great when your model fits on a single GPU. The downside is that you're storing the full model on every GPU, so memory usage scales with the number of GPUs.
+**Replicated Data Parallelism (DDP)** (see Chapter~\ref{chap:distributed-training-with-pytorch-ddp}) is the simplest. You replicate the entire model on each GPU and split the batch across GPUs. Each GPU processes different data samples independently, then you synchronize gradients using AllReduce. It's easy to implement and works great when your model fits on a single GPU. The downside is that you're storing the full model on every GPU, so memory usage scales with the number of GPUs.
 
-**Sharded Data Parallelism (FSDP/ZeRO)** doesn't replicate the model. Instead, you shard parameters, gradients, and optimizer states across GPUs. FSDP shards all three. ZeRO has stages—Stage 1 shards optimizer states, Stage 2 adds gradients, Stage 3 adds parameters. Both let you train much larger models with the same number of GPUs.
+**Sharded Data Parallelism (FSDP/ZeRO)** doesn't replicate the model. Instead, you shard parameters, gradients, and optimizer states across GPUs. FSDP (see Chapter~\ref{chap:scaling-with-fully-sharded-data-parallel-fsdp}) shards all three. ZeRO (see Chapter~\ref{chap:beyond-state-sharding-with-deepspeed-and-megatron}) has stages—Stage 1 shards optimizer states, Stage 2 adds gradients, Stage 3 adds parameters. Both let you train much larger models with the same number of GPUs.
 
 FSDP and ZeRO are **not model parallelism**—they shard state, not computation. Each GPU still processes samples independently. You're just not storing the full model state on each GPU.
 
@@ -790,9 +806,9 @@ Model parallelism means the computation of a single sample is split across multi
 
 **Tensor Parallelism (TP)** splits individual layers across GPUs. Instead of replicating a layer, you split the weight matrix. For example, if you have a linear layer with a 4096×4096 weight matrix, you might split it into two 4096×2048 matrices on two GPUs. During forward pass, each GPU computes part of the output, then you AllGather to combine results. This lets you fit larger layers, but communication happens every layer, which can be expensive.
 
-**Sequence Parallelism** splits computation along the sequence length dimension. Different GPUs handle different token positions in the same sequence. This is often combined with tensor parallelism in systems like Megatron-LM. It's useful for very long sequences where attention computation becomes the bottleneck.
+**Sequence Parallelism** splits computation along the sequence length dimension. Different GPUs handle different token positions in the same sequence. This is often combined with tensor parallelism in systems like Megatron-LM (see Chapter~\ref{chap:beyond-state-sharding-with-deepspeed-and-megatron}). It's useful for very long sequences where attention computation becomes the bottleneck.
 
-**Context Parallelism** is similar to sequence parallelism but specifically for long-context scenarios. It splits attention computation and KV cache management across GPUs, allowing you to handle context windows that don't fit on a single GPU. This is particularly important for inference with long prompts.
+**Context Parallelism** is similar to sequence parallelism but specifically for long-context scenarios. It splits attention computation and KV cache management across GPUs, allowing you to handle context windows that don't fit on a single GPU. This is particularly important for inference with long prompts (see Chapter~\ref{chap:distributed-inference-fundamentals-and-vllm}).
 
 **Pipeline Parallelism (PP)** splits the model depth-wise. GPU 0 handles layers 0-10, GPU 1 handles layers 11-20, and so on. You pipeline microbatches through the stages to keep all GPUs busy. The challenge is pipeline bubbles—when one stage finishes before the next is ready, GPUs sit idle. Getting the scheduling right matters.
 
@@ -801,7 +817,7 @@ Model parallelism means the computation of a single sample is split across multi
 
 ### Combining Strategies
 
-In practice, you'll combine these. A common setup for a 70B model might be: FSDP for memory efficiency, plus some tensor parallelism for the largest layers, plus pipeline parallelism if you have enough GPUs. For MoE models, you might do expert parallelism plus data parallelism across expert groups.
+In practice, you'll combine these. A common setup for a 70B model might be: FSDP (Chapter~\ref{chap:scaling-with-fully-sharded-data-parallel-fsdp}) for memory efficiency, plus some tensor parallelism (Chapter~\ref{chap:beyond-state-sharding-with-deepspeed-and-megatron}) for the largest layers, plus pipeline parallelism if you have enough GPUs. For MoE models, you might do expert parallelism plus data parallelism across expert groups.
 
 ### Composition Patterns (Hybrid Parallelism)
 
@@ -809,15 +825,15 @@ The following table shows common composition patterns. These are combinations of
 
 | Composition Pattern | Constituent Primitives | Typical Use Case | Representative Systems |
 | ------------------- | ---------------------- | ---------------- | ---------------------- |
-| DP + TP | Data + Computation | Large dense LLM training | Megatron-LM |
-| DP + PP | Data + Computation | Deep models with limited memory | GPipe + DDP |
-| DP + TP + PP | Data + Computation | Multi-thousand-GPU training | Megatron-DeepSpeed |
-| DP + EP | Data + Computation | Sparse MoE models | DeepSpeed-MoE |
-| FSDP + TP | State + Computation | Memory-efficient large LLMs | PyTorch FSDP + Megatron |
-| ZeRO-3 + PP | State + Computation | Extreme-scale models | DeepSpeed |
-| TP + Context Parallelism | Computation + Computation | Long-context inference | vLLM / SGLang |
+| DP + TP | Data + Computation | Large dense LLM training | Megatron-LM (Chapter~\ref{chap:beyond-state-sharding-with-deepspeed-and-megatron}) |
+| DP + PP | Data + Computation | Deep models with limited memory | GPipe + DDP (Chapter~\ref{chap:distributed-training-with-pytorch-ddp}) |
+| DP + TP + PP | Data + Computation | Multi-thousand-GPU training | Megatron-DeepSpeed (Chapter~\ref{chap:beyond-state-sharding-with-deepspeed-and-megatron}) |
+| DP + EP | Data + Computation | Sparse MoE models | DeepSpeed-MoE (Chapter~\ref{chap:beyond-state-sharding-with-deepspeed-and-megatron}) |
+| FSDP + TP | State + Computation | Memory-efficient large LLMs | PyTorch FSDP (Chapter~\ref{chap:scaling-with-fully-sharded-data-parallel-fsdp}) + Megatron (Chapter~\ref{chap:beyond-state-sharding-with-deepspeed-and-megatron}) |
+| ZeRO-3 + PP | State + Computation | Extreme-scale models | DeepSpeed (Chapter~\ref{chap:beyond-state-sharding-with-deepspeed-and-megatron}) |
+| TP + Context Parallelism | Computation + Computation | Long-context inference | vLLM (Chapter~\ref{chap:distributed-inference-fundamentals-and-vllm}) / SGLang (Chapter~\ref{chap:request-level-routing-and-sglang}) |
 
-Most people don't implement these from scratch—you'll use PyTorch's DDP/FSDP, DeepSpeed's ZeRO, or libraries like Megatron-LM that handle the tensor parallelism details. But understanding what's happening under the hood helps when things go wrong.
+Most people don't implement these from scratch—you'll use PyTorch's DDP (Chapter~\ref{chap:distributed-training-with-pytorch-ddp})/FSDP (Chapter~\ref{chap:scaling-with-fully-sharded-data-parallel-fsdp}), DeepSpeed's ZeRO (Chapter~\ref{chap:beyond-state-sharding-with-deepspeed-and-megatron}), or libraries like Megatron-LM (Chapter~\ref{chap:beyond-state-sharding-with-deepspeed-and-megatron}) that handle the tensor parallelism details. But understanding what's happening under the hood helps when things go wrong.
 
 ## Strategy Selection: Choosing the Right Approach
 
@@ -825,33 +841,31 @@ Below there is a systematic way to think about it.
 
 ### Training Strategy Decision Tree
 
-![Training Strategy Decision Tree](img/training_tree.svg)
 
-**Step 1: Does a full model replica fit on one device?**
+Figure~\ref{fig:training-strategy-tree} provides a systematic decision tree to guide your training strategy selection.
 
-If yes, use **replicated data parallelism (DDP)**. It's simple, and you'll get good speedup as long as communication doesn't dominate. This is the starting point for most models.
+__Step 1: Does a full model replica fit on one device?__
+
+If yes, use **replicated data parallelism (DDP)** (see Chapter~\ref{chap:distributed-training-with-pytorch-ddp}). It's simple, and you'll get good speedup as long as communication doesn't dominate. This is the starting point for most models.
 
 If no, move to sharded data parallelism.
 
-**Step 2: Use sharded data parallelism (FSDP/ZeRO)**
+__Step 2: Use sharded data parallelism (FSDP/ZeRO)__
 
-FSDP or ZeRO-3 shards parameters, gradients, and optimizer states. This alone might be enough—try it first before adding model parallelism.
+FSDP (see Chapter~\ref{chap:scaling-with-fully-sharded-data-parallel-fsdp}) or ZeRO-3 (see Chapter~\ref{chap:beyond-state-sharding-with-deepspeed-and-megatron}) shards parameters, gradients, and optimizer states. This alone might be enough—try it first before adding model parallelism.
 
-**Step 3: Is computation of one sample split across devices?**
+__Step 3: Is computation of one sample split across devices?__
 
 If you're still memory-limited or want better throughput, you might need to split computation. This is where true model parallelism comes in.
 
-**Step 4: How is computation split?**
+__Step 4: How is computation split?__
 
-- **Tensor/Head/Hidden dimension**: Use **tensor parallelism**. Good for large layers that don't fit on one GPU. Requires fast interconnects (NVLink or high-bandwidth InfiniBand) since communication happens every layer.
+- **Tensor/Head/Hidden dimension**: Use **tensor parallelism** (see Chapter~\ref{chap:beyond-state-sharding-with-deepspeed-and-megatron}). Good for large layers that don't fit on one GPU. Requires fast interconnects (NVLink or high-bandwidth InfiniBand) since communication happens every layer.
+- **Sequence length**: Use **sequence parallelism** (see Chapter~\ref{chap:beyond-state-sharding-with-deepspeed-and-megatron}). Often combined with tensor parallelism for very long sequences.
+- **Layer/Stage**: Use **pipeline parallelism** (see Chapter~\ref{chap:beyond-state-sharding-with-deepspeed-and-megatron}). Good for deep models where you have enough GPUs to split layers. Watch out for pipeline bubbles.
+- **Experts/Sparse routing**: Use **expert parallelism** (see Chapter~\ref{chap:beyond-state-sharding-with-deepspeed-and-megatron}). Only for MoE models. Requires good load balancing.
 
-- **Sequence length**: Use **sequence parallelism**. Often combined with tensor parallelism for very long sequences.
-
-- **Layer/Stage**: Use **pipeline parallelism**. Good for deep models where you have enough GPUs to split layers. Watch out for pipeline bubbles.
-
-- **Experts/Sparse routing**: Use **expert parallelism**. Only for MoE models. Requires good load balancing.
-
-**Step 5: Hybrid combinations**
+__Step 5: Hybrid combinations__
 
 Most large models use combinations:
 
@@ -860,22 +874,24 @@ Most large models use combinations:
 - **DP + TP + PP**: All three combined for very large models
 - **DP + EP**: Data parallelism with expert parallelism for MoE
 
-**Step 6: System-level optimizations**
+__Step 6: System-level optimizations__
 
 If memory is still insufficient:
 
-- **Activation checkpointing**: Recompute activations during backward (almost always used with FSDP)
+- **Activation checkpointing**: Recompute activations during backward (almost always used with FSDP, see Chapter~\ref{chap:scaling-with-fully-sharded-data-parallel-fsdp})
 - **CPU/NVMe offloading**: Move optimizer states or parameters off GPU (slower but enables larger models)
+
+![Training Strategy Decision Tree](img/training_tree.png){#fig:training-strategy-tree}
 
 ### Inference Strategy Decision Tree
 
-Inference has different constraints than training. You don't need to store gradients or optimizer states, but you do need to handle KV cache for attention, and latency matters more than throughput in many cases.
+Inference has different constraints than training (see Chapter~\ref{chap:distributed-inference-fundamentals-and-vllm} and Chapter~\ref{chap:production-llm-serving-stack}). You don't need to store gradients or optimizer states, but you do need to handle KV cache for attention, and latency matters more than throughput in many cases. Figure~\ref{fig:inference-strategy-tree} provides a systematic decision tree to guide your inference strategy selection.
 
-![Inference Strategy Decision Tree](img/inference_tree.svg)
 
-**Step 1: Are you scaling a single request or multiple requests?**
 
-If you're serving multiple requests, start with **request-level parallelism**:
+__Step 1: Are you scaling a single request or multiple requests?__
+
+If you're serving multiple requests, start with **request-level parallelism** (see Chapter~\ref{chap:request-level-routing-and-sglang}):
 
 - **Batching**: Group multiple requests into batches for better GPU utilization
 - **Multiple model replicas**: Run multiple copies of the model to serve more concurrent requests
@@ -883,7 +899,7 @@ If you're serving multiple requests, start with **request-level parallelism**:
 
 If you're scaling a single request (e.g., very large model or long context), move to model parallelism.
 
-**Step 2: Does the model computation fit on one device?**
+__Step 2: Does the model computation fit on one device?__
 
 If yes, use **single-GPU inference** with optimized kernels:
 
@@ -893,25 +909,22 @@ If yes, use **single-GPU inference** with optimized kernels:
 
 If no, you need model parallel inference.
 
-**Step 3: How is computation split?**
+__Step 3: How is computation split?__
 
-- **Tensor/Head/Hidden dimension**: Use **tensor parallelism**. Common in inference systems like vLLM and TensorRT-LLM. Requires fast interconnects.
-
-- **Long Context/KV**: Use **context parallelism**. Essential for long-context inference where the context window doesn't fit on one GPU. Splits attention computation and KV cache across GPUs.
-
+- **Tensor/Head/Hidden dimension**: Use **tensor parallelism**. Common in inference systems like vLLM (see Chapter~\ref{chap:distributed-inference-fundamentals-and-vllm}) and TensorRT-LLM. Requires fast interconnects.
+- **Long Context/KV**: Use **context parallelism** (see Chapter~\ref{chap:distributed-inference-fundamentals-and-vllm}). Essential for long-context inference where the context window doesn't fit on one GPU. Splits attention computation and KV cache across GPUs.
 - **Layer/Stage**: Use **pipeline parallelism**. Less common in inference than training, but useful for very large models where you want to keep latency low.
-
 - **Experts**: Use **expert parallelism**. Only for MoE models. Routes tokens to experts on different GPUs.
 
-**Step 4: Is memory or KV cache the bottleneck?**
+__Step 4: Is memory or KV cache the bottleneck?__
 
 For inference, KV cache can be a major memory bottleneck, especially with long contexts and many concurrent requests. Use system-level serving techniques:
 
-- **KV Cache Paging / PagedAttention**: Virtualize KV cache memory, allowing you to serve more concurrent requests than would fit in GPU memory. Used in vLLM.
+- **KV Cache Paging / PagedAttention**: Virtualize KV cache memory, allowing you to serve more concurrent requests than would fit in GPU memory. Used in vLLM (see Chapter~\ref{chap:distributed-inference-fundamentals-and-vllm}).
+- **KV Cache Disaggregation**: Store KV cache on separate devices or in CPU memory, fetching as needed. Useful for very long contexts (see Chapter~\ref{chap:distributed-inference-fundamentals-and-vllm}).
+- **CPU/NVMe Offloading**: Move model parameters or KV cache off GPU. Slower but enables serving larger models or more concurrent requests (see Chapter~\ref{chap:production-llm-serving-stack}).
 
-- **KV Cache Disaggregation**: Store KV cache on separate devices or in CPU memory, fetching as needed. Useful for very long contexts.
-
-- **CPU/NVMe Offloading**: Move model parameters or KV cache off GPU. Slower but enables serving larger models or more concurrent requests.
+![Inference Strategy Decision Tree](img/inference_tree.png){#fig:inference-strategy-tree}
 
 ### Key Considerations for Inference
 
@@ -919,7 +932,7 @@ For inference, KV cache can be a major memory bottleneck, especially with long c
 
 **KV cache is the new bottleneck.** Unlike training, inference needs to store KV cache for attention. With long contexts and many concurrent requests, KV cache can easily exceed GPU memory. PagedAttention and similar techniques are essential.
 
-**Batching improves efficiency.** Even with model parallelism, batching multiple requests improves GPU utilization. Dynamic batching (grouping requests of similar length) is common in production systems.
+**Batching improves efficiency.** Even with model parallelism, batching multiple requests improves GPU utilization. Dynamic batching (grouping requests of similar length) is common in production systems (see Chapter~\ref{chap:production-llm-serving-stack}).
 
 **Quantization is more feasible in inference.** You can use INT8 or even INT4 quantization in inference without retraining (using quantization-aware techniques). This can 2-4x reduce memory and improve throughput.
 
@@ -949,4 +962,4 @@ For inference, KV cache can be a major memory bottleneck, especially with long c
 
 The code examples in `code/` show basic topology detection and bandwidth testing. For real workloads, you'll use the higher-level APIs in PyTorch or DeepSpeed, but understanding what's happening underneath helps when things don't work as expected.
 
-With this hardware foundation in place, we're ready to start building distributed training systems. In the next chapter, we'll dive into PyTorch DDP (DistributedDataParallel), which is the most common way to do replicated data parallelism. DDP is the workhorse of distributed training—it's what most production training pipelines use, and understanding how it works is essential for building scalable AI systems. We'll cover the setup, common pitfalls, debugging techniques, and how to optimize it for your workloads.
+With this hardware foundation in place, we're ready to start building distributed training systems. In Chapter~\ref{chap:distributed-training-with-pytorch-ddp}, we'll dive into PyTorch DDP (DistributedDataParallel), which is the most common way to do replicated data parallelism. DDP is the workhorse of distributed training—it's what most production training pipelines use, and understanding how it works is essential for building scalable AI systems. We'll cover the setup, common pitfalls, debugging techniques, and how to optimize it for your workloads.
