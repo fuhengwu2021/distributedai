@@ -433,8 +433,6 @@ $$A_t = \text{softmax}\left(Q_t K_{\text{cached}}^T + \text{mask}\right), \qquad
 
 Although masking prevents padded positions from influencing the output, the dot products involving padded tokens are still fully computed. Consequently, a large fraction of attention FLOPs is spent on tokens that carry no semantic information, especially when the context lengths within a batch vary widely.
 
-![PA](img/pa.svg)
-
 ### How PagedAttention Works
 
 To solve the fragmentation problem, PagedAttention must use fixed-size blocks. Continuous memory allocation inevitably leads to fragmentation when sequences have different lengths and finish at different times. The only viable approach is to partition the KV cache into fixed-size blocks that can be allocated and freed independently.
@@ -526,7 +524,7 @@ This architecture enables the distributed execution of inference across multiple
 
 ## Overview of Parallelism Strategies in vLLM
 
-![Parallelism strategies in vLLM](img/parallelism_strategies_overview.svg)
+[Parallelism strategies in vLLM](img/parallelism_strategies_overview.svg)
 
 vLLM provides three fundamental parallelism strategies for distributing computation and memory across multiple GPUs:
 
@@ -1083,7 +1081,7 @@ This section uses Phi-tiny-MoE-instruct (referred to as Phi-tiny) to illustrate 
 
 In MoE models, the standard feed-forward network (FFN) is replaced with a **Mixture-of-Experts** layer that contains multiple expert networks. Each token is routed to a subset of experts (typically top-2) based on a learned routing mechanism.
 
-![MOE Architecture](img/moe_arch.svg)
+[MOE Architecture](img/moe_arch.svg)
 
 #### Decoder Layer Structure
 

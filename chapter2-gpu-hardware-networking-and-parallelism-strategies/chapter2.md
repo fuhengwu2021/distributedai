@@ -960,6 +960,251 @@ For inference, KV cache can be a major memory bottleneck, especially with long c
 
 - **Test on small scale first.** Get your parallelism strategy working on 2-4 GPUs before scaling to many nodes. Debugging is much easier at small scale.
 
-The code examples in `code/` show basic topology detection and bandwidth testing. For real workloads, you'll use the higher-level APIs in PyTorch or DeepSpeed, but understanding what's happening underneath helps when things don't work as expected.
+\fancydividerwithicon[center]{python.png}
+
+## Hands-On: Hardware Inspection and Bandwidth Testing
+
+Understanding your hardware topology and bandwidth characteristics is crucial before designing distributed training strategies. This hands-on section walks through inspecting GPU hardware, measuring memory bandwidth, and benchmarking inter-GPU communication.
+
+### Environment Setup
+
+The code examples are available in the `code/` directory. If you haven't already, clone the repository:
+
+```bash
+git clone https://github.com/fuhengwu2021/coderepo.git
+cd coderepo/chapter2-gpu-hardware-networking-and-parallelism-strategies
+```
+
+You'll need a machine with at least one GPU (preferably multiple GPUs) to run these examples. For multi-GPU tests, you'll need 2 or more GPUs connected via NVLink or PCIe.
+
+### Step 1: Inspect GPU Hardware
+
+Start by verifying your GPU setup and gathering basic hardware information. Run the `check_cuda.py` script:
+
+```bash
+python code/check_cuda.py
+```
+
+This script displays essential GPU information:
+
+```python
+#LINENUM
+import torch
+
+print(f"CUDA available: {torch.cuda.is_available()}") #HL
+print(f"Number of GPUs: {torch.cuda.device_count()}") #HL
+for i in range(torch.cuda.device_count()):
+    props = torch.cuda.get_device_properties(i) #HL
+    vram_gb = props.total_memory / (1024**3) #HL
+    print(f"GPU {i}: {props.name}")
+    print(f"  Total memory: {vram_gb:.1f} GB")
+    print(f"  Compute capability: {props.major}.{props.minor}")
+    print(f"  Multiprocessors: {props.multi_processor_count}")
+```
+
+CODE_EXPLAIN_START:
+- 2: Checks if CUDA is available on the system
+- 3: Gets the total number of GPUs
+- 5: Retrieves properties for each GPU
+- 6: Converts memory from bytes to GB
+CODE_EXPLAIN_END
+
+Example output on an H100 system:
+
+```
+CUDA available: True
+CUDA version: 12.1
+Number of GPUs: 8
+
+GPU 0: NVIDIA H100
+  Total memory: 80.0 GB
+  Compute capability: 9.0
+  Multiprocessors: 132
+...
+```
+
+This confirms your GPUs are detected and shows memory capacity, compute capability, and multiprocessor count. The compute capability (9.0 for H100) indicates which CUDA features are supported.
+
+### Step 2: Inspect Hardware Topology
+
+To understand how your GPUs are connected, use `nvidia-smi` to inspect the topology:
+
+```bash
+nvidia-smi topo -m
+```
+
+This displays a connection matrix showing how GPUs connect to each other. Look for:
+
+- **`NV18`, `NV12`, `NV4`**: NVLink connections (good—high bandwidth)
+- **`PIX` or `PXB`**: PCIe connections (slower, but still functional)
+- **`NODE` or `SYS`**: Crosses NUMA boundaries (adds latency)
+
+Example output showing NVLink connectivity:
+
+```
+        GPU0    GPU1    GPU2    GPU3    GPU4    GPU5    GPU6    GPU7
+GPU0     X      NV18    NV18    NV18    NV18    NV18    NV18    NV18
+GPU1    NV18     X      NV18    NV18    NV18    NV18    NV18    NV18
+...
+```
+
+All GPUs showing `NV18` connections means every GPU can communicate with every other GPU at NVLink speeds—ideal for tensor parallelism and other communication-heavy strategies.
+
+You can also check PCIe generation and width:
+
+```bash
+nvidia-smi --query-gpu=name,memory.total,pcie.link.gen.max,pcie.link.width.max --format=csv
+```
+
+This shows PCIe Gen 4/5 and x16 width, which determines CPU-GPU bandwidth (~31-64 GB/s per direction).
+
+### Step 3: Measure Single-GPU Memory Bandwidth
+
+Before testing inter-GPU communication, establish a baseline by measuring single-GPU memory bandwidth. This tells you the maximum memory throughput of each GPU:
+
+```bash
+python code/bandwidth_test.py
+```
+
+The script measures bandwidth by copying data within GPU memory:
+
+```python
+#LINENUM
+import torch
+import time
+
+size_mb = 64
+nbytes = size_mb * 1024 * 1024
+a = torch.randn(nbytes // 4, device='cuda') #HL
+b = torch.empty_like(a) #HL
+
+# Warmup
+for _ in range(10):
+    b.copy_(a) #HL
+torch.cuda.synchronize()
+
+# Benchmark
+t0 = time.time()
+for _ in range(iterations):
+    b.copy_(a)
+torch.cuda.synchronize()
+t1 = time.time()
+
+bandwidth_gb_per_s = (nbytes * iterations) / (1024**3) / (t1 - t0) #HL
+print(f"Bandwidth: {bandwidth_gb_per_s:.2f} GB/s")
+```
+
+CODE_EXPLAIN_START:
+- 5: Creates a tensor on GPU (float32 = 4 bytes per element)
+- 6: Creates an empty tensor of the same size
+- 10: Copies data within GPU memory
+- 16: Calculates bandwidth in GB/s
+CODE_EXPLAIN_END
+
+Example results:
+
+```
+GPU Memory Bandwidth Test
+Data size: 64 MB
+Iterations: 200
+Bandwidth: 2156.32 GB/s
+```
+
+Typical values:
+- **H100**: 2-3 TB/s (2000-3000 GB/s)
+- **A100**: 1.5-2 TB/s (1500-2000 GB/s)
+- **H200**: 2-3 TB/s (2000-3000 GB/s)
+
+If your measured bandwidth is significantly lower, you might have memory bandwidth saturation or other bottlenecks. This baseline helps you understand whether memory bandwidth is limiting your training performance.
+
+### Step 4: Benchmark Inter-GPU Communication
+
+For distributed training, inter-GPU communication bandwidth is often more critical than single-GPU memory bandwidth. The `allreduce_microbench.py` script measures AllReduce performance across multiple GPUs:
+
+```bash
+torchrun --nproc_per_node=2 code/allreduce_microbench.py
+```
+
+For 4 GPUs:
+
+```bash
+torchrun --nproc_per_node=4 code/allreduce_microbench.py
+```
+
+The script tests different tensor sizes to show how bandwidth scales with message size:
+
+```python
+#LINENUM
+import torch.distributed as dist
+
+size = size_mb * 1024 * 1024 // 4  # Convert MB to float32 elements
+tensor = torch.ones(size, device=f'cuda:{local_rank}') #HL
+
+# Warmup
+for _ in range(warmup):
+    dist.all_reduce(tensor, op=dist.ReduceOp.SUM) #HL
+torch.cuda.synchronize()
+
+# Benchmark
+start = time.time()
+for _ in range(iterations):
+    dist.all_reduce(tensor, op=dist.ReduceOp.SUM)
+torch.cuda.synchronize()
+elapsed = time.time() - start
+
+# Calculate bandwidth (AllReduce: each GPU sends and receives)
+total_data_mb = size_mb * world_size * 2 * iterations #HL
+bandwidth_mb_per_s = total_data_mb / elapsed
+```
+
+CODE_EXPLAIN_START:
+- 3: Creates a tensor on each GPU
+- 6: AllReduce operation synchronizes data across all GPUs
+- 12: Calculates total data transferred (each GPU sends and receives)
+CODE_EXPLAIN_END
+
+Example output for 2 GPUs with NVLink:
+
+```
+AllReduce Benchmark Results
+World size: 2 GPUs
+Tensor size: 100 MB per GPU
+Iterations: 50
+Total time: 0.023 seconds
+Bandwidth: 43478.26 MB/s (42.46 GB/s)
+Per-GPU bandwidth: 21739.13 MB/s
+```
+
+Expected bandwidth ranges:
+
+- **NVLink-connected GPUs** (NV18): 300-900 GB/s per GPU (aggregate bidirectional)
+- **PCIe-only connections**: ~31-64 GB/s per direction (~63 GB/s bidirectional)
+
+If you see much lower bandwidth than expected, check your topology with `nvidia-smi topo -m`. GPUs connected only via PCIe will show significantly lower bandwidth, which affects what parallelism strategies are feasible.
+
+### Step 5: Analyze Results
+
+Compare your measured bandwidths to theoretical values:
+
+| Metric | Your System | Expected Range | Notes |
+|--------|-------------|----------------|-------|
+| Single-GPU HBM | ? GB/s | H100: 2-3 TB/s<br>A100: 1.5-2 TB/s | Lower values indicate memory bottlenecks |
+| Inter-GPU (NVLink) | ? GB/s | 300-900 GB/s per GPU | Depends on NVLink generation |
+| Inter-GPU (PCIe) | ? GB/s | ~31-64 GB/s per direction | Much slower than NVLink |
+
+**What these numbers mean:**
+
+- **High HBM bandwidth but low inter-GPU bandwidth**: Your system is good for single-GPU workloads but will struggle with communication-heavy parallelism (tensor parallelism, frequent AllReduce). Prefer FSDP/ZeRO or pipeline parallelism.
+
+- **High inter-GPU bandwidth (NVLink)**: Your system can efficiently use tensor parallelism and other communication-heavy strategies. All GPUs connected via NVSwitch is ideal.
+
+- **Low inter-GPU bandwidth (PCIe-only)**: Avoid tensor parallelism—communication overhead will dominate. Stick with FSDP/ZeRO or pipeline parallelism where communication is less frequent.
+
+These measurements help you choose the right parallelism strategy for your hardware. In later chapters, we'll see how DDP, FSDP, and other frameworks use these communication primitives, but understanding the underlying bandwidth characteristics helps when debugging performance issues.
+
+For real workloads, you'll use the higher-level APIs in PyTorch or DeepSpeed, but understanding what's happening underneath helps when things don't work as expected.
 
 With this hardware foundation in place, we're ready to start building distributed training systems. In Chapter~\ref{chap:distributed-training-with-pytorch-ddp}, we'll dive into PyTorch DDP (DistributedDataParallel), which is the most common way to do replicated data parallelism. DDP is the workhorse of distributed training—it's what most production training pipelines use, and understanding how it works is essential for building scalable AI systems. We'll cover the setup, common pitfalls, debugging techniques, and how to optimize it for your workloads.
+
+<!-- include: exercises/torch.md if include_math -->
+<!-- include: exercises/torch.md if include_torch -->

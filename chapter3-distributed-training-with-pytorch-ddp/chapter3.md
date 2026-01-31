@@ -2,8 +2,8 @@
 
 *Scaling training across multiple GPUs with DistributedDataParallel*
 
-> DDP is the workhorse of distributed training—it's what most production training pipelines use, and understanding how it works is essential for building scalable AI systems.
-- Adapted from Chapter 3
+> The search for the ultimate algorithm is a search for scale.
+- Richard Sutton
 
 **Code Summary**
 
@@ -20,23 +20,22 @@
 
 ## 1. How DDP Works Internally
 
-Before diving into code, let's understand what DDP actually does.
+In Chapter 2, we explored the hardware foundation and parallelism strategies that make distributed training possible. Now we turn to the practical implementation: **DistributedDataParallel (DDP)**, PyTorch's standard approach for data-parallel distributed training. DDP is how you actually scale training across multiple GPUs—whether they're in a single machine or spread across a cluster.
 
-![](img/ddp.png)
+The core idea is elegant: replicate your model on every GPU, shard your data across GPUs, and synchronize gradients after each backward pass. Each GPU processes a different batch of data, computes gradients independently, then all GPUs average their gradients together. This ensures every model replica stays in sync while leveraging parallel computation.
 
-When you wrap a model with `DistributedDataParallel`, you're telling PyTorch to replicate the model across multiple processes (typically one per GPU) and synchronize gradients during training. The magic happens during the backward pass—DDP automatically aggregates gradients from all processes and ensures every process has the same updated parameters.
+![DDP Workflow](img/ddp_workflow.png){#fig:ddp-workflow .block width=100% align=top-center}
+
+Figure~\ref{fig:ddp-workflow} illustrates the complete DDP training workflow. Data flows from the dataloader to each GPU's data shard, through forward and backward passes, then gradients are synchronized across all GPUs before model parameters are updated. The magic happens during the backward pass—DDP automatically aggregates gradients from all processes using efficient collective communication primitives (like AllReduce) and ensures every process has the same updated parameters.
 
 ### The Basic Flow
 
-Here's what happens during a single training step with DDP:
+Following the workflow shown in Figure~\ref{fig:ddp-workflow}, here's what happens during a single training step with DDP:
 
-1. **Forward pass**: Each process runs forward on its own data shard. The model is identical on all processes, but each process sees different data thanks to `DistributedSampler`.
-
-2. **Backward pass**: Each process computes gradients locally. This is where DDP kicks in—instead of each process updating its model independently, DDP collects all gradients.
-
-3. **Gradient synchronization**: DDP uses AllReduce (via NCCL on GPUs) to sum gradients across all processes. After AllReduce completes, every process has the same averaged gradients.
-
-4. **Parameter update**: Each process applies the optimizer step using the synchronized gradients. Since all processes started with the same parameters and applied the same gradients, they end up with identical parameters.
+1. **Forward pass**: Each process runs forward on its own data shard. The model is identical on all processes, but each process sees different data thanks to `DistributedSampler`. As illustrated in the figure, data flows from the dataloader to each GPU's data shard, then through the model for forward computation.
+2. **Backward pass**: Each process computes gradients locally. This is where DDP kicks in—instead of each process updating its model independently, DDP collects all gradients. The backward pass computes gradients for each parameter in parallel across all GPUs.
+3. **Gradient synchronization**: DDP uses AllReduce (via NCCL on GPUs) to sum gradients across all processes. After AllReduce completes, every process has the same averaged gradients. This is the critical synchronization step shown in the center of Figure~\ref{fig:ddp-workflow}, where gradients from all GPUs are aggregated.
+4. **Parameter update**: Each process applies the optimizer step using the synchronized gradients. Since all processes started with the same parameters and applied the same gradients, they end up with identical parameters. The final step updates each model replica with the synchronized gradients, maintaining consistency across all processes.
 
 This is **data parallelism**: the model is replicated, but data is sharded. Each GPU processes a different batch, and gradients are averaged. Compare this to **model parallelism** (covered in later chapters) where the model itself is split across GPUs.
 
@@ -82,15 +81,9 @@ You can check if overlap is working by profiling. If you see AllReduce operation
 
 ### The AllReduce Operation
 
-AllReduce is the core collective operation that makes DDP work. It takes gradients from all processes, sums them, and distributes the result back to all processes. On GPUs, DDP uses NCCL (NVIDIA Collective Communications Library) to implement AllReduce efficiently.
+AllReduce is the core collective operation that makes DDP work. As detailed in Chapter~\ref{chap:introduction-to-modern-distributed-ai} (see the "Collective Operations" section), AllReduce takes gradients from all processes, sums them, and distributes the result back to all processes. On GPUs, DDP uses NCCL (NVIDIA Collective Communications Library) to implement AllReduce efficiently using algorithms like __ring AllReduce__ and __tree AllReduce__, which NCCL selects automatically based on your hardware topology.
 
-NCCL uses different algorithms depending on the number of GPUs and topology:
-
-- **Ring AllReduce**: For small numbers of GPUs or when topology is a ring. Each GPU sends data to its neighbor in a ring, and after multiple steps, all GPUs have the sum.
-- **Tree AllReduce**: For larger numbers of GPUs. Data flows up a tree to a root, then back down. Fewer steps than ring, but more complex.
-- **NVLink-optimized**: When GPUs are connected via NVLink, NCCL uses topology-aware algorithms that minimize cross-node communication.
-
-You don't need to choose the algorithm—NCCL picks it automatically based on your hardware topology. But understanding that different algorithms exist helps when debugging performance. If you're seeing slow AllReduce, it might be because NCCL picked a suboptimal algorithm for your topology, or because network bandwidth is saturated.
+Understanding AllReduce helps when debugging performance. If you're seeing slow gradient synchronization, it might be because NCCL picked a suboptimal algorithm for your topology, or because network bandwidth is saturated.
 
 ### Mixed Precision and Gradient Scaling
 
@@ -1807,7 +1800,7 @@ with model.join():
 
 With the advanced features covered, let's consolidate the key practices that will help you write robust, efficient DDP training code.
 
-## 9. Best Practices and Common Patterns
+## Best Practices and Common Patterns
 
 Here are best practices distilled from production DDP training. Following these patterns will help you avoid common pitfalls and build reliable distributed training pipelines:
 
@@ -1909,7 +1902,7 @@ If you plan to use multi-node training, test it early. Multi-node has different 
 
 So far, we've focused on **synchronous** DDP, where all GPUs wait for each other before synchronizing gradients. This is the standard approach and works well for most cases. However, there are alternative paradigms worth understanding: asynchronous and elastic data parallelism.
 
-## 10. Asynchronous Data Parallelism
+## Asynchronous Data Parallelism
 
 All the DDP implementations we've discussed so far are **synchronous**: all GPUs wait for each other to complete gradient computation before synchronizing. This ensures model consistency but can be inefficient when GPUs have different speeds or when communication overhead is high.
 
@@ -1932,19 +1925,14 @@ The key difference from synchronous DDP: GPUs don't wait for each other. A fast 
 ### Advantages of Asynchronous Data Parallel
 
 - **No straggler waiting**: Fast GPUs don't wait for slow GPUs, improving overall throughput when GPUs have different speeds.
-
 - **Better GPU utilization**: GPUs stay busy computing instead of waiting for synchronization.
-
 - **Scalability**: Can handle large numbers of GPUs without communication bottlenecks (each GPU communicates independently with the parameter server).
 
 ### Challenges of Asynchronous Data Parallel
 
 - **Stale gradients**: A GPU might compute gradients using old parameters while parameters are being updated by other GPUs. This creates gradient staleness, which can hurt convergence.
-
 - **Convergence issues**: The lack of synchronization can cause training instability. Models might converge slower or not converge at all, especially with high staleness.
-
 - **Race conditions**: Multiple GPUs updating parameters simultaneously can cause race conditions, requiring careful synchronization at the parameter server.
-
 - **Parameter server bottleneck**: All GPUs communicate with a central parameter server, which can become a bottleneck at scale.
 
 ### When to Use Asynchronous Data Parallel
@@ -1975,7 +1963,7 @@ If you need asynchronous behavior, consider:
 
 While asynchronous data parallel is rarely used in practice, **elastic data parallelism** is increasingly important for production training systems that need to handle failures and dynamic resource allocation.
 
-## 11. Elastic Data Parallelism
+## Elastic Data Parallelism
 
 Elastic training is a distributed training approach that handles dynamic environments: node failures, resource changes, and membership changes. Instead of failing when a node crashes, elastic training automatically adjusts and continues training. This is crucial for long-running training jobs where node failures are inevitable.
 
@@ -2138,7 +2126,7 @@ For short training jobs or stable clusters, standard DDP (non-elastic) is simple
 
 Now that we've covered all the key concepts—from basic DDP setup to advanced features like asynchronous and elastic training—let's put everything together in a complete, production-ready example that demonstrates best practices.
 
-## 12. Real-World Example: Training a Transformer with DDP
+## Real-World Example: Training a Transformer with DDP
 
 Let's put it all together with a complete example: training a transformer model (GPT-style) with DDP, mixed precision, and checkpointing. This example demonstrates best practices and shows how the various DDP features work together in practice. It integrates everything we've learned: proper setup, DistributedSampler usage, mixed precision, checkpointing, and error handling.
 
