@@ -2,8 +2,8 @@
 
 *Understanding hardware topology and parallelism strategies for distributed AI*
 
-> The hardware topology of your system—how GPUs connect to each other and to the CPU—directly impacts which parallelism strategies will work best and what performance you can expect.
-- Adapted from Chapter 2
+> The innovation isn't just about chips, it's about the entire stack.
+- Jensen Huang
 
 **Code Summary**
 
@@ -15,10 +15,8 @@
 - `torch.distributed.get_rank()`: Get the rank of the current process
 - `torch.distributed.get_backend()`: Get the backend name (e.g., 'nccl', 'gloo')
 - `nvidia-ml-py`: Python library for querying NVIDIA GPU information
-- `pynvml`: Python bindings for NVIDIA Management Library
 - `ibstat`: Command to check InfiniBand adapter status
 
-![](img/h100.jpg)
 
 ## Computational Power: AI Clusters and Metrics
 
@@ -26,7 +24,7 @@ Before diving into GPU specifics, let's step back and understand what we're real
 
 ### What is Computational Power?
 
-Computational power, or compute capacity, measures how many operations a system can perform per second. For AI workloads, we care about floating-point operations per second (FLOPS). The scale is exponential: a single modern GPU like the H200 delivers around 1,000 TFLOPS (teraFLOPS, or 10^12 operations per second) for FP16 operations. A cluster with 1000 such GPUs gives you roughly 1,000 PFLOPS (petaFLOPS, 10^15 operations per second), or 1 EFLOPS (exaFLOPS, 10^18 operations per second): 1000 GPUs × 1000 TFLOPS = 10^6 TFLOPS = 1000 PFLOPS = 1 EFLOPS.
+Computational power, or compute capacity, measures how many operations a system can perform per second. For AI workloads, we care about __floating-point operations per second (FLOPS)__. The scale is exponential: a single modern GPU like the H200 delivers around 1,000 TFLOPS (teraFLOPS, or $10^{12}$ operations per second) for FP16 operations. A cluster with 1000 such GPUs gives you roughly 1,000 PFLOPS (petaFLOPS, $10^{15}$ operations per second), or 1 EFLOPS (exaFLOPS, $10^{18}$ operations per second): 1000 GPUs × 1000 TFLOPS = $10^{6}$ TFLOPS = 1000 PFLOPS = 1 EFLOPS.
 
 But here's the thing: raw FLOPS numbers don't tell the whole story. In practice, you'll see different precision formats used for different purposes:
 
@@ -37,7 +35,14 @@ But here's the thing: raw FLOPS numbers don't tell the whole story. In practice,
 
 When someone says "this cluster delivers 500 PFLOPS," you need to ask: at what precision? An HPC cluster might quote FP64 numbers, while an AI cluster quotes FP16 or BF16. The same hardware can show very different numbers depending on which precision you're measuring.
 
-The growth in computational demand for AI has been staggering. Large language models require computational resources that grow by orders of magnitude over a few years, depending on workload and model scaling, while hardware capabilities grow only about 3x in the same period. This gap is why distributed training isn't optional—it's the only way to train modern models in reasonable time.
+The growth in computational demand for AI has been staggering. Large language models require computational resources that grow by orders of magnitude over a few years, depending on workload and model scaling, while hardware capabilities grow only about 3x in the same period. This gap is why distributed training isn't optional—it's __the only way__ to train modern models in reasonable time.
+
+![GPU Memory Capacity vs Model Memory Requirements](img/computational_growth_gap.png){#fig:computational-growth-gap .wrap width=60% align=top-right lines=8}
+
+As shown in @fig:computational-growth-gap, model memory requirements have grown exponentially while single-GPU memory capacity has increased more gradually. This widening gap makes distributed training not just beneficial, but essential for training modern large-scale models within reasonable timeframes.[^computational-gap-data]
+
+[^computational-gap-data]: GPU memory capacity data from NVIDIA specifications: A100 (2020, 80GB), H100 (2022, 80GB HBM3), H200 (2023, 141GB HBM3e), B200 (2024, 192GB). Model memory requirements calculated from published parameter counts (see @tbl:model-comparison) using BF16 precision (2 bytes per parameter): GPT-3 175B (2020, ~350GB), LLaMA-2 70B (2022, 140GB), DeepSeek-V2 236B (2024, ~472GB), DeepSeek-V3 671B (2025, ~1342GB), Gemini-3-Pro ~7.5T (2025, ~15TB). Values shown represent single-GPU memory requirements for model weights only; actual training requires additional memory for gradients, optimizer states, and activations, further necessitating distributed training.
+
 
 ### Why Clusters?
 
@@ -48,6 +53,11 @@ A **cluster** is a group of computers (nodes) connected by high-speed networks, 
 - **Scale memory**: Distribute model parameters, gradients, and optimizer states across GPUs
 - **Scale compute**: Process larger batches or train faster by parallelizing work
 - **Scale storage**: Handle datasets that don't fit on a single machine
+
+![AI Cluster](img/ai_cluster_demo.png){#fig:ai-cluster .wrap width=70% align=top-right}
+
+
+As illustrated in @fig:ai-cluster, an AI cluster consists of multiple nodes, each containing multiple GPUs (typically 8 GPUs per node in modern systems), connected via high-speed networks (InfiniBand). This architecture enables distributed training and inference by allowing work to be coordinated across all available resources. The cluster shown demonstrates how memory can be scaled by distributing model parameters, gradients, and optimizer states across GPUs, while compute can be scaled by parallelizing workloads across nodes. Each node operates as an independent server with its own CPUs, memory, and storage, but the high-speed network connections allow them to work together as a unified system for large-scale AI workloads.
 
 Clusters aren't new—they've been used in high-performance computing (HPC) for decades. What's different for AI is the communication patterns. HPC workloads often do large, infrequent data exchanges. AI training does frequent, smaller exchanges (gradient synchronization every step), which makes network bandwidth and latency critical.
 
@@ -172,6 +182,8 @@ In the rest of this chapter, we'll cover the hardware details that make clusters
 
 ## Central Processing Unit (CPU)
 
+![](img/cpu.png){#fig:cpu-icon .wrap width=15% align=right}
+
 While GPUs do the heavy lifting in distributed training, CPUs play a crucial supporting role. Understanding CPU architecture helps you optimize data loading, manage GPU coordination, and debug performance bottlenecks.
 
 ### CPU Architecture Basics
@@ -190,15 +202,15 @@ If your CPU is the bottleneck, GPUs sit idle waiting for data. This is why data 
 
 ### CPU-GPU Interaction
 
+![CPU-GPU Interaction](img/cpu_gpu_interaction.png){#fig:cpu-gpu-interaction .wrap width=60% align=top-right}
+
 When you run distributed training, here's what happens:
 
 1. **CPU launches GPU kernels**: Your Python code (running on CPU) calls PyTorch, which generates CUDA kernels. The CPU sends these to the GPU via PCIe.
-
 2. **CPU manages memory**: CPU allocates GPU memory, transfers data from CPU RAM to GPU memory, and coordinates multi-GPU communication.
-
 3. **CPU handles communication**: For multi-node training, CPU processes handle network communication (InfiniBand, Ethernet) and coordinate with NCCL for GPU collectives.
 
-The PCIe connection between CPU and GPU is often a bottleneck. PCIe Gen 4 x16 gives you about 31.5 GB/s per direction (~63 GB/s bidirectional), while NVLink between GPUs gives 300-1800 GB/s per GPU (aggregate bidirectional). This is why you want GPUs to communicate directly via NVLink, not through the CPU.
+As shown in @fig:cpu-gpu-interaction, the PCIe connection between CPU and GPU is often a bottleneck. PCIe Gen 4 x16 gives you about 31.5 GB/s per direction (~63 GB/s bidirectional), while NVLink between GPUs gives 300-1800 GB/s per GPU (aggregate bidirectional). This is why you want GPUs to communicate directly via NVLink, not through the CPU.
 
 ### NUMA and CPU Affinity
 
@@ -223,6 +235,8 @@ For a typical 8-GPU server:
 The CPU doesn't need to be the latest generation—it's not doing the compute. But it needs enough cores and PCIe bandwidth to keep GPUs busy.
 
 ## Graphics Processing Unit (GPU)
+
+![](img/gpu.png){#fig:gpu-icon .wrap width=15% align=right}
 
 When you're building distributed training systems, the GPU architecture matters. NVIDIA has been iterating on GPU designs since 2010, and each generation brings changes that affect how you design your training pipeline. Here's what you need to know about the GPUs you're likely to encounter.
 
@@ -345,6 +359,8 @@ When you're designing distributed systems, these architectural details determine
 
 ## Tensor Processing Unit (TPU)
 
+![](img/tpu.png){#fig:tpu-icon .wrap width=15% align=right}
+
 While NVIDIA GPUs dominate the distributed training landscape, Google's Tensor Processing Unit (TPU) offers a different approach. TPUs are application-specific integrated circuits (ASICs) designed from the ground up for neural network workloads. If you're working at Google or using Google Cloud, you'll encounter TPUs. Understanding how they differ from GPUs helps when choosing hardware or porting code between platforms.
 
 ### Why TPU Exists
@@ -431,6 +447,8 @@ If you're training recommendation models or models with large embedding tables, 
 
 ## Neural Processing Unit (NPU)
 
+![](img/npu.png){#fig:npu-icon .wrap width=15% align=right}
+
 While GPUs and TPUs dominate large-scale training, **Neural Processing Units (NPUs)** represent a different approach: domain-specific architecture (DSA) chips optimized for AI workloads. NPUs are ASICs (Application-Specific Integrated Circuits) designed from the ground up for neural network operations, trading general-purpose flexibility for efficiency.
 
 ### What Makes NPUs Different
@@ -441,8 +459,7 @@ The architecture tradeoff: CPUs are general-purpose (good at everything, great a
 
 Major NPU vendors include:
 
-- **Huawei Ascend**: Used in Huawei's Atlas servers and Cloud services. The Ascend 910 is designed for training, while Ascend 310 targets inference.
-- **Cambricon MLU**: Chinese company focusing on edge and cloud AI acceleration.
+- **Cambricon MLU**: Company focusing on edge and cloud AI acceleration.
 - **Tesla Dojo**: Custom NPU for Tesla's autonomous driving training.
 - **Google Edge TPU**: Smaller TPU variant for edge devices.
 
@@ -456,20 +473,20 @@ NPU architecture centers on **AI Cores**—dedicated compute units for neural ne
 
 Memory hierarchy is critical. NPUs use high-bandwidth memory (HBM) similar to GPUs, but the memory subsystem is often simpler—fewer cache levels, more direct paths to compute units. This reduces latency but requires careful memory management.
 
-Huawei's Ascend 910, for example, has 32 GB HBM2 with 1.6 TB/s bandwidth and delivers about 256 TFLOPS for FP16. The architecture uses a "DaVinci" core design with multiple AI Cores per chip.
+Training-focused NPUs typically have 16-32 GB HBM2/HBM3 with 1-2 TB/s bandwidth and deliver 200-300 TFLOPS for FP16. The architecture uses multiple AI Cores per chip, optimized for matrix multiplication and neural network operations.
 
 ### Training vs Inference NPUs
 
 Like GPUs, NPUs come in training and inference variants:
 
-**Training NPUs** (like Ascend 910) need:
+**Training NPUs** need:
 
 - High precision support (FP32, BF16, FP16) for stable gradient computation
 - Large memory capacity for model parameters, gradients, and optimizer states
 - High-bandwidth interconnects for multi-chip training
 - Flexibility to support various model architectures
 
-**Inference NPUs** (like Ascend 310, Edge TPU) prioritize:
+**Inference NPUs** (like Edge TPU) prioritize:
 
 - Lower precision (INT8, INT4) for efficiency
 - Lower power consumption for edge deployment
@@ -480,9 +497,9 @@ The same chip rarely excels at both. Training requires flexibility and precision
 
 ### NPU Software Stack
 
-NPU software stacks are typically more proprietary than GPU ecosystems. Huawei's Ascend uses **MindSpore** framework and **CANN** (Compute Architecture for Neural Networks) runtime. Unlike CUDA which works across NVIDIA GPUs, NPU software is often vendor-specific.
+NPU software stacks are typically more proprietary than GPU ecosystems. Each vendor provides their own framework and runtime (e.g., MindSpore, CANN). Unlike CUDA which works across NVIDIA GPUs, NPU software is often vendor-specific.
 
-This creates a lock-in risk: code written for Ascend NPUs won't run on Cambricon MLUs or other NPUs without significant porting. The ecosystem is fragmented compared to CUDA's dominance in the GPU space.
+This creates a lock-in risk: code written for one vendor's NPUs won't run on other NPUs without significant porting. The ecosystem is fragmented compared to CUDA's dominance in the GPU space.
 
 However, some frameworks are trying to abstract this. PyTorch has experimental support for some NPU backends, and ONNX Runtime can target multiple NPU vendors. But the experience isn't as seamless as GPU development.
 
@@ -490,10 +507,10 @@ However, some frameworks are trying to abstract this. PyTorch has experimental s
 
 **Choose NPUs if:**
 
-- You're in China and need domestic alternatives to NVIDIA GPUs (export restrictions)
-- You have specific workloads that NPUs optimize for (e.g., Ascend's optimizations for certain model types)
+- You have specific workloads that NPUs optimize for (certain model types or operations)
 - You're building edge devices where power efficiency matters more than flexibility
 - You're working with vendors who provide NPU-optimized solutions
+- You need alternatives to NVIDIA GPUs for specific use cases
 
 **Choose GPUs if:**
 
@@ -502,15 +519,15 @@ However, some frameworks are trying to abstract this. PyTorch has experimental s
 - You need to run on multiple clouds or on-premise
 - You're doing general-purpose ML work, not just specific NPU-optimized workloads
 
-**Performance comparison**: NPUs can match or exceed GPUs for specific workloads they're optimized for. Huawei claims Ascend 910 training performance is comparable to A100 for certain models. But GPUs have broader model support and better software ecosystem.
+**Performance comparison**: NPUs can match or exceed GPUs for specific workloads they're optimized for. Training performance can be comparable to A100 for certain models. But GPUs have broader model support and better software ecosystem.
 
-**Cost**: NPU pricing varies by vendor and region. In China, Ascend NPUs can be more cost-effective than imported GPUs due to trade restrictions. Elsewhere, GPU ecosystem maturity often makes GPUs the better choice.
+**Cost**: NPU pricing varies by vendor and region. GPU ecosystem maturity often makes GPUs the better choice for most use cases, but NPUs can be cost-effective for specific workloads or regions.
 
 ### NPU Interconnects and Scaling
 
-Like GPUs, NPUs need high-bandwidth interconnects for distributed training. Huawei uses **HCCS** (Huawei Collective Communication Service) and custom interconnects. Ascend clusters can scale to thousands of chips, similar to GPU clusters.
+Like GPUs, NPUs need high-bandwidth interconnects for distributed training. NPU vendors use custom collective communication services and interconnects. NPU clusters can scale to thousands of chips, similar to GPU clusters.
 
-The interconnect topology matters. Ascend uses a hierarchical architecture with chip-to-chip, node-to-node, and cluster-level interconnects. Understanding this topology helps when designing distributed training strategies.
+The interconnect topology matters. NPU systems typically use a hierarchical architecture with chip-to-chip, node-to-node, and cluster-level interconnects. Understanding this topology helps when designing distributed training strategies.
 
 One challenge: NPU interconnects are often proprietary. Unlike InfiniBand which is an open standard, NPU interconnects are vendor-specific. This can make multi-vendor clusters difficult.
 
@@ -518,7 +535,6 @@ One challenge: NPU interconnects are often proprietary. Unlike InfiniBand which 
 
 The NPU market is fragmented. Unlike GPUs where NVIDIA dominates, NPUs have multiple vendors with different architectures:
 
-- **Huawei Ascend**: Strong in China, used in Huawei Cloud and Atlas servers
 - **Cambricon**: Focuses on edge and cloud inference
 - **Graphcore IPU**: UK company with a different architecture (not strictly an NPU but similar)
 - **Tesla Dojo**: Custom solution for Tesla's specific needs
