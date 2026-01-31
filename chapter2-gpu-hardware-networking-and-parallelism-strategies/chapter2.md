@@ -43,7 +43,6 @@ As shown in @fig:computational-growth-gap, model memory requirements have grown 
 
 [^computational-gap-data]: GPU memory capacity data from NVIDIA specifications: A100 (2020, 80GB), H100 (2022, 80GB HBM3), H200 (2023, 141GB HBM3e), B200 (2024, 192GB). Model memory requirements calculated from published parameter counts (see @tbl:model-comparison) using BF16 precision (2 bytes per parameter): GPT-3 175B (2020, ~350GB), LLaMA-2 70B (2022, 140GB), DeepSeek-V2 236B (2024, ~472GB), DeepSeek-V3 671B (2025, ~1342GB), Gemini-3-Pro ~7.5T (2025, ~15TB). Values shown represent single-GPU memory requirements for model weights only; actual training requires additional memory for gradients, optimizer states, and activations, further necessitating distributed training.
 
-
 ### Why Clusters?
 
 A single GPU, even a high-end one, isn't enough for modern AI workloads. A 70B parameter model with FP16 weights takes about 140 GB just to store the model. Add gradients, optimizer states, and activations, and you're looking at 500+ GB per training step. That's beyond what any single GPU can hold.
@@ -54,12 +53,12 @@ A **cluster** is a group of computers (nodes) connected by high-speed networks, 
 - **Scale compute**: Process larger batches or train faster by parallelizing work
 - **Scale storage**: Handle datasets that don't fit on a single machine
 
-![AI Cluster](img/ai_cluster_demo.png){#fig:ai-cluster .wrap width=70% align=top-right}
+![AI Cluster](img/ai_cluster_demo.png){#fig:ai-cluster .block width=100% align=top-right}
 
 
-As illustrated in @fig:ai-cluster, an AI cluster consists of multiple nodes, each containing multiple GPUs (typically 8 GPUs per node in modern systems), connected via high-speed networks (InfiniBand). This architecture enables distributed training and inference by allowing work to be coordinated across all available resources. The cluster shown demonstrates how memory can be scaled by distributing model parameters, gradients, and optimizer states across GPUs, while compute can be scaled by parallelizing workloads across nodes. Each node operates as an independent server with its own CPUs, memory, and storage, but the high-speed network connections allow them to work together as a unified system for large-scale AI workloads.
+As illustrated in @fig:ai-cluster, an AI cluster consists of multiple nodes, each containing multiple CPUs and GPUs (typically 8 GPUs per node in modern systems). Within each node, GPUs are connected via NVSwitch, providing all-to-all connectivity at NVLink speeds (300-900 GB/s per GPU, aggregate bidirectional). Between nodes, GPUs communicate via high-speed networks such as InfiniBand (200-400 Gb/s per link), enabling distributed training and inference across the entire cluster. This architecture allows work to be coordinated across all available resources. The cluster shown demonstrates how memory can be scaled by distributing model parameters, gradients, and optimizer states across GPUs, while compute can be scaled by parallelizing workloads across nodes. Each node operates as an independent server with its own CPUs, memory, and storage, but the high-speed network connections (NVSwitch within nodes, InfiniBand between nodes) allow them to work together as a unified system for large-scale AI workloads.
 
-Clusters aren't new—they've been used in high-performance computing (HPC) for decades. What's different for AI is the communication patterns. HPC workloads often do large, infrequent data exchanges. AI training does frequent, smaller exchanges (gradient synchronization every step), which makes network bandwidth and latency critical.
+Clusters aren't new—they've been used in high-performance computing (HPC) for decades. What's different for AI is the communication patterns. HPC workloads often do large, infrequent data exchanges. AI training does frequent, smaller exchanges (gradient synchronization every step), which makes network bandwidth and latency critical. We will discuss how to run distributed training jobs on SLURM-managed clusters in Chapter~\ref{chap:running-distributed-training-with-slurm}.
 
 ### AI Clusters: Built for Training and Inference
 
@@ -202,7 +201,7 @@ If your CPU is the bottleneck, GPUs sit idle waiting for data. This is why data 
 
 ### CPU-GPU Interaction
 
-![CPU-GPU Interaction](img/cpu_gpu_interaction.png){#fig:cpu-gpu-interaction .wrap width=60% align=top-right}
+![CPU-GPU Interaction](img/cpu_gpu_interaction.png){#fig:cpu-gpu-interaction .block width=60% align=top-right}
 
 When you run distributed training, here's what happens:
 
@@ -211,6 +210,7 @@ When you run distributed training, here's what happens:
 3. **CPU handles communication**: For multi-node training, CPU processes handle network communication (InfiniBand, Ethernet) and coordinate with NCCL for GPU collectives.
 
 As shown in @fig:cpu-gpu-interaction, the PCIe connection between CPU and GPU is often a bottleneck. PCIe Gen 4 x16 gives you about 31.5 GB/s per direction (~63 GB/s bidirectional), while NVLink between GPUs gives 300-1800 GB/s per GPU (aggregate bidirectional). This is why you want GPUs to communicate directly via NVLink, not through the CPU.
+
 
 ### NUMA and CPU Affinity
 
