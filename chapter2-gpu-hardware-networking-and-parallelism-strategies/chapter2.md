@@ -1001,7 +1001,6 @@ for i in range(torch.cuda.device_count()):
     print(f"  Compute capability: {props.major}.{props.minor}")
     print(f"  Multiprocessors: {props.multi_processor_count}")
 ```
-
 CODE_EXPLAIN_START:
 - 2: Checks if CUDA is available on the system
 - 3: Gets the total number of GPUs
@@ -1072,33 +1071,27 @@ The script measures bandwidth by copying data within GPU memory:
 #LINENUM
 import torch
 import time
-
 size_mb = 64
 nbytes = size_mb * 1024 * 1024
-a = torch.randn(nbytes // 4, device='cuda') #HL
+a = torch.randn(nbytes // 4, device='cuda')
 b = torch.empty_like(a) #HL
-
 # Warmup
 for _ in range(10):
     b.copy_(a) #HL
 torch.cuda.synchronize()
-
 # Benchmark
 t0 = time.time()
 for _ in range(iterations):
     b.copy_(a)
 torch.cuda.synchronize()
 t1 = time.time()
-
-bandwidth_gb_per_s = (nbytes * iterations) / (1024**3) / (t1 - t0) #HL
+bandwidth_gb_per_s = (nbytes * iterations) / (1024**3) / (t1 - t0)
 print(f"Bandwidth: {bandwidth_gb_per_s:.2f} GB/s")
 ```
-
 CODE_EXPLAIN_START:
 - 5: Creates a tensor on GPU (float32 = 4 bytes per element)
 - 6: Creates an empty tensor of the same size
-- 10: Copies data within GPU memory
-- 16: Calculates bandwidth in GB/s
+- 9: Copies data within GPU memory
 CODE_EXPLAIN_END
 
 Example results:
@@ -1156,7 +1149,6 @@ elapsed = time.time() - start
 total_data_mb = size_mb * world_size * 2 * iterations #HL
 bandwidth_mb_per_s = total_data_mb / elapsed
 ```
-
 CODE_EXPLAIN_START:
 - 3: Creates a tensor on each GPU
 - 6: AllReduce operation synchronizes data across all GPUs
