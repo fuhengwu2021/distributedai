@@ -48,8 +48,16 @@ chapter*/data/
 chapter*/data
 
 # Image and paper directories in chapters
-chapter*/img/
-chapter*/img
+chapter*/img/*png
+chapter*/img/*jpg
+chapter*/img/*jpeg
+chapter*/img/*gif
+chapter*/img/*bmp
+chapter*/img/*tiff
+chapter*/img/*ico
+chapter*/img/*webp
+chapter*/img/*svg
+chapter*/img/*pdf
 chapter*/paper/
 chapter*/paper
 chapter*/*pdf
