@@ -1,4 +1,4 @@
-# Chapter 7: Request-Level Routing and SGLang
+# Chapter 7: Request-Level Routing and SGLang {-}
 
 *Ultra-low latency inference with request-level routing and workload disaggregation*
 

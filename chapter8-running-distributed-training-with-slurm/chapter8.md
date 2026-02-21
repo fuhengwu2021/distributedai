@@ -1,4 +1,4 @@
-# Chapter 8: Running Distributed Training with SLURM
+# Chapter 8: Running Distributed Training with SLURM {-}
 
 *Managing GPU resources and coordinating multi-node jobs with SLURM*
 

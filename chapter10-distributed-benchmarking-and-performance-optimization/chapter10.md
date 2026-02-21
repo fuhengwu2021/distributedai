@@ -1,4 +1,4 @@
-# Chapter 10: Distributed Benchmarking and Performance Optimization
+# Chapter 10: Distributed Benchmarking and Performance Optimization {-}
 
 *Measuring and optimizing performance of distributed AI systems*
 

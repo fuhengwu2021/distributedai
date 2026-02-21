@@ -1,4 +1,4 @@
-# Chapter 3: Distributed Training with PyTorch DDP
+# Chapter 3: Distributed Training with PyTorch DDP {-}
 
 *Scaling training across multiple GPUs with DistributedDataParallel*
 

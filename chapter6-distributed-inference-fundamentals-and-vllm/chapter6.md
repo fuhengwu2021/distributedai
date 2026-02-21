@@ -1,4 +1,4 @@
-# Chapter 6: Distributed Inference Fundamentals and vLLM
+# Chapter 6: Distributed Inference Fundamentals and vLLM {-}
 
 *Serving large language models at scale with high throughput and low latency*
 

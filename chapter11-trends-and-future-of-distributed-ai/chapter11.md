@@ -1,4 +1,4 @@
-# Chapter 11: Trends and Future of Distributed AI
+# Chapter 11: Trends and Future of Distributed AI {-}
 
 *Exploring emerging technologies and future directions in distributed AI*
 

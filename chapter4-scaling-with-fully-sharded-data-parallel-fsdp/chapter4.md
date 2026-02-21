@@ -1,4 +1,4 @@
-# Chapter 4: Scaling with Fully Sharded Data Parallel (FSDP)
+# Chapter 4: Scaling with Fully Sharded Data Parallel (FSDP) {-}
 
 *Training models larger than single GPU memory with parameter sharding*
 

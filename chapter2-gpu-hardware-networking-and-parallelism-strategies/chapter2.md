@@ -1,4 +1,4 @@
-# Chapter 2: GPU Hardware, Networking, and Parallelism Strategies
+# Chapter 2: GPU Hardware, Networking, and Parallelism Strategies {-}
 
 *Understanding hardware topology and parallelism strategies for distributed AI*
 

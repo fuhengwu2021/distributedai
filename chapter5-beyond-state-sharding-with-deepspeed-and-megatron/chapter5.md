@@ -1,4 +1,4 @@
-# Chapter 5: Beyond State Sharding with DeepSpeed and Megatron
+# Chapter 5: Beyond State Sharding with DeepSpeed and Megatron {-}
 
 *Extending memory capacity and sharding computation for very large models*
 
