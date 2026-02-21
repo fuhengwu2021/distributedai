@@ -478,28 +478,13 @@ Multi-node DDP scales training across multiple machines. This is where you'll se
 
 ### Multi-Node Architecture
 
-In multi-node DDP, you have:
+Each physical machine is a *node*, and you run one process per GPU across all nodes. The total number of processes is the *world size*—so with 2 nodes and 2 GPUs per node you get 4 processes, and each node runs 2 of them.
 
-![Single-node vs multi-node process layout.](img/single_node_vs_multi_node.png){#fig:single-vs-multi-node .block width=85% align=center}
+![Single-node vs multi-node process layout.](img/single_node_vs_multi_node.png){#fig:single-vs-multi-node .block width=100% align=center}
 
-Figure~\ref{fig:single-vs-multi-node} contrasts one machine with 4 GPUs and two machines with 8 GPUs. Details:
+Figure~\ref{fig:single-vs-multi-node} shows that layout: a single node with 2 GPUs (RANK 0 and 1, each with LOCAL_RANK 0 and 1), and two nodes with 2 GPUs each, giving RANKs 0–3 and again LOCAL_RANK 0–1 on each node. Scale the same idea to 4 nodes and 8 GPUs per node and you have world size 32, with 8 processes per node.
 
-- **Nodes**: Physical machines, each with multiple GPUs
-- **Processes**: One process per GPU across all nodes
-- **World size**: Total number of processes (nodes × GPUs per node)
-
-For example, with 4 nodes and 8 GPUs per node:
-
-- Total GPUs: 32
-- World size: 32
-- Each node runs 8 processes
-
-Communication happens at two levels:
-
-- **Intra-node**: GPUs on the same node communicate via NVLink (fast, 300-900 GB/s)
-- **Inter-node**: GPUs on different nodes communicate via InfiniBand or Ethernet (slower, 25-50 GB/s per link, but aggregated across multiple links)
-
-NCCL automatically optimizes communication patterns to minimize inter-node communication. For AllReduce, NCCL uses a hierarchical approach: first reduce within each node, then reduce across nodes, then broadcast results back.
+GPUs on the same node talk over NVLink (hundreds of GB/s), while GPUs on different nodes go over InfiniBand or Ethernet—slower per link (tens of GB/s) but with many links the aggregate bandwidth can still be high. NCCL picks communication patterns to keep cross-node traffic down. For AllReduce it typically does a reduce inside each node, then across nodes, then broadcasts the result back.
 
 ### Launching Multi-Node Training
 
