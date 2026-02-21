@@ -524,7 +524,7 @@ ip addr show | grep inet
 
 ### Using SLURM for Multi-Node Launch
 
-Most HPC clusters use SLURM for job scheduling. We'll cover SLURM in detail in Chapter 8, but here's a quick example of a SLURM script that launches multi-node DDP:
+Most HPC clusters use SLURM for job scheduling. We cover SLURM and multi-node launch in detail in Chapter~\ref{chap:running-distributed-training-with-slurm}; below is a minimal example that launches multi-node DDP:
 
 ```bash
 #!/bin/bash
@@ -534,14 +534,12 @@ Most HPC clusters use SLURM for job scheduling. We'll cover SLURM in detail in C
 #SBATCH --gres=gpu:8
 #SBATCH --time=24:00:00
 #SBATCH --partition=gpu
-
 # Get node list
 export MASTER_ADDR=$(scontrol show hostnames $SLURM_JOB_NODELIST | head -n 1)
 export MASTER_PORT=29500
 export WORLD_SIZE=$SLURM_NTASKS
 export RANK=$SLURM_PROCID
 export LOCAL_RANK=$SLURM_LOCALID
-
 # Launch training
 srun python train.py
 ```
@@ -555,10 +553,8 @@ Or using `torchrun` with SLURM:
 #SBATCH --ntasks-per-node=8
 #SBATCH --gres=gpu:8
 #SBATCH --time=24:00:00
-
 export MASTER_ADDR=$(scontrol show hostnames $SLURM_JOB_NODELIST | head -n 1)
 export MASTER_PORT=29500
-
 srun torchrun --nnodes=$SLURM_NNODES --nproc_per_node=8 \
 --node_rank=$SLURM_NODEID --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT train.py
 ```
@@ -582,7 +578,6 @@ You can test network connectivity:
 ```bash
 # On node 0
 ib_write_bw
-
 # On node 1
 ib_write_bw <node0_ip>
 ```
@@ -623,26 +618,20 @@ def setup():
         world_size = int(os.environ.get('WORLD_SIZE', 1))
         os.environ['MASTER_ADDR'] = os.environ.get('MASTER_ADDR', 'localhost')
         os.environ['MASTER_PORT'] = os.environ.get('MASTER_PORT', '29500')
-    
     torch.cuda.set_device(local_rank)
     dist.init_process_group(backend='nccl')
-    
     return rank, local_rank, world_size
 
 def main():
     rank, local_rank, world_size = setup()
-    
     if rank == 0:
         print(f'Initialized process group: world_size={world_size}')
         print(f'Master: {os.environ.get("MASTER_ADDR")}:{os.environ.get("MASTER_PORT")}')
-    
     # Create model
     model = nn.Linear(10, 1).to(local_rank)
     model = DDP(model, device_ids=[local_rank])
-    
     # Training loop...
     # (same as single-node example)
-    
     dist.destroy_process_group()
 
 if __name__ == '__main__':
@@ -654,7 +643,6 @@ Launch with:
 ```bash
 # Single-node
 torchrun --nproc_per_node=8 train.py
-
 # Multi-node (run on each node)
 torchrun --nnodes=4 --nproc_per_node=8 --node_rank=$NODE_RANK --master_addr=$MASTER_ADDR train.py
 ```
@@ -676,7 +664,6 @@ DDP hangs are usually caused by mismatched collective operations. Every process 
 ```python
 # WRONG: Different processes see different world_size
 world_size = torch.cuda.device_count()  # Might differ per node
-
 # RIGHT: Use environment variable set by launcher
 world_size = int(os.environ['WORLD_SIZE'])
 ```
@@ -687,7 +674,6 @@ world_size = int(os.environ['WORLD_SIZE'])
 # WRONG: Only rank 0 calls all_reduce
 if rank == 0:
     dist.all_reduce(tensor)
-
 # RIGHT: All processes call all_reduce
 dist.all_reduce(tensor)
 ```
@@ -697,7 +683,6 @@ dist.all_reduce(tensor)
 ```bash
 # Test if port is accessible
 telnet <master_ip> <master_port>
-
 # Or use a different port
 export MASTER_PORT=29501
 ```
@@ -721,13 +706,10 @@ logging.basicConfig(level=logging.INFO)
 def setup():
     rank = int(os.environ['RANK'])
     logging.info(f'Rank {rank}: Starting setup')
-    
     torch.cuda.set_device(rank)
     logging.info(f'Rank {rank}: Set device')
-    
     dist.init_process_group(backend='nccl')
     logging.info(f'Rank {rank}: Initialized process group')
-    
     return rank
 ```
 
@@ -736,10 +718,8 @@ Run with one process first to test basic correctness:
 ```bash
 # Test single-process first
 CUDA_VISIBLE_DEVICES=0 python train.py  # Should work without DDP
-
 # Then test with torchrun
 torchrun --nproc_per_node=1 train.py  # Single process with DDP
-
 # Then scale up
 torchrun --nproc_per_node=2 train.py
 ```
@@ -759,7 +739,6 @@ If training runs but produces wrong results or doesn't converge, the problem is 
 for epoch in range(10):
     for data, target in dataloader:
         # Training...
-
 # RIGHT: Shuffle data each epoch
 for epoch in range(10):
     sampler.set_epoch(epoch)  # CRITICAL
@@ -776,7 +755,6 @@ def set_seed(seed):
     torch.cuda.manual_seed_all(seed)
     np.random.seed(seed)
     random.seed(seed)
-
 # Call this after setup(), before creating model
 set_seed(42)
 ```
@@ -795,7 +773,6 @@ torch.use_deterministic_algorithms(True)
 ```python
 # WRONG: Using shuffle=True in DataLoader with DistributedSampler
 dataloader = DataLoader(dataset, shuffle=True, sampler=sampler)  # Conflict!
-
 # RIGHT: Shuffle in sampler, not DataLoader
 sampler = DistributedSampler(dataset, shuffle=True)
 dataloader = DataLoader(dataset, sampler=sampler)  # No shuffle=True here
@@ -809,7 +786,6 @@ Compare single-GPU vs multi-GPU results. They should match (within numerical pre
 # Run with 1 GPU
 torchrun --nproc_per_node=1 train.py --seed 42
 # Save checkpoint
-
 # Run with 4 GPUs
 torchrun --nproc_per_node=4 train.py --seed 42
 # Compare checkpoints - should be identical
@@ -841,7 +817,6 @@ for i, (data, target) in enumerate(dataloader):
     loss.backward()  # Gradients accumulate!
     if (i + 1) % accumulation_steps == 0:
         optimizer.step()
-
 # RIGHT: Zero gradients at the start of accumulation
 optimizer.zero_grad()
 for i, (data, target) in enumerate(dataloader):
@@ -862,10 +837,8 @@ for i, (data, target) in enumerate(dataloader):
 
 ```python
 from torch.utils.checkpoint import checkpoint
-
 # Replace
 output = model(x)
-
 # With
 output = checkpoint(model, x)
 ```
@@ -874,9 +847,7 @@ output = checkpoint(model, x)
 
 ```python
 from torch.cuda.amp import autocast, GradScaler
-
 scaler = GradScaler()
-
 for data, target in dataloader:
     optimizer.zero_grad()
     with autocast():
@@ -906,7 +877,6 @@ If training runs but is slow, the bottleneck is usually communication, data load
 ```python
 # Increase num_workers
 dataloader = DataLoader(dataset, num_workers=8, pin_memory=True)
-
 # Or use prefetching
 from torch.utils.data import DataLoader
 dataloader = DataLoader(dataset, num_workers=8, prefetch_factor=2)
@@ -938,7 +908,6 @@ print(prof.key_averages().table(sort_by="cuda_time_total"))
 ```bash
 # Set NCCL debug to see what algorithm is used
 export NCCL_DEBUG=INFO
-
 # Force specific algorithm (advanced, usually not needed)
 export NCCL_IB_DISABLE=0
 export NCCL_SOCKET_IFNAME=ib0
@@ -950,7 +919,6 @@ Use PyTorch profiler to identify bottlenecks:
 
 ```python
 from torch.profiler import profile, record_function, ProfilerActivity
-
 with profile(
     activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
     record_shapes=True,
@@ -962,7 +930,6 @@ with profile(
         loss = criterion(output, target)
         loss.backward()
         optimizer.step()
-
 # Print results
 print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=20))
 ```
@@ -972,7 +939,6 @@ Check GPU utilization:
 ```bash
 # Monitor GPU utilization
 watch -n 1 nvidia-smi
-
 # Or use dstat
 dstat -cdngy
 ```
@@ -985,7 +951,6 @@ For multi-node training, network issues are common. Use NCCL debugging:
 # Enable NCCL debug logging
 export NCCL_DEBUG=INFO
 export NCCL_DEBUG_SUBSYS=ALL
-
 # Test NCCL connectivity
 python -c "import torch; torch.distributed.init_process_group('nccl'); print('OK')"
 ```
@@ -995,7 +960,6 @@ Check InfiniBand connectivity:
 ```bash
 # List InfiniBand devices
 ibdev2netdev
-
 # Test bandwidth
 ib_write_bw  # On one node
 ib_write_bw <other_node_ip>  # On another node
@@ -1027,7 +991,6 @@ import torch.distributed as dist
 def train_with_profiling(model, dataloader, optimizer, criterion, num_iterations=10):
     """Train with profiling to analyze DDP performance."""
     rank = dist.get_rank()
-    
     # Create profiler
     with profile(
         activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
@@ -1039,24 +1002,19 @@ def train_with_profiling(model, dataloader, optimizer, criterion, num_iterations
             for i, (data, target) in enumerate(dataloader):
                 if i >= num_iterations:
                     break
-                
                 data = data.cuda(rank, non_blocking=True)
                 target = target.cuda(rank, non_blocking=True)
-                
                 # Forward pass
                 with record_function("forward_pass"):
                     output = model(data)
                     loss = criterion(output, target)
-                
                 # Backward pass (where DDP communication happens)
                 with record_function("backward_pass"):
                     loss.backward()
-                
                 # Optimizer step
                 with record_function("optimizer_step"):
                     optimizer.step()
                     optimizer.zero_grad()
-    
     # Print profiling results (only on rank 0 to avoid duplicate output)
     if rank == 0:
         # Print key averages sorted by CUDA time
@@ -1067,7 +1025,6 @@ def train_with_profiling(model, dataloader, optimizer, criterion, num_iterations
             sort_by="cuda_time_total",
             row_limit=30
         ))
-        
         # Print events sorted by self CUDA time (excludes child operations)
         print("\n" + "=" * 80)
         print("Top Operations by Self CUDA Time")
@@ -1076,12 +1033,10 @@ def train_with_profiling(model, dataloader, optimizer, criterion, num_iterations
             sort_by="cuda_time_total",
             row_limit=20
         ))
-        
         # Export to Chrome trace format for visualization
         prof.export_chrome_trace("ddp_trace.json")
         print("\nChrome trace exported to ddp_trace.json")
         print("Open chrome://tracing in Chrome browser to visualize")
-    
     return prof
 ```
 
@@ -1095,7 +1050,6 @@ Here's a focused example that profiles just the backward pass to analyze overlap
 def analyze_ddp_overlap(model, loss):
     """Analyze computation-communication overlap in DDP backward pass."""
     rank = dist.get_rank()
-    
     with profile(
         activities=[ProfilerActivity.CUDA],
         record_shapes=True,
@@ -1103,28 +1057,22 @@ def analyze_ddp_overlap(model, loss):
     ) as prof:
         with record_function("backward_with_ddp"):
             loss.backward()
-    
     if rank == 0:
         # Look for AllReduce operations
         events = prof.key_averages()
-        
         # Filter for NCCL AllReduce operations
         allreduce_ops = [e for e in events if 'nccl' in e.key.lower() and 'allreduce' in e.key.lower()]
         backward_ops = [e for e in events if 'backward' in e.key.lower() or 'gradient' in e.key.lower()]
-        
         print("=" * 80)
         print("DDP Overlap Analysis")
         print("=" * 80)
         print(f"AllReduce operations found: {len(allreduce_ops)}")
         print(f"Backward operations found: {len(backward_ops)}")
-        
         # Check if AllReduce overlaps with backward compute
         total_allreduce_time = sum(e.cuda_time_total for e in allreduce_ops)
         total_backward_time = sum(e.cuda_time_total for e in backward_ops)
-        
         print(f"\nTotal AllReduce time: {total_allreduce_time / 1000:.2f} ms")
         print(f"Total backward compute time: {total_backward_time / 1000:.2f} ms")
-        
         # If backward time >> AllReduce time, overlap is working
         if total_backward_time > total_allreduce_time * 1.5:
             print("✓ Good overlap: Computation time exceeds communication time")
@@ -1132,7 +1080,6 @@ def analyze_ddp_overlap(model, loss):
         else:
             print("⚠ Limited overlap: Communication time is significant")
             print("  Consider: larger bucket size, faster interconnects, or larger models")
-        
         # Export trace for detailed visualization
         prof.export_chrome_trace("ddp_overlap_trace.json")
 ```
@@ -1146,7 +1093,6 @@ def profile_multi_node_ddp(model, dataloader, optimizer, criterion):
     """Profile DDP with focus on inter-node vs intra-node communication."""
     rank = dist.get_rank()
     local_rank = rank % torch.cuda.device_count()
-    
     with profile(
         activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
         record_shapes=True,
@@ -1155,27 +1101,21 @@ def profile_multi_node_ddp(model, dataloader, optimizer, criterion):
         for data, target in dataloader:
             data = data.cuda(local_rank)
             target = target.cuda(local_rank)
-            
             output = model(data)
             loss = criterion(output, target)
             loss.backward()
             optimizer.step()
             optimizer.zero_grad()
             break  # Profile just one iteration
-    
     if rank == 0:
         events = prof.key_averages()
-        
         # Analyze NCCL operations
         nccl_ops = [e for e in events if 'nccl' in e.key.lower()]
-        
         print("=" * 80)
         print("Multi-Node DDP Communication Analysis")
         print("=" * 80)
-        
         for op in nccl_ops[:10]:  # Top 10 NCCL operations
             print(f"{op.key}: {op.cuda_time_total / 1000:.2f} ms")
-        
         # Export for detailed analysis
         prof.export_chrome_trace(f"ddp_multinode_rank{rank}.json")
 ```
@@ -1211,12 +1151,10 @@ import torch.distributed as dist
 def profile_resnet_ddp():
     rank = dist.get_rank()
     local_rank = rank % torch.cuda.device_count()
-    
     # Create model
     model = torchvision.models.resnet50(num_classes=10)
     model = model.cuda(local_rank)
     model = DDP(model, device_ids=[local_rank])
-    
     # Create dataset
     transform = transforms.Compose([
         transforms.ToTensor(),
@@ -1229,10 +1167,8 @@ def profile_resnet_ddp():
     dataloader = torch.utils.data.DataLoader(
         trainset, batch_size=128, sampler=sampler, num_workers=4, pin_memory=True
     )
-    
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
-    
     # Profile training
     model.train()
     with profile(
@@ -1243,23 +1179,19 @@ def profile_resnet_ddp():
         for i, (data, target) in enumerate(dataloader):
             if i >= 5:  # Profile 5 iterations
                 break
-            
             data = data.cuda(local_rank, non_blocking=True)
             target = target.cuda(local_rank, non_blocking=True)
-            
             output = model(data)
             loss = criterion(output, target)
             loss.backward()
             optimizer.step()
             optimizer.zero_grad()
-    
     # Print results on rank 0
     if rank == 0:
         print("=" * 80)
         print("ResNet50 DDP Performance Profile")
         print("=" * 80)
         print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=30))
-        
         # Export trace
         prof.export_chrome_trace("resnet50_ddp_trace.json")
         print("\nTrace exported to resnet50_ddp_trace.json")
@@ -1294,21 +1226,17 @@ From profiler results, calculate these metrics:
 def calculate_ddp_metrics(prof):
     """Calculate key DDP performance metrics from profiler output."""
     events = prof.key_averages()
-    
     # Find key operations
     forward_ops = [e for e in events if 'forward' in e.key.lower()]
     backward_ops = [e for e in events if 'backward' in e.key.lower() or 'gradient' in e.key.lower()]
     allreduce_ops = [e for e in events if 'allreduce' in e.key.lower() or 'nccl' in e.key.lower()]
     dataloader_ops = [e for e in events if 'dataloader' in e.key.lower()]
-    
     # Calculate times (in milliseconds)
     forward_time = sum(e.cuda_time_total for e in forward_ops) / 1000
     backward_time = sum(e.cuda_time_total for e in backward_ops) / 1000
     comm_time = sum(e.cuda_time_total for e in allreduce_ops) / 1000
     data_time = sum(e.cuda_time_total for e in dataloader_ops) / 1000
-    
     total_time = forward_time + backward_time
-    
     metrics = {
         'forward_time_ms': forward_time,
         'backward_time_ms': backward_time,
@@ -1318,7 +1246,6 @@ def calculate_ddp_metrics(prof):
         'comm_overhead_percent': (comm_time / total_time) * 100 if total_time > 0 else 0,
         'overlap_ratio': (backward_time - comm_time) / backward_time if backward_time > comm_time else 0,
     }
-    
     return metrics
 
 # Usage
@@ -1392,20 +1319,16 @@ Gradient accumulation lets you simulate larger batch sizes without increasing me
 ```python
 accumulation_steps = 4
 optimizer.zero_grad()
-
 for i, (data, target) in enumerate(dataloader):
     output = model(data)
     loss = criterion(output, target)
-    
     # Scale loss by accumulation steps
     loss = loss / accumulation_steps
     loss.backward()
-    
     # Update every accumulation_steps
     if (i + 1) % accumulation_steps == 0:
         optimizer.step()
         optimizer.zero_grad()
-
 # Handle remaining steps
 if (i + 1) % accumulation_steps != 0:
     optimizer.step()
@@ -1426,21 +1349,16 @@ Mixed precision (FP16/BF16) halves memory usage and can double throughput. PyTor
 
 ```python
 from torch.cuda.amp import autocast, GradScaler
-
 scaler = GradScaler()
-
 for epoch in range(10):
     for data, target in dataloader:
         optimizer.zero_grad()
-        
         # Forward pass in mixed precision
         with autocast():
             output = model(data)
             loss = criterion(output, target)
-        
         # Backward pass with scaling
         scaler.scale(loss).backward()
-        
         # Optimizer step with unscaling
         scaler.step(optimizer)
         scaler.update()
@@ -1482,7 +1400,6 @@ DDP automatically overlaps communication with computation, but you can help it:
 loss.backward()
 torch.cuda.synchronize()  # Blocks!
 optimizer.step()
-
 # RIGHT: Let DDP handle synchronization
 loss.backward()
 optimizer.step()  # DDP synchronizes automatically
@@ -1508,7 +1425,6 @@ with torch.profiler.profile(
     record_shapes=True,
 ) as prof:
     loss.backward()
-
 # Check if AllReduce overlaps with backward compute
 print(prof.key_averages().table())
 ```
@@ -1574,7 +1490,6 @@ Only rank 0 should write checkpoints to avoid race conditions:
 ```python
 def save_checkpoint(model, optimizer, epoch, loss, filepath):
     rank = dist.get_rank()
-    
     if rank == 0:
         checkpoint = {
             'epoch': epoch,
@@ -1582,14 +1497,11 @@ def save_checkpoint(model, optimizer, epoch, loss, filepath):
             'optimizer_state_dict': optimizer.state_dict(),
             'loss': loss,
         }
-        
         # Save scaler state if using AMP
         if scaler is not None:
             checkpoint['scaler_state_dict'] = scaler.state_dict()
-        
         torch.save(checkpoint, filepath)
         print(f'Checkpoint saved: {filepath}')
-    
     # All processes wait for rank 0 to finish
     dist.barrier()
 ```
@@ -1603,27 +1515,20 @@ All processes should load the same checkpoint:
 ```python
 def load_checkpoint(model, optimizer, filepath, scaler=None):
     rank = dist.get_rank()
-    
     # All processes load from the same file
     checkpoint = torch.load(filepath, map_location=f'cuda:{rank}')
-    
     # Load model state
     model.module.load_state_dict(checkpoint['model_state_dict'])
-    
     # Load optimizer state
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    
     # Load scaler state if using AMP
     if scaler is not None and 'scaler_state_dict' in checkpoint:
         scaler.load_state_dict(checkpoint['scaler_state_dict'])
-    
     start_epoch = checkpoint['epoch'] + 1
     best_loss = checkpoint['loss']
-    
     if rank == 0:
         print(f'Checkpoint loaded: {filepath}')
         print(f'Resuming from epoch {start_epoch}')
-    
     return start_epoch, best_loss
 ```
 
@@ -1634,7 +1539,6 @@ For fully reproducible resumes, save random number generator state:
 ```python
 def save_checkpoint_with_rng(model, optimizer, epoch, filepath):
     rank = dist.get_rank()
-    
     if rank == 0:
         checkpoint = {
             'epoch': epoch,
@@ -1643,31 +1547,25 @@ def save_checkpoint_with_rng(model, optimizer, epoch, filepath):
             'rng_state': torch.get_rng_state(),
             'cuda_rng_state': torch.cuda.get_rng_state_all(),
         }
-        
         # Also save Python and NumPy RNG if used
         import random
         import numpy as np
         checkpoint['python_rng_state'] = random.getstate()
         checkpoint['numpy_rng_state'] = np.random.get_state()
-        
         torch.save(checkpoint, filepath)
 
 def load_checkpoint_with_rng(model, optimizer, filepath):
     rank = dist.get_rank()
     checkpoint = torch.load(filepath, map_location=f'cuda:{rank}')
-    
     model.module.load_state_dict(checkpoint['model_state_dict'])
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    
     # Restore RNG states
     torch.set_rng_state(checkpoint['rng_state'])
     torch.cuda.set_rng_state_all(checkpoint['cuda_rng_state'])
-    
     import random
     import numpy as np
     random.setstate(checkpoint['python_rng_state'])
     np.random.set_state(checkpoint['numpy_rng_state'])
-    
     return checkpoint['epoch']
 ```
 
@@ -1681,7 +1579,6 @@ import tempfile
 
 def save_checkpoint_atomic(model, optimizer, epoch, filepath):
     rank = dist.get_rank()
-    
     if rank == 0:
         # Write to temporary file first
         temp_file = filepath + '.tmp'
@@ -1691,11 +1588,9 @@ def save_checkpoint_atomic(model, optimizer, epoch, filepath):
             'optimizer_state_dict': optimizer.state_dict(),
         }
         torch.save(checkpoint, temp_file)
-        
         # Atomic rename
         os.rename(temp_file, filepath)
         print(f'Checkpoint saved: {filepath}')
-    
     dist.barrier()
 ```
 
