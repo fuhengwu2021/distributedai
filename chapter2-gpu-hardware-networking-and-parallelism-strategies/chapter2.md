@@ -181,7 +181,7 @@ With this foundation in place, let's examine the hardware components that make c
 
 ## Central Processing Unit (CPU)
 
-![](img/cpu.png){#fig:cpu-icon .wrap width=15% align=right}
+![](img/cpu.png){#fig:cpu-icon .wrap width=15% align=top-right vspaces=40pt}
 
 While GPUs do the heavy lifting in distributed training, CPUs play a crucial supporting role. Understanding CPU architecture helps you optimize data loading, manage GPU coordination, and debug performance bottlenecks.
 

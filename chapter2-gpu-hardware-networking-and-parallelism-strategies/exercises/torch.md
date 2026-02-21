@@ -149,13 +149,3 @@ print(f"Estimated GPUs needed: {strategy['estimated_gpu_count']}")
 print(f"Memory per GPU: {strategy['memory_per_gpu_gb']:.1f} GB")
 ```
 
-
-
-## Expected Learning Outcomes
-
-After completing these exercises, you should be able to:
-
-- Inspect and analyze GPU hardware specifications and topology
-- Calculate memory requirements for different model sizes, precisions, and optimizers
-- Detect and interpret GPU interconnect topology (NVLink vs PCIe)
-- Select appropriate parallelism strategies based on hardware capabilities and model requirements

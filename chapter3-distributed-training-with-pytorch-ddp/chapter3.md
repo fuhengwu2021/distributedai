@@ -18,7 +18,7 @@
 - `torch.nn.parallel.DistributedDataParallel`: DDP wrapper class
 - `torch.distributed.destroy_process_group()`: Clean up the process group
 
-## 1. How DDP Works Internally
+## How DDP Works Internally
 
 In Chapter 2, we explored the hardware foundation and parallelism strategies that make distributed training possible. Now we turn to the practical implementation: **DistributedDataParallel (DDP)**, PyTorch's standard approach for data-parallel distributed training. DDP is how you actually scale training across multiple GPUs—whether they're in a single machine or spread across a cluster.
 
@@ -63,13 +63,17 @@ If DDP synchronized every gradient tensor individually, you'd have thousands of 
 
 Here's how it works: DDP analyzes your model's parameter order (the order they appear in `model.parameters()`). It groups consecutive parameters into buckets based on size. When backward pass reaches a bucket boundary, DDP triggers an AllReduce for that bucket. The default bucket size is 25 MB, but you can tune it with `bucket_cap_mb`.
 
-Bucketing reduces communication overhead, but there's a tradeoff: larger buckets mean fewer AllReduce calls (less overhead) but later synchronization (gradients aren't available until the bucket is ready). Smaller buckets mean earlier synchronization but more overhead. For most models, the default 25 MB works well, but you might tune it for very large or very small models.
+![Gradient bucketing: parameters in buckets by size.](img/gradient_bucketing.png){#fig:gradient-bucketing .block width=85% align=center}
+
+Figure~\ref{fig:gradient-bucketing} shows parameter segments and bucket boundaries. Bucketing reduces communication overhead, but there's a tradeoff: larger buckets mean fewer AllReduce calls (less overhead) but later synchronization (gradients aren't available until the bucket is ready). Smaller buckets mean earlier synchronization but more overhead. For most models, the default 25 MB works well, but you might tune it for very large or very small models.
 
 ### Communication-Computation Overlap
 
 The real performance win comes from **overlapping communication and computation**. While DDP is doing AllReduce for one bucket, your backward pass can continue computing gradients for the next bucket. This hides communication latency behind computation.
 
-DDP achieves overlap by:
+![Overlap of backward compute and AllReduce.](img/communication_computation_overlap.png){#fig:comm-compute-overlap .block width=85% align=center}
+
+Figure~\ref{fig:comm-compute-overlap} illustrates the overlap. DDP achieves overlap by:
 
 - Launching AllReduce operations asynchronously
 - Using CUDA streams to overlap communication kernels with compute kernels
@@ -83,20 +87,25 @@ You can check if overlap is working by profiling. If you see AllReduce operation
 
 AllReduce is the core collective operation that makes DDP work. As detailed in Chapter~\ref{chap:introduction-to-modern-distributed-ai} (see the "Collective Operations" section), AllReduce takes gradients from all processes, sums them, and distributes the result back to all processes. On GPUs, DDP uses NCCL (NVIDIA Collective Communications Library) to implement AllReduce efficiently using algorithms like __ring AllReduce__ and __tree AllReduce__, which NCCL selects automatically based on your hardware topology.
 
-Understanding AllReduce helps when debugging performance. If you're seeing slow gradient synchronization, it might be because NCCL picked a suboptimal algorithm for your topology, or because network bandwidth is saturated.
+![Ring AllReduce: four ranks with clockwise data flow.](img/ring_allreduce.png){#fig:ring-allreduce .block width=50% align=right-top}
+
+Figure~\ref{fig:ring-allreduce} shows the ring topology. Understanding AllReduce helps when debugging performance. If you're seeing slow gradient synchronization, it might be because NCCL picked a suboptimal algorithm for your topology, or because network bandwidth is saturated.
 
 ### Mixed Precision and Gradient Scaling
 
 When using mixed precision training (FP16/BF16), gradients can underflow (become zero) because FP16 has limited range. The solution is **gradient scaling**: multiply loss by a scale factor before backward, then unscale gradients before optimizer step.
 
-DDP works with PyTorch's Automatic Mixed Precision (AMP). The flow is:
+![AMP + DDP: scale, backward, AllReduce, unscale, step.](img/amp_ddp_flow.png){#fig:amp-ddp-flow .block width=90% align=center}
+
+Figure~\ref{fig:amp-ddp-flow} shows the pipeline. DDP works with PyTorch's Automatic Mixed Precision (AMP). The flow is:
+
 1. Scale loss: `loss = loss * scale`
 2. Backward: `loss.backward()` (gradients are also scaled)
 3. DDP AllReduce: Synchronizes scaled gradients
 4. Unscale: Divide gradients by scale before optimizer step
 5. Update scale: Adjust scale factor based on gradient overflow detection
 
-The key point: DDP synchronizes gradients **after** they're scaled. Each process scales its own gradients, then DDP sums the scaled gradients. After AllReduce, all processes have the same scaled gradients, which are then unscaled before the optimizer step.
+The key point is DDP synchronizes gradients **after** they're scaled. Each process scales its own gradients, then DDP sums the scaled gradients. After AllReduce, all processes have the same scaled gradients, which are then unscaled before the optimizer step.
 
 If you're using AMP with DDP, make sure to use `GradScaler` correctly. The scaler must be created before wrapping the model with DDP, and you must call `scaler.step()` and `scaler.update()` on all processes (not just rank 0).
 
@@ -137,7 +146,7 @@ The overlap mechanism in DDP is implemented using autograd hooks, parameter buck
 
 The key insight: DDP doesn't wait for all gradients before starting communication. Instead, it communicates gradients as soon as buckets are ready, overlapping communication with ongoing computation.
 
-## 2. Setting Up Single-Node DDP
+## Setting Up Single-Node DDP
 
 The simplest DDP setup is single-node multi-GPU: one machine with multiple GPUs. This is where most people start, and it's what you'll use for development and smaller-scale training.
 
@@ -215,9 +224,14 @@ torchrun --nproc_per_node=4 train.py
 
 This launches 4 processes, one per GPU (assuming you have 4 GPUs). `torchrun` automatically sets `RANK`, `LOCAL_RANK`, `WORLD_SIZE`, `MASTER_ADDR`, and `MASTER_PORT` environment variables.
 
+
 ### Understanding the Environment Variables
 
 When using `torchrun`, these environment variables are set automatically:
+
+![RANK, LOCAL_RANK, WORLD_SIZE for 2×2 nodes.](img/ddp_env_vars.png){#fig:ddp-env-vars .block width=70% align=center}
+
+Figure~\ref{fig:ddp-env-vars} shows RANK and LOCAL_RANK for two nodes with two GPUs each. Variables:
 
 - **RANK**: Global rank of this process (0 to WORLD_SIZE-1)
 - **LOCAL_RANK**: Local rank within this node (0 to number of GPUs per node - 1)
@@ -231,6 +245,11 @@ For single-node training, you typically only care about `LOCAL_RANK` (to set whi
 
 The key to data parallelism is ensuring each process sees different data. `DistributedSampler` does this by sharding the dataset across processes.
 
+![DistributedSampler shards dataset across ranks.](img/distributed_sampler_sharding.png){#fig:distributed-sampler .block width=80% align=center}
+
+Figure~\ref{fig:distributed-sampler} illustrates how the full dataset is split into contiguous, non-overlapping shards: each rank receives a distinct segment of indices (e.g. with four ranks and N samples, rank 0 gets indices ($0 \ldots \lceil N/4 \rceil - 1$), rank 1 the next quarter, and so on), so no sample is seen by more than one process and the union of all shards covers the dataset.
+
+
 ```python
 from torch.utils.data import DataLoader, Dataset
 from torch.utils.data.distributed import DistributedSampler
@@ -239,16 +258,13 @@ class MyDataset(Dataset):
     def __init__(self, size=1000):
         self.data = torch.randn(size, 10)
         self.labels = torch.randn(size, 1)
-    
     def __len__(self):
         return len(self.data)
-    
     def __getitem__(self, idx):
         return self.data[idx], self.labels[idx]
 
 def get_dataloader(rank, world_size, batch_size=32):
     dataset = MyDataset(size=1000)
-    
     # Create DistributedSampler
     sampler = DistributedSampler(
         dataset,
@@ -257,7 +273,6 @@ def get_dataloader(rank, world_size, batch_size=32):
         shuffle=True,  # Shuffle data each epoch
         drop_last=False  # Don't drop last incomplete batch
     )
-    
     # Create DataLoader with sampler
     # Important: don't set shuffle=True when using DistributedSampler
     dataloader = DataLoader(
@@ -267,28 +282,22 @@ def get_dataloader(rank, world_size, batch_size=32):
         num_workers=4,
         pin_memory=True  # Faster CPU->GPU transfer
     )
-    
     return dataloader, sampler
 
 def train():
     rank, local_rank, world_size, device = setup()
-    
     dataloader, sampler = get_dataloader(rank, world_size)
     model = create_model().to(device)
     model = DDP(model, device_ids=[local_rank])
-    
     for epoch in range(10):
         # CRITICAL: Set epoch for DistributedSampler
         # This ensures different shuffling each epoch
         sampler.set_epoch(epoch)
-        
         for batch_idx, (data, target) in enumerate(dataloader):
             data = data.to(device)
             target = target.to(device)
-            
             # Training step...
             pass
-    
     cleanup()
 ```
 
@@ -303,20 +312,26 @@ Key points about `DistributedSampler`:
 
 Understanding how `DataLoader` works internally helps optimize data loading performance. When you create a `DataLoader` with `num_workers > 0`, PyTorch uses multi-process data loading.
 
-**Single-process vs Multi-process**: The `DataLoader` chooses between `_SingleProcessDataLoaderIter` (for `num_workers=0`) and `_MultiProcessDataLoaderIter` (for `num_workers > 0`) based on the `num_workers` parameter.
+**Single-process vs Multi-process**:
+
+The `DataLoader` chooses between `_SingleProcessDataLoaderIter` (for `num_workers=0`) and `_MultiProcessDataLoaderIter` (for `num_workers > 0`) based on the `num_workers` parameter.
+
+![DataLoader with workers, index and result queues.](img/dataloader_workers.png){#fig:dataloader-workers .block width=100% align=center}
+
+Figure~\ref{fig:dataloader-workers} illustrates the execution flow when `num_workers > 0`.
+The main process enqueues batch indices into the index queue.
+Each worker process maintains its own copy of the dataset, dequeues batch indices, loads and preprocesses the corresponding data, and enqueues the resulting batch tensors into the result queue.
+The main process then consumes batches from the result queue for training. The annotation “while workers prefetch” highlights that training on the current batch overlaps with workers preparing subsequent batches, enabling pipeline parallelism between data loading and computation. This design decouples data loading from model computation through inter-process queues, reducing input pipeline bottlenecks.
 
 **Multi-process data loading** works as follows:
 
 1. **Main process**: Creates an index queue and a result queue. It also spawns worker processes.
-
 2. **Worker processes**: Each worker process:
    - Reads indices from the index queue
    - Fetches corresponding data from the dataset
    - Applies transforms/preprocessing
    - Puts processed data into the result queue
-
 3. **Prefetching**: While the main process is using the current batch for training, workers are already loading the next batch. This overlaps data loading with computation.
-
 4. **Pin memory**: If `pin_memory=True`, a separate thread copies data from CPU to GPU memory asynchronously, further overlapping data transfer with computation.
 
 **DistributedSampler integration**: When using `DistributedSampler`, each process's `DataLoader` only sees the indices assigned to that process. The sampler ensures no data overlap between processes.
@@ -376,52 +391,39 @@ def get_dataloader(rank, world_size, batch_size=128):
         transforms.ToTensor(),
         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
     ])
-    
     trainset = torchvision.datasets.CIFAR10(
         root='./data', train=True, download=True, transform=transform
     )
-    
     sampler = DistributedSampler(
         trainset, num_replicas=world_size, rank=rank, shuffle=True
     )
-    
     trainloader = torch.utils.data.DataLoader(
         trainset, batch_size=batch_size, sampler=sampler,
         num_workers=4, pin_memory=True
     )
-    
     return trainloader, sampler
 
 def train(rank, world_size):
     setup(rank, world_size)
-    
     model = Net().to(rank)
     model = DDP(model, device_ids=[rank])
-    
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
-    
     trainloader, sampler = get_dataloader(rank, world_size)
-    
     for epoch in range(10):
         sampler.set_epoch(epoch)
         model.train()
-        
         for batch_idx, (data, target) in enumerate(trainloader):
             data, target = data.to(rank), target.to(rank)
-            
             optimizer.zero_grad()
             output = model(data)
             loss = criterion(output, target)
             loss.backward()
             optimizer.step()
-            
             if rank == 0 and batch_idx % 100 == 0:
                 print(f'Epoch {epoch}, Batch {batch_idx}, Loss: {loss.item():.4f}')
-    
     if rank == 0:
         print('Training finished')
-    
     cleanup()
 
 def main():
@@ -470,13 +472,17 @@ CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --nproc_per_node=4 train.py
 
 This makes only GPUs 0-3 visible, and `LOCAL_RANK` will map to these GPUs (LOCAL_RANK 0 → GPU 0, LOCAL_RANK 1 → GPU 1, etc.).
 
-## 3. Setting Up Multi-Node DDP
+## Setting Up Multi-Node DDP
 
 Multi-node DDP scales training across multiple machines. This is where you'll see the real benefits of distributed training—training models that don't fit on a single node, or training faster by using hundreds of GPUs.
 
 ### Multi-Node Architecture
 
 In multi-node DDP, you have:
+
+![Single-node vs multi-node process layout.](img/single_node_vs_multi_node.png){#fig:single-vs-multi-node .block width=85% align=center}
+
+Figure~\ref{fig:single-vs-multi-node} contrasts one machine with 4 GPUs and two machines with 8 GPUs. Details:
 
 - **Nodes**: Physical machines, each with multiple GPUs
 - **Processes**: One process per GPU across all nodes
@@ -668,7 +674,7 @@ torchrun --nproc_per_node=8 train.py
 torchrun --nnodes=4 --nproc_per_node=8 --node_rank=$NODE_RANK --master_addr=$MASTER_ADDR train.py
 ```
 
-## 4. Debugging and Troubleshooting Common DDP Failures
+## Debugging and Troubleshooting Common DDP Failures
 
 DDP training can fail in many ways. Most failures fall into a few categories: hangs, wrong results, out-of-memory errors, or performance issues. Let's go through each category with common causes and fixes.
 
@@ -1010,7 +1016,7 @@ ib_write_bw  # On one node
 ib_write_bw <other_node_ip>  # On another node
 ```
 
-## 5. Profiling DDP Performance
+## Profiling DDP Performance
 
 Before optimizing DDP, you need to understand where time is spent. PyTorch's profiler provides detailed insights into DDP's computation-communication overlap, gradient synchronization overhead, and data loading bottlenecks.
 
@@ -1351,7 +1357,7 @@ if dist.get_rank() == 0:
 - **Overlap ratio 0.5-0.7**: Good overlap
 - **Overlap ratio < 0.5**: Limited overlap—consider tuning bucket size or model architecture
 
-## 6. Optimizing DDP Performance
+## Optimizing DDP Performance
 
 Once you've profiled and identified bottlenecks, the next step is optimization. There are several levers you can tune: bucket size, gradient accumulation, mixed precision, and communication overlap.
 
@@ -1572,7 +1578,7 @@ if can_set_static_graph:
     print("Can enable static_graph=True")
 ```
 
-## 7. Checkpointing and Resuming Distributed Jobs
+## Checkpointing and Resuming Distributed Jobs
 
 After optimizing your DDP training, you'll want to save progress regularly. Long training jobs need checkpointing, and with DDP, you need to save and restore model state, optimizer state, and random number generator state correctly.
 
@@ -1718,7 +1724,7 @@ def save_checkpoint_atomic(model, optimizer, epoch, filepath):
 
 Now that we've covered the essentials of DDP setup, debugging, profiling, optimization, and checkpointing, let's explore some advanced features that DDP provides for specialized use cases.
 
-## 8. Advanced DDP Features
+## Advanced DDP Features
 
 DDP has several advanced features for specialized use cases: gradient hooks, communication hooks, and join() for uneven inputs. These features give you fine-grained control over DDP's behavior when you need to customize gradient synchronization or handle edge cases.
 
@@ -1731,7 +1737,6 @@ def gradient_hook(grad):
     # Inspect or modify gradient
     print(f'Gradient norm: {grad.norm().item()}')
     return grad  # Must return gradient
-
 # Register hook on a parameter
 model.module.fc.weight.register_hook(gradient_hook)
 ```
@@ -1750,15 +1755,12 @@ For advanced use cases, you can customize how DDP synchronizes gradients using c
 def allreduce_hook(state, bucket):
     """Custom hook that does AllReduce on gradient bucket."""
     tensor = bucket.buffer()
-    
     # Custom AllReduce (e.g., with compression)
     dist.all_reduce(tensor, async_op=False)
-    
     # Return future (DDP expects this)
     fut = torch.futures.Future()
     fut.set_result(tensor)
     return fut
-
 # Register hook
 model.register_comm_hook(state=None, hook=allreduce_hook)
 ```
@@ -1779,7 +1781,6 @@ If different processes have different amounts of data (uneven inputs), DDP will 
 from torch.nn.parallel import DistributedDataParallel as DDP
 
 model = DDP(model, device_ids=[local_rank])
-
 # Wrap training loop with join()
 with model.join():
     for data, target in dataloader:
@@ -1811,10 +1812,8 @@ Before scaling to multiple GPUs, make sure single-GPU training works:
 ```bash
 # Test without DDP first
 CUDA_VISIBLE_DEVICES=0 python train.py
-
 # Then test with DDP (single process)
 torchrun --nproc_per_node=1 train.py
-
 # Then scale up
 torchrun --nproc_per_node=4 train.py
 ```
@@ -1841,7 +1840,6 @@ def set_seed(seed):
     np.random.seed(seed)
     random.seed(seed)
     torch.backends.cudnn.deterministic = True
-
 set_seed(42)  # After setup(), before creating model
 ```
 
@@ -1864,7 +1862,6 @@ with torch.profiler.profile(
 ) as prof:
     # Training step
     pass
-
 print(prof.key_averages().table(sort_by="cuda_time_total"))
 ```
 
@@ -1875,7 +1872,6 @@ Keep an eye on GPU utilization:
 ```bash
 # Real-time monitoring
 watch -n 1 nvidia-smi
-
 # Or use dstat
 dstat -cdngy
 ```
@@ -2074,43 +2070,33 @@ def save_checkpoint(model, optimizer, epoch, checkpoint_path):
 def train():
     dist.init_process_group(backend='nccl')
     rank = dist.get_rank()
-    
     # Load checkpoint
     checkpoint = load_checkpoint('checkpoint.pt')
     start_epoch = 0
-    
     model = create_model().to(rank)
     model = DDP(model, device_ids=[rank])
     optimizer = create_optimizer(model.parameters())
-    
     if checkpoint:
         model.module.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         start_epoch = checkpoint['epoch'] + 1
         if rank == 0:
             print(f'Resuming from epoch {start_epoch}')
-    
     # Training loop
     for epoch in range(start_epoch, num_epochs):
         # Training...
         train_epoch(model, optimizer, dataloader)
-        
         # Save checkpoint every epoch
         save_checkpoint(model, optimizer, epoch, 'checkpoint.pt')
-    
     dist.destroy_process_group()
 ```
 
 ### Elastic Training Best Practices
 
 1. **Frequent checkpoints**: Save checkpoints often. In the worst case, you'll lose progress since the last checkpoint.
-
 2. **Checkpoint on rank 0**: Only rank 0 should write checkpoints to avoid race conditions.
-
 3. **Atomic checkpoint writes**: Write to a temporary file, then rename to avoid corrupted checkpoints.
-
 4. **Test failure scenarios**: Intentionally kill nodes to verify recovery works correctly.
-
 5. **Monitor rendezvous**: Use `NCCL_DEBUG=INFO` to monitor rendezvous and communication.
 
 ### When to Use Elastic Training
@@ -2227,45 +2213,35 @@ def get_dataloader(rank, world_size, batch_size=32, seq_len=128):
 
 def train():
     rank, local_rank, world_size = setup()
-    
     # Create model
     model = TransformerModel(vocab_size=10000, d_model=512, nhead=8, num_layers=6)
     model = model.to(local_rank)
     model = DDP(model, device_ids=[local_rank], bucket_cap_mb=50)
-    
     # Optimizer and loss
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
     criterion = nn.CrossEntropyLoss()
     scaler = GradScaler()
-    
     # Data
     dataloader, sampler = get_dataloader(rank, world_size, batch_size=32)
-    
     # Training loop
     for epoch in range(10):
         sampler.set_epoch(epoch)
         model.train()
-        
         for batch_idx, src in enumerate(dataloader):
             src = src.to(local_rank)
             tgt = src[:, 1:]  # Shift for next-token prediction
             src = src[:, :-1]
-            
             optimizer.zero_grad()
-            
             with autocast():
                 output = model(src)
                 output = output.view(-1, output.size(-1))
                 tgt = tgt.reshape(-1)
                 loss = criterion(output, tgt)
-            
             scaler.scale(loss).backward()
             scaler.step(optimizer)
             scaler.update()
-            
             if rank == 0 and batch_idx % 100 == 0:
                 print(f'Epoch {epoch}, Batch {batch_idx}, Loss: {loss.item():.4f}')
-        
         # Save checkpoint
         if rank == 0:
             checkpoint = {
@@ -2275,7 +2251,6 @@ def train():
                 'scaler_state_dict': scaler.state_dict(),
             }
             torch.save(checkpoint, f'checkpoint_epoch_{epoch}.pt')
-    
     dist.destroy_process_group()
 
 if __name__ == '__main__':
