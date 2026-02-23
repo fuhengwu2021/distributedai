@@ -231,11 +231,12 @@ This launches 4 processes, one per GPU (assuming you have 4 GPUs). `torchrun` au
 
 ### Understanding the Environment Variables
 
+
 When using `torchrun`, these environment variables are set automatically:
 
-![RANK, LOCAL_RANK, WORLD_SIZE for 2×2 nodes.](img/ddp_env_vars.png){#fig:ddp-env-vars .block width=70% align=center}
+![RANK, LOCAL_RANK, WORLD_SIZE for a single node with 4 GPUs.](img/ddp_env_vars_single.png){#fig:ddp-env-vars .block width=70% align=center}
 
-Figure~\ref{fig:ddp-env-vars} shows RANK and LOCAL_RANK for two nodes with two GPUs each. Variables:
+Figure~\ref{fig:ddp-env-vars} shows RANK and LOCAL_RANK for a single node with four GPUs (as in the `torchrun --nproc_per_node=4` example above). Variables:
 
 - **RANK**: Global rank of this process (0 to WORLD_SIZE-1)
 - **LOCAL_RANK**: Local rank within this node (0 to number of GPUs per node - 1)
@@ -349,7 +350,7 @@ The main process then consumes batches from the result queue for training. The a
 
 ### A Complete Single-Node Example
 
-Here's a complete example that trains a ResNet on CIFAR-10 with DDP:
+Here's a complete example that trains a small CNN on CIFAR-10 with DDP. It uses **torchrun** (as earlier), so rank and world size come from the environment:
 
 ```python
 import torch
@@ -362,11 +363,13 @@ import torchvision
 import torchvision.transforms as transforms
 import os
 
-def setup(rank, world_size):
-    os.environ['MASTER_ADDR'] = 'localhost'
-    os.environ['MASTER_PORT'] = '12355'
-    dist.init_process_group("nccl", rank=rank, world_size=world_size)
-    torch.cuda.set_device(rank)
+def setup():
+    rank = int(os.environ['RANK'])
+    local_rank = int(os.environ['LOCAL_RANK'])
+    world_size = int(os.environ['WORLD_SIZE'])
+    dist.init_process_group(backend='nccl')
+    torch.cuda.set_device(local_rank)
+    return rank, local_rank, world_size
 
 def cleanup():
     dist.destroy_process_group()
@@ -407,10 +410,11 @@ def get_dataloader(rank, world_size, batch_size=128):
     )
     return trainloader, sampler
 
-def train(rank, world_size):
-    setup(rank, world_size)
-    model = Net().to(rank)
-    model = DDP(model, device_ids=[rank])
+def main():
+    rank, local_rank, world_size = setup()
+    device = torch.device(f'cuda:{local_rank}')
+    model = Net().to(device)
+    model = DDP(model, device_ids=[local_rank])
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
     trainloader, sampler = get_dataloader(rank, world_size)
@@ -418,7 +422,7 @@ def train(rank, world_size):
         sampler.set_epoch(epoch)
         model.train()
         for batch_idx, (data, target) in enumerate(trainloader):
-            data, target = data.to(rank), target.to(rank)
+            data, target = data.to(device), target.to(device)
             optimizer.zero_grad()
             output = model(data)
             loss = criterion(output, target)
@@ -430,31 +434,17 @@ def train(rank, world_size):
         print('Training finished')
     cleanup()
 
-def main():
-    world_size = torch.cuda.device_count()
-    torch.multiprocessing.spawn(
-        train, args=(world_size,), nprocs=world_size, join=True
-    )
-
 if __name__ == '__main__':
     main()
 ```
 
-This example uses `torch.multiprocessing.spawn` instead of `torchrun`. Both work, but `torchrun` is preferred because it handles errors better and provides more control.
+Launch with:
 
-### Using torch.multiprocessing.spawn
-
-If you can't use `torchrun` (e.g., older PyTorch version or custom launcher), you can use `torch.multiprocessing.spawn`:
-
-```python
-import torch.multiprocessing as mp
-
-def main():
-    world_size = 4  # Number of GPUs
-    mp.spawn(train, args=(world_size,), nprocs=world_size, join=True)
+```bash
+torchrun --nproc_per_node=4 train.py
 ```
 
-The `spawn` method creates `world_size` processes, each calling `train(rank, world_size)`. You're responsible for setting up the process group in each process.
+(Use your number of GPUs in place of `4`.) Same pattern as the minimal example: one entry point, environment variables set by torchrun.
 
 ### Device Selection Best Practices
 
@@ -478,43 +468,35 @@ This makes only GPUs 0-3 visible, and `LOCAL_RANK` will map to these GPUs (LOCAL
 
 ## Setting Up Multi-Node DDP
 
-Multi-node DDP scales training across multiple machines. This is where you'll see the real benefits of distributed training—training models that don't fit on a single node, or training faster by using hundreds of GPUs.
+Multi-node DDP runs one process per GPU across multiple machines. You get both scale (models that don't fit on one node, or faster training with many GPUs) and a clear layout: each machine is a *node*, and the total number of processes is the *world size*.
 
 ### Multi-Node Architecture
 
-Each physical machine is a *node*, and you run one process per GPU across all nodes. The total number of processes is the *world size*—so with 2 nodes and 2 GPUs per node you get 4 processes, and each node runs 2 of them.
+![RANK and LOCAL_RANK for 2 nodes × 2 GPUs (multi-node).](img/ddp_env_vars_multi.png){#fig:multi-node-env-vars .block width=100% align=center}
 
-![Single-node vs multi-node process layout.](img/single_node_vs_multi_node.png){#fig:single-vs-multi-node .block width=100% align=center}
+Figure~\ref{fig:multi-node-env-vars} shows the layout for two nodes with two GPUs each: WORLD_SIZE 4, with RANKs 0–3. Node 0 runs the processes with RANK 0 and 1 (each with LOCAL_RANK 0 and 1); node 1 runs RANK 2 and 3 (again LOCAL_RANK 0 and 1 on that node). The same pattern scales—e.g. 4 nodes × 8 GPUs per node gives world size 32, with 8 processes per node.
 
-Figure~\ref{fig:single-vs-multi-node} shows that layout: a single node with 2 GPUs (RANK 0 and 1, each with LOCAL_RANK 0 and 1), and two nodes with 2 GPUs each, giving RANKs 0–3 and again LOCAL_RANK 0–1 on each node. Scale the same idea to 4 nodes and 8 GPUs per node and you have world size 32, with 8 processes per node.
-
-GPUs on the same node talk over NVLink (hundreds of GB/s), while GPUs on different nodes go over InfiniBand or Ethernet—slower per link (tens of GB/s) but with many links the aggregate bandwidth can still be high. NCCL picks communication patterns to keep cross-node traffic down. For AllReduce it typically does a reduce inside each node, then across nodes, then broadcasts the result back.
+Communication cost follows that layout. GPUs on the same node use NVLink (hundreds of GB/s); GPUs on different nodes use InfiniBand or Ethernet, which is slower per link (tens of GB/s) but can still yield high aggregate bandwidth. NCCL exploits this by reducing inside each node first, then across nodes, then broadcasting the result back—keeping cross-node traffic down.
 
 ### Launching Multi-Node Training
 
-The simplest way to launch multi-node training is with `torchrun` on each node. You need to:
+Multi-node training requires every process to agree on where to rendezvous and how many processes there are. That means specifying: the master node’s address and port, total number of nodes, and each node’s rank. One way to do that is to run `torchrun` on each node and pass these as flags; torchrun then sets `MASTER_ADDR`, `MASTER_PORT`, `WORLD_SIZE`, `NODE_RANK`, and `NNODES` (and per-process `RANK`, `LOCAL_RANK`) for you. Job schedulers like SLURM (see below) are another common way—they set the same variables from the job layout.
 
-1. Set `MASTER_ADDR` to the IP of the master node (node 0)
-2. Set `MASTER_PORT` to a free port (same on all nodes)
-3. Set `WORLD_SIZE` to total number of processes
-4. Set `NODE_RANK` to the node's rank (0 for master, 1 for first worker, etc.)
-5. Set `NNODES` to number of nodes
-
-On the master node (node 0):
+For the 2 nodes × 2 GPUs layout above, run the following on each node. On the master node (node 0):
 
 ```bash
-torchrun --nnodes=2 --nproc_per_node=8 --node_rank=0 \
- --master_addr=<master_ip> --master_port=29500 train.py
+torchrun --nnodes=2 --nproc_per_node=2 --node_rank=0 \
+  --master_addr=<master_ip> --master_port=29500 train.py
 ```
 
-On worker node (node 1):
+On the worker node (node 1):
 
 ```bash
-torchrun --nnodes=2 --nproc_per_node=8 --node_rank=1 \
- --master_addr=<master_ip> --master_port=29500 train.py
+torchrun --nnodes=2 --nproc_per_node=2 --node_rank=1 \
+  --master_addr=<master_ip> --master_port=29500 train.py
 ```
 
-Replace `<master_ip>` with the actual IP address of the master node. You can find it with:
+Replace `<master_ip>` with the actual IP of the master node. You can find it with:
 
 ```bash
 hostname -I
@@ -526,16 +508,18 @@ Or if you have multiple interfaces:
 ip addr show | grep inet
 ```
 
-### Using SLURM for Multi-Node Launch
+For larger runs (e.g. 4 nodes × 8 GPUs), use the same pattern and set `--nnodes=4`, `--nproc_per_node=8`, and `--node_rank=0,1,2,3` on the respective nodes.
 
-Most HPC clusters use SLURM for job scheduling. We cover SLURM and multi-node launch in detail in Chapter~\ref{chap:running-distributed-training-with-slurm}; below is a minimal example that launches multi-node DDP:
+#### Using SLURM for Multi-Node Launch
+
+Most HPC clusters use SLURM for job scheduling. We cover SLURM and multi-node launch in detail in Chapter~\ref{chap:running-distributed-training-with-slurm}; below is a minimal example for the same 2 nodes × 2 GPUs layout used above:
 
 ```bash
 #!/bin/bash
 #SBATCH --job-name=ddp_train
-#SBATCH --nodes=4
-#SBATCH --ntasks-per-node=8
-#SBATCH --gres=gpu:8
+#SBATCH --nodes=2
+#SBATCH --ntasks-per-node=2
+#SBATCH --gres=gpu:2
 #SBATCH --time=24:00:00
 #SBATCH --partition=gpu
 # Get node list
@@ -553,15 +537,17 @@ Or using `torchrun` with SLURM:
 ```bash
 #!/bin/bash
 #SBATCH --job-name=ddp_train
-#SBATCH --nodes=4
-#SBATCH --ntasks-per-node=8
-#SBATCH --gres=gpu:8
+#SBATCH --nodes=2
+#SBATCH --ntasks-per-node=2
+#SBATCH --gres=gpu:2
 #SBATCH --time=24:00:00
 export MASTER_ADDR=$(scontrol show hostnames $SLURM_JOB_NODELIST | head -n 1)
 export MASTER_PORT=29500
-srun torchrun --nnodes=$SLURM_NNODES --nproc_per_node=8 \
---node_rank=$SLURM_NODEID --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT train.py
+srun torchrun --nnodes=$SLURM_NNODES --nproc_per_node=2 \
+  --node_rank=$SLURM_NODEID --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT train.py
 ```
+
+For larger jobs (e.g. 4 nodes × 8 GPUs), set `--nodes=4`, `--ntasks-per-node=8`, `--gres=gpu:8`, and `--nproc_per_node=8` in the torchrun variant.
 
 ### Network Configuration
 
