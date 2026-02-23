@@ -52,7 +52,7 @@ DDP uses a multi-process architecture instead of multi-threading. Each GPU runs 
 
 Communication is more efficient too. DDP uses optimized collective communication primitives like Ring AllReduce and tree algorithms. These distribute the work across all GPUs, not just GPU 0. Instead of one GPU doing all the work, every GPU participates in the gradient synchronization. This eliminates the single-GPU bottleneck that plagues DP.
 
-![](img/distributed_data_parallel.png)
+<!-- ![](img/distributed_data_parallel.png) -->
 
 DDP also overlaps gradient synchronization with computation. While one bucket of gradients is being synchronized, the next bucket can start computing. This hides communication latency, making the overall training faster. All GPUs participate equally in gradient synchronization, creating a balanced workload across the entire system.
 
@@ -574,14 +574,7 @@ ib_write_bw <node0_ip>
 
 ### Environment Variables for Multi-Node
 
-When launching multi-node, these environment variables are critical:
-
-- **MASTER_ADDR**: IP address of master node (rank 0). All nodes must use the same value.
-- **MASTER_PORT**: Port for rendezvous. Must be the same on all nodes and not in use.
-- **WORLD_SIZE**: Total number of processes. Must be the same on all nodes.
-- **RANK**: Global rank of this process (0 to WORLD_SIZE-1). Set automatically by launcher.
-- **LOCAL_RANK**: Local rank within this node (0 to GPUs per node - 1). Set automatically.
-- **NODE_RANK**: Rank of this node (0 to num_nodes - 1). Needed for torchrun.
+The same variables as single-node apply (see "Understanding the Environment Variables"): `RANK`, `LOCAL_RANK`, `WORLD_SIZE`, `MASTER_ADDR`, `MASTER_PORT`—all set by torchrun or your job launcher. For multi-node, **MASTER_ADDR** must be the master node’s real IP (not localhost), and the same **MASTER_PORT** must be used on every node. Torchrun also sets **NODE_RANK** (this node’s index, 0 to num_nodes−1) and **NNODES**; with SLURM, you typically pass these into torchrun from `$SLURM_NODEID` and `$SLURM_NNODES`.
 
 ### A Complete Multi-Node Example
 
@@ -595,19 +588,10 @@ import torch.nn as nn
 from torch.nn.parallel import DistributedDataParallel as DDP
 
 def setup():
-    """Initialize process group. Works for both single-node and multi-node."""
-    # torchrun sets these automatically
-    if 'RANK' in os.environ and 'WORLD_SIZE' in os.environ:
-        rank = int(os.environ['RANK'])
-        local_rank = int(os.environ['LOCAL_RANK'])
-        world_size = int(os.environ['WORLD_SIZE'])
-    else:
-        # Fallback for manual launch (not recommended)
-        rank = int(os.environ.get('RANK', 0))
-        local_rank = int(os.environ.get('LOCAL_RANK', 0))
-        world_size = int(os.environ.get('WORLD_SIZE', 1))
-        os.environ['MASTER_ADDR'] = os.environ.get('MASTER_ADDR', 'localhost')
-        os.environ['MASTER_PORT'] = os.environ.get('MASTER_PORT', '29500')
+    """Initialize process group. Works for both single-node and multi-node (torchrun sets env vars)."""
+    rank = int(os.environ['RANK'])
+    local_rank = int(os.environ['LOCAL_RANK'])
+    world_size = int(os.environ['WORLD_SIZE'])
     torch.cuda.set_device(local_rank)
     dist.init_process_group(backend='nccl')
     return rank, local_rank, world_size
@@ -628,16 +612,17 @@ if __name__ == '__main__':
     main()
 ```
 
-Launch with:
+Launch for multi-node (2×2 layout). On each node, set the env vars then run torchrun (on node 0 use `NODE_RANK=0`, on node 1 use `NODE_RANK=1`):
 
 ```bash
-# Single-node
-torchrun --nproc_per_node=8 train.py
-# Multi-node (run on each node)
-torchrun --nnodes=4 --nproc_per_node=8 --node_rank=$NODE_RANK --master_addr=$MASTER_ADDR train.py
+export MASTER_ADDR=<master_ip>   # IP of node 0
+export MASTER_PORT=29500
+export NODE_RANK=0               # 0 on master, 1 on worker node
+torchrun --nnodes=2 --nproc_per_node=2 --node_rank=$NODE_RANK \
+  --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT train.py
 ```
 
-## Debugging and Troubleshooting Common DDP Failures
+## Debugging and Troubleshooting
 
 DDP training can fail in many ways. Most failures fall into a few categories: hangs, wrong results, out-of-memory errors, or performance issues. Let's go through each category with common causes and fixes.
 
@@ -1673,7 +1658,7 @@ With the advanced features covered, let's consolidate the key practices that wil
 
 ## Best Practices and Common Patterns
 
-Here are best practices distilled from production DDP training. Following these patterns will help you avoid common pitfalls and build reliable distributed training pipelines:
+The sections below summarize practices that keep DDP training reliable and efficient—validation order, launch choice, reproducibility, data loading, profiling, and checkpointing.
 
 ### Always Validate Single-Process First
 
@@ -1766,221 +1751,90 @@ Long training jobs will fail. Save checkpoints regularly and test that they can 
 
 If you plan to use multi-node training, test it early. Multi-node has different failure modes than single-node (network issues, different hardware, etc.).
 
-So far, we've focused on **synchronous** DDP, where all GPUs wait for each other before synchronizing gradients. This is the standard approach and works well for most cases. However, there are alternative paradigms worth understanding: asynchronous and elastic data parallelism.
-
-## Asynchronous Data Parallelism
-
-All the DDP implementations we've discussed so far are **synchronous**: all GPUs wait for each other to complete gradient computation before synchronizing. This ensures model consistency but can be inefficient when GPUs have different speeds or when communication overhead is high.
-
-**Asynchronous Data Parallelism (ADP)** allows GPUs to update parameters independently without waiting for others. Fast GPUs can update parameters more frequently, while slow GPUs don't block the entire training process.
-
-### How Asynchronous Data Parallel Works
-
-In asynchronous data parallel:
-
-1. **Forward pass**: Each GPU processes its data shard independently, computing gradients at its own pace.
-
-2. **Gradient push**: When a GPU finishes computing gradients, it immediately sends them to a parameter server (or master process) without waiting for other GPUs.
-
-3. **Parameter update**: The parameter server accumulates gradients and updates model parameters as soon as it receives gradients from any GPU.
-
-4. **Parameter pull**: GPUs pull the latest parameters from the parameter server before the next iteration.
-
-The key difference from synchronous DDP: GPUs don't wait for each other. A fast GPU might update parameters multiple times while a slow GPU is still computing gradients.
-
-### Advantages of Asynchronous Data Parallel
-
-- **No straggler waiting**: Fast GPUs don't wait for slow GPUs, improving overall throughput when GPUs have different speeds.
-- **Better GPU utilization**: GPUs stay busy computing instead of waiting for synchronization.
-- **Scalability**: Can handle large numbers of GPUs without communication bottlenecks (each GPU communicates independently with the parameter server).
-
-### Challenges of Asynchronous Data Parallel
-
-- **Stale gradients**: A GPU might compute gradients using old parameters while parameters are being updated by other GPUs. This creates gradient staleness, which can hurt convergence.
-- **Convergence issues**: The lack of synchronization can cause training instability. Models might converge slower or not converge at all, especially with high staleness.
-- **Race conditions**: Multiple GPUs updating parameters simultaneously can cause race conditions, requiring careful synchronization at the parameter server.
-- **Parameter server bottleneck**: All GPUs communicate with a central parameter server, which can become a bottleneck at scale.
-
-### When to Use Asynchronous Data Parallel
-
-Asynchronous data parallel is rarely used in modern training because:
-
-1. **DDP is fast enough**: With efficient communication (NVLink, InfiniBand) and overlap, synchronous DDP achieves high efficiency without the convergence risks.
-
-2. **Convergence is critical**: For most models, training stability and convergence are more important than marginal speed improvements.
-
-3. **Hardware is homogeneous**: Modern clusters have uniform GPU speeds, so straggler issues are less common.
-
-However, asynchronous data parallel can be useful for:
-
-- **Heterogeneous clusters**: When GPUs have significantly different speeds
-- **Fault tolerance**: When you want training to continue even if some GPUs fail
-- **Research**: When exploring trade-offs between speed and convergence
-
-### Implementing Asynchronous Data Parallel
-
-PyTorch doesn't provide built-in asynchronous data parallel support (DDP is synchronous). You'd need to implement it manually using parameter servers or custom communication patterns. This is complex and error-prone, which is why most practitioners stick with DDP.
-
-If you need asynchronous behavior, consider:
-
-- **Gradient accumulation**: Simulate larger batches without synchronization overhead
-- **Pipeline parallelism**: Overlap computation across model layers (covered in later chapters)
-- **Elastic training**: Handle node failures and dynamic scaling (covered next)
-
-While asynchronous data parallel is rarely used in practice, **elastic data parallelism** is increasingly important for production training systems that need to handle failures and dynamic resource allocation.
 
 ## Elastic Data Parallelism
 
-Elastic training is a distributed training approach that handles dynamic environments: node failures, resource changes, and membership changes. Instead of failing when a node crashes, elastic training automatically adjusts and continues training. This is crucial for long-running training jobs where node failures are inevitable.
+**Elastic data parallelism** extends data-parallel training with fault tolerance and optional elasticity. In standard DDP, a single node or process failure brings down the entire job. Long-running or multi-day training on shared or preemptible clusters often cannot afford that: you want the run to recover from failures and, in some environments, to scale the number of workers up or down as nodes join or leave. Elastic data parallelism addresses that by adding a *process and fault-tolerance* layer around the same gradient-synchronization logic that DDP already provides.
 
-PyTorch provides **TorchElastic** (now part of `torchrun`) for elastic distributed training. It enables:
+In PyTorch this process layer is built into `torchrun`. It starts and monitors worker processes, detects crashes, and re-runs a coordination step called **rendezvous** so that a new worker group can form—with the same or a different number of nodes. Gradient synchronization is still performed by DDP inside each worker; the elastic layer does not implement AllReduce or any training logic. It only manages process lifecycle and recovery. So in practice, elastic data parallelism is DDP (gradient sync) plus the fault-tolerant process management that torchrun provides when you enable it.
 
-- **Fault tolerance**: Automatically recover from node failures
-- **Dynamic scaling**: Add or remove nodes during training
-- **Checkpoint-based recovery**: Resume from the last checkpoint after failures
+You launch with the same tool you have been using: `torchrun`. Without any elastic or rendezvous options, it behaves as a static launcher and your job is ordinary DDP. When you add `--max-restarts`, `--rdzv-id`, `--rdzv-backend`, and `--rdzv-endpoint`—and optionally a node range such as `--nnodes=MIN:MAX`—you enable fault tolerance or elasticity. If a rank crashes, the launcher stops all workers, runs rendezvous again, respawns the worker group, and invokes your training script once more. If your script loads and saves checkpoints, training can resume from the last saved state; DDP itself is unaware of the restart. Two modes are available: **fault-tolerant** (fixed number of nodes; workers are restarted up to `--max-restarts`, world size unchanged) and **elastic** (`--nnodes=MIN:MAX`, so nodes can leave or join and world size can change between runs). For the full API, launch options, and implementation details, see the official **Torch Distributed Elastic**（TDE） documentation: <https://docs.pytorch.org/docs/stable/distributed.elastic.html>.
 
 ### How Elastic Training Works
 
-Elastic training uses a **rendezvous** mechanism to coordinate nodes:
-
-1. **Rendezvous**: Nodes join a rendezvous point, waiting until a minimum number of nodes are available.
-
-2. **Barrier**: Once minimum nodes are reached, all nodes proceed together. If maximum nodes are specified, rendezvous completes immediately when maximum is reached.
-
-3. **Rank assignment**: Each node receives a unique rank for the training job.
-
-4. **Training**: Nodes run training with the assigned ranks.
-
-5. **Failure handling**: If a node fails, remaining nodes detect the failure and trigger a new rendezvous, reassigning ranks and continuing training.
-
-### Elastic Agent
-
-The **Elastic Agent** is the control plane for elastic training. It:
-
-- Launches and manages worker processes
-- Monitors worker health and detects failures
-- Handles rendezvous and rank assignment
-- Restarts workers when failures occur
-
-Each node runs an Elastic Agent that manages local workers. Agents coordinate with each other through the rendezvous backend.
-
-### Rendezvous Backend
-
-The rendezvous backend coordinates node discovery and synchronization. PyTorch provides two backends:
-
-1. **C10d backend**: Uses TCPStore (default). No external dependencies required.
-
-2. **etcd backend**: Uses etcd for coordination. More robust for large-scale deployments.
-
-The rendezvous process has several states:
-
-- **Non-existent**: No active rendezvous
-- **Joinable**: Nodes can join (waiting for minimum nodes)
-- **Frozen**: Minimum nodes reached, finalizing participant list
-- **Final**: Rendezvous complete, ranks assigned
+Workers are formed through **rendezvous**. Nodes contact a rendezvous endpoint (for example, a host and port where the c10d backend is running) and wait until the required number of participants is reached—for elastic jobs, any number between MIN and MAX. The rendezvous then completes and each process receives a global `RANK` and `WORLD_SIZE`. These values can change after a restart or a membership change, so the training script must not hard-code assumptions about them. Each node runs an **elastic agent** that starts and monitors local workers, participates in rendezvous, and restarts the worker group when a node fails or leaves: the agent stops all workers, runs a new rendezvous, and restarts. Agents coordinate via a **rendezvous backend**. The **c10d** backend uses a TCP store and needs no extra services; you pass `--rdzv-backend=c10d` and `--rdzv-endpoint=host:port` (port defaults to 29400). The **etcd** and **etcd-v2** backends use an etcd server (v2 API must be enabled); prefer etcd-v2, as the etcd backend is legacy and may be removed.
 
 ### Launching Elastic Training
 
-Use `torchrun` with elastic parameters:
+Run the same `torchrun` command on every node (or let your job scheduler do it). Example: **elastic** job with 2–4 nodes, 2 GPUs per node, up to 3 restarts:
 
 ```bash
 torchrun \
     --nnodes=2:4 \
-    --nproc-per-node=8 \
+    --nproc-per-node=2 \
     --max-restarts=3 \
     --rdzv-id=my_job \
     --rdzv-backend=c10d \
-    --rdzv-endpoint=master_node:29500 \
+    --rdzv-endpoint=master_node:29400 \
     train.py
 ```
 
-Parameters:
-
-- `--nnodes=MIN:MAX`: Minimum and maximum number of nodes (2 to 4 in this example)
-- `--nproc-per-node`: Number of processes (GPUs) per node
-- `--max-restarts`: Maximum number of restart attempts
-- `--rdzv-id`: Unique job identifier
-- `--rdzv-backend`: Rendezvous backend (c10d or etcd)
-- `--rdzv-endpoint`: Master node address and port
+For **fault-tolerant** (fixed 2 nodes, no elasticity), use `--nnodes=2` (no `:MAX`). `--rdzv-id` must be the same on all nodes; `--rdzv-endpoint` is the host and port where the c10d store runs (often the master node).
 
 ### Implementing Checkpointing for Elastic Training
 
-Elastic training requires proper checkpointing because nodes can fail and restart. Your training script should:
+On failure or membership change, all workers are stopped and restarted with new ranks. Progress is only preserved if you checkpoint. Recommended pattern: load the latest checkpoint at startup; train; save checkpoints periodically (e.g. every epoch). Only rank 0 should write checkpoints; use a temporary file then rename for atomic writes (see the Checkpointing section earlier in this chapter).
 
-1. **Load checkpoint at startup**: Always try to load the latest checkpoint before starting training.
-
-2. **Save checkpoints regularly**: Save checkpoints frequently (every N epochs or iterations) so minimal progress is lost on failure.
-
-3. **Handle checkpoint loading**: If checkpoint exists, resume from that point. Otherwise, start from scratch.
-
-Example:
+Sketch:
 
 ```python
+import os
 import torch
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 
 def load_checkpoint(checkpoint_path):
-    """Load checkpoint if it exists."""
     if os.path.exists(checkpoint_path):
-        checkpoint = torch.load(checkpoint_path)
-        return checkpoint
+        return torch.load(checkpoint_path, map_location='cpu')
     return None
 
-def save_checkpoint(model, optimizer, epoch, checkpoint_path):
-    """Save checkpoint (only on rank 0)."""
-    if dist.get_rank() == 0:
-        checkpoint = {
-            'epoch': epoch,
-            'model_state_dict': model.module.state_dict(),
-            'optimizer_state_dict': optimizer.state_dict(),
-        }
-        torch.save(checkpoint, checkpoint_path)
+def save_checkpoint(model, optimizer, epoch, path):
+    if dist.get_rank() != 0:
+        return
+    tmp = path + '.tmp'
+    torch.save({'epoch': epoch, 'model_state_dict': model.module.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict()}, tmp)
+    os.replace(tmp, path)
 
-def train():
+def main():
     dist.init_process_group(backend='nccl')
     rank = dist.get_rank()
-    # Load checkpoint
-    checkpoint = load_checkpoint('checkpoint.pt')
-    start_epoch = 0
-    model = create_model().to(rank)
+    device = torch.device(f'cuda:{rank}')
+    model = create_model().to(device)
     model = DDP(model, device_ids=[rank])
     optimizer = create_optimizer(model.parameters())
+    checkpoint = load_checkpoint('checkpoint.pt')
+    start_epoch = checkpoint['epoch'] + 1 if checkpoint else 0
     if checkpoint:
         model.module.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        start_epoch = checkpoint['epoch'] + 1
-        if rank == 0:
-            print(f'Resuming from epoch {start_epoch}')
-    # Training loop
     for epoch in range(start_epoch, num_epochs):
-        # Training...
         train_epoch(model, optimizer, dataloader)
-        # Save checkpoint every epoch
         save_checkpoint(model, optimizer, epoch, 'checkpoint.pt')
     dist.destroy_process_group()
 ```
 
-### Elastic Training Best Practices
-
-1. **Frequent checkpoints**: Save checkpoints often. In the worst case, you'll lose progress since the last checkpoint.
-2. **Checkpoint on rank 0**: Only rank 0 should write checkpoints to avoid race conditions.
-3. **Atomic checkpoint writes**: Write to a temporary file, then rename to avoid corrupted checkpoints.
-4. **Test failure scenarios**: Intentionally kill nodes to verify recovery works correctly.
-5. **Monitor rendezvous**: Use `NCCL_DEBUG=INFO` to monitor rendezvous and communication.
+To get clear error summaries (including tracebacks) when a worker fails, decorate your entrypoint with `@record` from `torch.distributed.elastic.multiprocessing.errors` (see the [Elastic docs](https://pytorch.org/docs/stable/elastic/errors.html)).
 
 ### When to Use Elastic Training
 
-Use elastic training when:
+Use elastic or fault-tolerant training when:
 
-- **Long-running jobs**: Training jobs that run for days or weeks benefit from fault tolerance
-- **Unreliable infrastructure**: Clusters with frequent node failures
-- **Dynamic resource allocation**: When you want to add/remove nodes based on availability
-- **Cost optimization**: Scale down during low-priority periods, scale up when needed
+- **Long-running jobs**: Jobs that run for days or weeks and cannot afford to lose all progress on a single node failure.
+- **Unreliable or shared clusters**: Frequent node failures or preemptions.
+- **Variable capacity**: You want to scale the number of nodes up or down during the run (elastic mode only).
 
-For short training jobs or stable clusters, standard DDP (non-elastic) is simpler and sufficient.
-
-Now that we've covered all the key concepts—from basic DDP setup to advanced features like asynchronous and elastic training—let's put everything together in a complete, production-ready example that demonstrates best practices.
+For short jobs or stable, dedicated clusters, standard DDP with plain `torchrun` is simpler and usually enough.
 
 ## Real-World Example: Training a Transformer with DDP
 
@@ -2133,13 +1987,7 @@ Launch with:
 torchrun --nproc_per_node=8 train_transformer.py
 ```
 
-This example includes:
-
-- DDP setup and teardown
-- DistributedSampler with set_epoch()
-- Mixed precision training
-- Checkpointing
-- A realistic transformer model
+This example includes DDP setup and teardown, DistributedSampler with `set_epoch()`, mixed precision training, checkpointing, and a realistic transformer model.
 
 ## Conclusion
 
@@ -2167,8 +2015,10 @@ Key takeaways:
 DDP is mature, well-optimized, and suitable for most distributed training scenarios. However, for very large models that don't fit on a single GPU, you'll need to move beyond DDP to techniques like FSDP (Fully Sharded Data Parallel), which we'll cover in the next chapter. FSDP extends DDP by sharding model parameters across GPUs, enabling training of models that are too large for any single GPU's memory.
 
 
-References:
+<!--References:
 
 - /media/wukong/jackie/git.repo/AISystem/05Framework/04Parallel/02DataParallel.md
 - https://multithreaded.stitchfix.com/blog/2023/06/08/distributed-model-training/
+
+-->
 
