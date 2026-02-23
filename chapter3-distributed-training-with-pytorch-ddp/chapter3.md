@@ -20,7 +20,8 @@
 
 ## How DDP Works Internally
 
-In Chapter 2, we explored the hardware foundation and parallelism strategies that make distributed training possible. Now we turn to the practical implementation: **DistributedDataParallel (DDP)**, PyTorch's standard approach for data-parallel distributed training. DDP is how you actually scale training across multiple GPUs—whether they're in a single machine or spread across a cluster.
+In Chapter~\ref{chap:gpu-hardware-networking-and-parallelism-strategies}, we explored the hardware foundation and parallelism strategies that make distributed training possible. Now we turn to the practical implementation: **DistributedDataParallel (DDP)**, PyTorch's standard approach for data-parallel distributed training. DDP is how you actually scale training across multiple GPUs—whether they're in a single machine or spread across a cluster.
+
 
 The core idea is elegant: replicate your model on every GPU, shard your data across GPUs, and synchronize gradients after each backward pass. Each GPU processes a different batch of data, computes gradients independently, then all GPUs average their gradients together. This ensures every model replica stays in sync while leveraging parallel computation.
 
@@ -43,15 +44,15 @@ This is **data parallelism**: the model is replicated, but data is sharded. Each
 
 Before DDP, PyTorch had `DataParallel` (DP), which is still available but largely superseded by DDP. DP uses a single-process, multi-threaded approach that runs on a single machine. It has several limitations: Python's GIL prevents true parallelism, all gradient synchronization happens on GPU 0 creating a bottleneck, and it can't scale across multiple machines.
 
-![](img/data_parallel.png)
+<!-- ![](img/data_parallel.png) -->
 
-**DistributedDataParallel (DDP)** addresses these limitations:
-
-![](img/distributed_data_parallel.png)
+**DistributedDataParallel (DDP)** addresses these limitations.
 
 DDP uses a multi-process architecture instead of multi-threading. Each GPU runs in its own process, which avoids Python's GIL limitations and enables true parallelism. Unlike DP, DDP can scale across multiple machines connected via network. You're not limited to GPUs in a single machine—you can train on hundreds or thousands of GPUs across a cluster.
 
 Communication is more efficient too. DDP uses optimized collective communication primitives like Ring AllReduce and tree algorithms. These distribute the work across all GPUs, not just GPU 0. Instead of one GPU doing all the work, every GPU participates in the gradient synchronization. This eliminates the single-GPU bottleneck that plagues DP.
+
+![](img/distributed_data_parallel.png)
 
 DDP also overlaps gradient synchronization with computation. While one bucket of gradients is being synchronized, the next bucket can start computing. This hides communication latency, making the overall training faster. All GPUs participate equally in gradient synchronization, creating a balanced workload across the entire system.
 
@@ -83,13 +84,16 @@ For overlap to work, you need enough computation between bucket boundaries. If y
 
 You can check if overlap is working by profiling. If you see AllReduce operations happening concurrently with backward compute, overlap is working. If AllReduce happens sequentially after all gradients are computed, overlap isn't happening (maybe your model is too small, or there's a synchronization point blocking it).
 
+
 ### The AllReduce Operation
 
 AllReduce is the core collective operation that makes DDP work. As detailed in Chapter~\ref{chap:introduction-to-modern-distributed-ai} (see the "Collective Operations" section), AllReduce takes gradients from all processes, sums them, and distributes the result back to all processes. On GPUs, DDP uses NCCL (NVIDIA Collective Communications Library) to implement AllReduce efficiently using algorithms like __ring AllReduce__ and __tree AllReduce__, which NCCL selects automatically based on your hardware topology.
 
 ![Ring AllReduce: four ranks with clockwise data flow.](img/ring_allreduce.png){#fig:ring-allreduce .block width=50% align=right-top}
 
-Figure~\ref{fig:ring-allreduce} shows the ring topology. Understanding AllReduce helps when debugging performance. If you're seeing slow gradient synchronization, it might be because NCCL picked a suboptimal algorithm for your topology, or because network bandwidth is saturated.
+Figure~\ref{fig:ring-allreduce} shows the **ring topology**: ranks are arranged in a logical ring, and data flows in one direction (e.g., clockwise). In ring AllReduce, each rank holds a chunk of the full tensor. In the first phase (reduce-scatter), each rank sends its chunk to the next rank and receives from the previous, accumulating partial sums so that after $N-1$ steps (for $N$ ranks) each rank has the full sum for one chunk. In the second phase (all-gather), ranks exchange these reduced chunks until every rank has the complete reduced result. The ring algorithm is **bandwidth-optimal**: it moves only $2 \cdot (N-1)/N$ times the tensor size, regardless of $N$, and uses each link in the ring efficiently. NCCL may instead choose **tree AllReduce** (or other variants) when it detects a topology where a tree layout has lower latency or better fits the physical interconnect (e.g., NVLink vs PCIe vs network).
+
+Understanding which algorithm is in use helps when debugging performance. If gradient synchronization is slow, possible causes include: (1) NCCL picked an algorithm that does not match your topology (e.g., a ring over a network that is not a physical ring); (2) network or interconnect bandwidth is saturated; (3) small message sizes that don't amortize the fixed cost of the collective. You can inspect NCCL's choices and timings via `NCCL_DEBUG=INFO` or PyTorch profiler; comparing AllReduce time to the theoretical ring cost (tensor size divided by per-link bandwidth) can tell you whether you are bandwidth-bound or latency-bound.
 
 ### Mixed Precision and Gradient Scaling
 

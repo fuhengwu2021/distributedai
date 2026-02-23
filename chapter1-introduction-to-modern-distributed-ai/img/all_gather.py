@@ -2,6 +2,13 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import os
 
+
+from math4ai import configure_math_fonts
+
+# Configure matplotlib for math expressions
+configure_math_fonts()
+
+
 def draw_allgather_diagram_v2():
     # Setup Figure
     fig, ax = plt.subplots(figsize=(12, 4))
