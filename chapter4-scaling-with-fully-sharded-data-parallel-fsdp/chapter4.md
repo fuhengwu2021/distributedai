@@ -27,6 +27,7 @@ This chapter focuses on FSDP2 for GPU training—it's the recommended approach f
 
 [^wan22]: <https://github.com/Wan-Video/Wan2.2>
 [^fsdp2-rfc]: <https://github.com/pytorch/pytorch/issues/114299>
+[^t5-flan]: **T5** (Text-to-Text Transfer Transformer) is an encoder-decoder model from Google that frames NLP tasks as text-to-text. **FLAN-T5** is the instruction-tuned family of T5 models (e.g. flan-t5-small, flan-t5-xl, flan-t5-xxl), used for tasks like summarization and question answering.
 
 ## Why FSDP Enables Larger-Than-Memory Models
 
@@ -183,11 +184,56 @@ for layer in model.transformer.layers:
 
 This gives you fine-grained control over what gets sharded. Small layers (like embeddings) might not benefit from sharding and can add communication overhead, so you can leave them unsharded.
 
-## A Complete Working Example: Training a Transformer with FSDP2
+## A Complete Working Example: T5 Summarization with FSDP
 
-Let's build a complete example based on the PyTorch FSDP2 examples. This trains a transformer model that's intentionally too large for a single GPU, demonstrating FSDP in action.
+A complete runnable example in `code/FSDP/` trains **T5 (FLAN-T5)**[^t5-flan] for text summarization with both FSDP1 and FSDP2, including checkpointing, mixed precision, and example training logs.
 
-The example uses a transformer architecture similar to GPT, with configurable layers, heads, and dimensions. Here's the model definition:
+The example provides three entry points so you can compare single-GPU training, FSDP1, and FSDP2 on the same task and model:
+
+- **FSDP1**: `T5_training_FSDP1.py` wraps FLAN-T5 with `FullyShardedDataParallel`, `ShardingStrategy.FULL_SHARD`, mixed precision, and FSDP1-style state dict handling. Use it when working with codebases that still rely on the original FSDP API.
+- **FSDP2**: `T5_training_FSDP2.py` uses `fully_shard()` and the Distributed Checkpoint (DCP) API; this is the recommended script for new projects.
+- **Single-GPU baseline**: `T5_training_Single.py` trains the same model on one GPU (no FSDP), useful for checking correctness and for comparing memory and throughput.
+
+All scripts live in `code/FSDP/`. Before running the training scripts, download the WikiHow dataset from the `code/FSDP/` directory by running:
+
+```
+bash download_dataset.sh
+```
+
+to fetch the CSV files into `data/`. The README there describes model choices (flan-t5-small through flan-t5-xxl), VRAM requirements, and command-line options.
+
+**Example run and reference logs**.
+
+Run a 2-GPU FSDP1 training with:
+
+```bash
+torchrun --nnodes 1 --nproc_per_node 2 code/FSDP/T5_training_FSDP1.py
+```
+
+Reference log files (`train_log.txt`, `train2_log.txt`, `train3_log.txt`) are provided in `code/FSDP/` for comparison: you can compare your run’s output and timing against them. Example output from those logs:
+
+```text
+Loading training dataset...
+Training dataset size: 1500
+bFloat16 enabled for mixed precision - using bfSixteen policy
+r0 Training Epoch: 100%| 188/188 [00:14<00:00, 12.85it/s]
+Train Epoch:    1, Loss:        0.4917
+Validation Loss: 0.3431
+Train Epoch:    2, Loss:        0.3409
+...
+```
+
+FSDP2 is run similarly:
+
+```
+torchrun --nnodes 1 --nproc_per_node 2 code/FSDP/T5_training_FSDP2.py
+```
+
+with optional `--model-name google/flan-t5-xl` or `google/flan-t5-xxl` for larger models.
+
+**Minimal example: small transformer with FSDP2**:
+
+A minimal runnable that illustrates only the FSDP2 API (meta device, `fully_shard`, `to_empty`, `reset_parameters`) uses a small transformer in `code/model.py` and `code/train_fsdp2_transformer.py`. The model definition is:
 
 ```python
 from dataclasses import dataclass
@@ -382,29 +428,29 @@ if __name__ == "__main__":
     main(args)
 ```
 
-Save this as `code/train_fsdp2_transformer.py` and run it with:
+Run the minimal transformer example with:
 
 ```bash
 torchrun --nproc_per_node=2 code/train_fsdp2_transformer.py
 ```
 
-To enable mixed precision:
+With mixed precision:
 
 ```bash
-torchrun --nproc_per_node=2 code/train_fsdp2_transformer.py --mixed-precision
+orchrun --nproc_per_node=2 code/train_fsdp2_transformer.py --mixed-precision
 ```
 
-This example creates a transformer with 10 layers, 512 dimensions, and 8 attention heads. With the default configuration, this model has roughly 50M parameters. While this might fit on a single GPU, the example demonstrates the FSDP2 workflow. For larger models (100M+ parameters), FSDP becomes essential.
+The small transformer (~50M parameters) demonstrates the FSDP2 workflow; for real large-model training and logs, use the T5 example in `code/FSDP/` above.
 
-Key points from this example:
+**Key points (both T5 and minimal transformer examples)**
 
-1. **Meta device initialization**: We create the model on the meta device first, which doesn't allocate memory. This is useful for very large models where you can't even create the model on a single GPU.
+1. **Meta device initialization**: Create the model on the meta device first so no memory is allocated until after FSDP is applied—essential for very large models (as in the T5 XL/XXL runs in `code/FSDP/`).
 
-2. **Hierarchical sharding**: We shard each transformer layer individually, then shard the entire model. This gives fine-grained control.
+2. **Hierarchical sharding**: Shard each layer (or block) individually, then shard the whole model. The T5 scripts wrap encoder/decoder blocks; the minimal example wraps each transformer layer.
 
-3. **Parameter initialization**: After applying FSDP, we call `to_empty()` to move the model to the actual device, then `reset_parameters()` to initialize weights. This works with the sharded representation.
+3. **Parameter initialization**: After `fully_shard()`, call `to_empty(device=device)` then `reset_parameters()` (or load from checkpoint). The T5 example loads pretrained weights; the minimal example uses `reset_parameters()`.
 
-4. **Mixed precision**: The example shows how to enable mixed precision training with FSDP2, which is essential for large models.
+4. **Mixed precision**: Both examples support mixed precision (e.g. bfloat16); the T5 logs show "bFloat16 enabled for mixed precision."
 
 ## Key Features of FSDP2
 
@@ -858,8 +904,7 @@ This uses more memory but reduces communication. Only use if you have headroom.
 3. **Use faster interconnects**: NVLink for intra-node, InfiniBand for inter-node. Make sure NCCL is using them:
 
 ```bash
-export NCCL_IB_DISABLE=0  # Enable InfiniBand
-export NCCL_DEBUG=INFO    # Check what NCCL is using
+export NCCL_IB_DISABLE=0 && export NCCL_DEBUG=INFO
 ```
 
 ### Optimizing Activation Memory
@@ -963,8 +1008,7 @@ For multi-node FSDP, network bandwidth and latency are critical. FSDP does more 
 Make sure NCCL is using InfiniBand:
 
 ```bash
-export NCCL_IB_DISABLE=0
-export NCCL_DEBUG=INFO
+export NCCL_IB_DISABLE=0 && export NCCL_DEBUG=INFO
 ```
 
 Check the NCCL logs to verify it's using InfiniBand. You should see messages like:
@@ -1168,8 +1212,7 @@ Use these tools to debug FSDP:
 1. **NCCL debug**: Enable detailed NCCL logging:
 
 ```bash
-export NCCL_DEBUG=INFO
-export NCCL_DEBUG_SUBSYS=ALL
+export NCCL_DEBUG=INFO && export NCCL_DEBUG_SUBSYS=ALL
 ```
 
 2. **PyTorch profiler**: Profile to see communication patterns:
