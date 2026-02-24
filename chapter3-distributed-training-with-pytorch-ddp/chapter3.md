@@ -1252,7 +1252,7 @@ It is useful when the desired batch size does not fit in memory, when a larger e
 
 ### Mixed Precision Training
 
-Mixed precision (FP16/BF16) halves memory usage and can double throughput. PyTorch's Automatic Mixed Precision (AMP) makes it easy:
+Mixed precision (FP16 or BF16) reduces memory use and can improve throughput. PyTorch's Automatic Mixed Precision (AMP) provides a straightforward way to use it:
 
 ```python
 from torch.cuda.amp import autocast, GradScaler
@@ -1271,18 +1271,7 @@ for epoch in range(10):
         scaler.update()
 ```
 
-**GradScaler** handles gradient scaling to prevent underflow. It:
-1. Scales loss before backward (gradients are also scaled)
-2. Detects overflow (inf/NaN gradients)
-3. Skips optimizer step if overflow detected
-4. Adjusts scale factor dynamically
-
-**BF16 vs FP16**:
-
-- **FP16**: 5-bit exponent, 10-bit mantissa. Can underflow easily.
-- **BF16**: 8-bit exponent (same as FP32), 7-bit mantissa. More stable, less precision loss.
-
-For training, BF16 is often preferred because it's more stable. For inference, FP16 is fine and sometimes faster.
+`GradScaler` scales the loss before backward so that small gradients do not underflow; it also detects overflow (inf or NaN), skips the optimizer step when overflow is detected, and adjusts the scale factor over time. FP16 uses a 5-bit exponent and 10-bit mantissa and can underflow easily. BF16 uses an 8-bit exponent (as in FP32) and a 7-bit mantissa, so it is more stable with less precision loss. For training, BF16 is often preferred; for inference, FP16 is commonly used and can be faster. To use BF16 when the hardware supports it:
 
 ```python
 # Use BF16 (if supported)
@@ -1290,11 +1279,7 @@ with autocast(dtype=torch.bfloat16):
     output = model(data)
 ```
 
-**DDP + AMP best practices**:
-
-- Create scaler before wrapping model with DDP
-- Call `scaler.step()` and `scaler.update()` on all processes
-- Monitor for overflow (scaler will skip steps if overflow detected)
+With DDP, the scaler should be created before wrapping the model in DDP, and `scaler.step()` and `scaler.update()` must be called on every process. The scaler skips the optimizer step when it detects overflow.
 
 ### Communication Overlap Optimization
 
