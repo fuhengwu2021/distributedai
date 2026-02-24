@@ -26,6 +26,7 @@ PyTorch provides three main FSDP implementations:
 This chapter focuses on FSDP2 for GPU training—it's the recommended approach for new projects on CUDA devices. The original FSDP (FSDP1) still works and remains in use in production codebases; for example, Wan2.2 uses PyTorch FSDP together with DeepSpeed Ulysses for multi-GPU inference.[^wan22] We summarize FSDP1 below and then concentrate on FSDP2. For TPU training, see Section~\ref{sec:fsdp-spmd}.
 
 [^wan22]: <https://github.com/Wan-Video/Wan2.2>
+[^fsdp2-rfc]: <https://github.com/pytorch/pytorch/issues/114299>
 
 ## Why FSDP Enables Larger-Than-Memory Models
 
@@ -58,7 +59,7 @@ FSDP uses two key collective operations:
 
 The key insight is that you don't need all parameters at once. During forward pass, you process layers sequentially. FSDP can all-gather parameters for the current layer, use them, then free them before moving to the next layer. This is why activation checkpointing is so important with FSDP—it reduces activation memory so you have room for the all-gathered parameters.
 
-The per-parameter-sharding design (introduced in PyTorch issue #114299) shards each parameter individually on dimension 0. This is simpler than the original flat-parameter approach and enables several useful features: flexible fp8 all-gather, frozen parameters in the same group, communication-free sharded state dicts, and better compiler integration.
+The per-parameter-sharding design (introduced in PyTorch issue #114299[^fsdp2-rfc]) shards each parameter individually on dimension 0. This is simpler than the original flat-parameter approach and enables several useful features: flexible fp8 all-gather, frozen parameters in the same group, communication-free sharded state dicts, and better compiler integration.
 
 ### Original FSDP (FSDP1)
 
@@ -77,7 +78,7 @@ model = FSDP(
 
 You can use `FSDP.set_state_dict_type()` and `StateDictConfig` / `OptimStateDictConfig` for checkpointing; mixed precision is configured via `MixedPrecision`. FSDP1 is stable and still used in many codebases. For instance, **Wan2.2** (open large-scale video generative models) runs multi-GPU inference with PyTorch FSDP and DeepSpeed Ulysses (sequence parallelism).[^wan22] For new PyTorch projects, FSDP2 is recommended; when you work with or extend projects that already use FSDP1, the wrapper style and flat-parameter behavior are what you will see.
 
-## Understanding FSDP2: The Per-Parameter-Sharding API
+## FSDP2: The Per-Parameter-Sharding API
 
 The new API uses `fully_shard()` as a function that modifies modules in place. No wrapper class needed—it's more functional and composable. This is a significant departure from the original FSDP, which used a wrapper class similar to DDP.
 
