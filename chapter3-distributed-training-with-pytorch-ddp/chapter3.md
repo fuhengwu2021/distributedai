@@ -260,6 +260,7 @@ Figure~\ref{fig:distributed-sampler} illustrates how the full dataset is split i
 
 
 ```python
+#LINENUM
 from torch.utils.data import DataLoader, Dataset
 from torch.utils.data.distributed import DistributedSampler
 
@@ -309,18 +310,34 @@ def train():
     cleanup()
 ```
 
-A runnable version of this pattern is in `code/train_ddp_sampler.py`. From the chapter directory, launch it with:
+A runnable version of this pattern is in `code/train_ddp_sampler.py`. From the chapter directory, run:
 
 ```bash
-torchrun --nproc_per_node=4 code/train_ddp_sampler.py
+$ export CUDA_VISIBLE_DEVICES=0,1,2,3
+$ torchrun --nproc_per_node=4 code/train_ddp_sampler.py
 ```
 
-Key points about `DistributedSampler`:
+Example output:
 
-- **Sharding**: Each process gets a different subset of data. With 4 processes and 1000 samples, each process sees 250 samples.
-- **Shuffling**: Set `shuffle=True` in the sampler, not in DataLoader. The sampler handles shuffling per-process.
-- **set_epoch()**: Call this at the start of each epoch to ensure different shuffling each epoch. Without this, all epochs see data in the same order.
-- **drop_last**: If `True`, the sampler drops the last incomplete batch so that each rank has the same number of batches; use this with DDP to avoid one rank running extra steps and causing hangs. If `False`, some ranks may have one more batch than others. Prefer `False` only when you need to use every sample (e.g. small datasets) and cannot afford to drop the tail; in that case you must wrap your training loop with DDP's `join()` so that ranks that finish early wait for those with an extra batch, otherwise you get a deadlock.
+```
+Epoch 0 avg loss: 1.2798
+Epoch 1 avg loss: 1.2930
+Epoch 2 avg loss: 1.2105
+Epoch 3 avg loss: 1.2596
+Epoch 4 avg loss: 1.0808
+Epoch 5 avg loss: 1.0864
+Epoch 6 avg loss: 1.0570
+Epoch 7 avg loss: 1.0612
+Epoch 8 avg loss: 1.0212
+Epoch 9 avg loss: 0.9214
+Done.
+```
+
+`DistributedSampler` assigns each process a disjoint subset of the dataset. For example, with 4 processes and 1000 samples, each process receives 250 samples. Shuffling is controlled by the sampler: set `shuffle=True` on the sampler, and leave the DataLoader’s `shuffle` at its default (or omit it), since the sampler already determines the order of indices.
+
+At the start of each epoch you must call `sampler.set_epoch(epoch)`. This seeds the sampler’s shuffle with the epoch index so that each epoch sees a different ordering. If you omit this call, every epoch will iterate over the data in the same order.
+
+The `drop_last` argument matters for synchronization. When it is `True`, the sampler drops the last incomplete batch so that every rank performs the same number of steps; that avoids one rank running ahead and blocking in collective calls. If you set `drop_last=False` (for instance to use every sample in a small dataset), some ranks may have one extra batch. In that case the training loop should use DDP’s `join()` context so that ranks that finish early wait for the others; otherwise the process can deadlock.
 
 ### DataLoader Internals for Distributed Training
 
