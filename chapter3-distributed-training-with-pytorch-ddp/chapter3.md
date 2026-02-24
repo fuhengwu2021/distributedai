@@ -158,7 +158,7 @@ The simplest DDP setup is single-node multi-GPU: one machine with multiple GPUs.
 
 The modern way to launch DDP training is with `torchrun` (or `torch.distributed.run` in older PyTorch versions). `torchrun` handles process creation, environment variable setup, and error handling. It's the recommended launcher for most cases.
 
-Here's a minimal example. First, create a training script `train.py`:
+Here's a minimal example. Save it as a script, or use the provided `code/train_ddp_single_mini.py` in this chapter's directory.
 
 ```python
 import os
@@ -174,14 +174,11 @@ def setup():
     rank = int(os.environ['RANK'])
     local_rank = int(os.environ['LOCAL_RANK'])
     world_size = int(os.environ['WORLD_SIZE'])
-    
     # Set device for this process
     torch.cuda.set_device(local_rank)
     device = torch.device(f'cuda:{local_rank}')
-    
     # Initialize process group
     dist.init_process_group(backend='nccl')
-    
     return rank, local_rank, world_size, device
 
 def cleanup():
@@ -190,19 +187,15 @@ def cleanup():
 
 def main():
     rank, local_rank, world_size, device = setup()
-    
     # Create model and move to device
     model = nn.Linear(10, 1).to(device)
     model = DDP(model, device_ids=[local_rank])
-    
     # Create dummy data
     data = torch.randn(64, 10).to(device)
     target = torch.randn(64, 1).to(device)
-    
     # Training step
     optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
     loss_fn = nn.MSELoss()
-    
     for epoch in range(10):
         # DistributedSampler would go here for real data
         optimizer.zero_grad()
@@ -210,29 +203,40 @@ def main():
         loss = loss_fn(output, target)
         loss.backward()
         optimizer.step()
-        
         if rank == 0:
             print(f'Epoch {epoch}, Loss: {loss.item():.4f}')
-    
     cleanup()
 
 if __name__ == '__main__':
     main()
 ```
 
-Launch it with:
+Launch it with (from the chapter directory, or pass the path to the script):
 
 ```bash
-torchrun --nproc_per_node=4 train.py
+torchrun --nproc_per_node=4 code/train_ddp_single_mini.py
 ```
 
-This launches 4 processes, one per GPU (assuming you have 4 GPUs). `torchrun` automatically sets `RANK`, `LOCAL_RANK`, `WORLD_SIZE`, `MASTER_ADDR`, and `MASTER_PORT` environment variables.
+This launches 4 processes, one per GPU (assuming you have 4 GPUs). `torchrun` automatically sets `RANK`, `LOCAL_RANK`, `WORLD_SIZE`, `MASTER_ADDR`, and `MASTER_PORT` environment variables. The sample output is like:
+
+```
+Epoch 0, Loss: 1.3706
+Epoch 1, Loss: 1.3595
+Epoch 2, Loss: 1.3488
+Epoch 3, Loss: 1.3386
+Epoch 4, Loss: 1.3287
+Epoch 5, Loss: 1.3193
+Epoch 6, Loss: 1.3103
+Epoch 7, Loss: 1.3016
+Epoch 8, Loss: 1.2932
+Epoch 9, Loss: 1.2852
+```
 
 
 ### Understanding the Environment Variables
 
 
-When using `torchrun`, these environment variables are set automatically:
+When using `torchrun`, these environment variables are set __automatically__:
 
 ![RANK, LOCAL_RANK, WORLD_SIZE for a single node with 4 GPUs.](img/ddp_env_vars_single.png){#fig:ddp-env-vars .block width=70% align=center}
 
