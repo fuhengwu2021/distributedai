@@ -1095,7 +1095,27 @@ def analyze_ddp_overlap(model, loss):
         prof.export_chrome_trace("ddp_overlap_trace.json")
 ```
 
-A runnable script that does only this overlap analysis is in `code/profile_ddp_overlap.py`. From the chapter directory run `torchrun --nproc_per_node=2 code/profile_ddp_overlap.py` (or from the `code/` directory, `torchrun --nproc_per_node=2 profile_ddp_overlap.py`). Rank 0 prints the AllReduce vs backward times and writes `ddp_overlap_trace.json`.
+A runnable script that does only this overlap analysis is in `code/profile_ddp_overlap.py`. From the chapter directory run:
+
+```
+torchrun --nproc_per_node=2 code/profile_ddp_overlap.py
+```
+
+Rank 0 prints the AllReduce vs backward times and writes `ddp_overlap_trace.json`. With the script's minimal model (a single linear layer), backward compute is negligible so you will typically see "Total backward compute time: 0.00 ms" and "Limited overlap"—that is expected; with larger models, backward time dominates and overlap becomes visible.
+
+Example output:
+
+```
+DDP Overlap Analysis
+=====================
+AllReduce operations found: 1
+Backward operations found: 1
+Total AllReduce time: 1.06 ms
+Total backward compute time: 0.00 ms
+⚠ Limited overlap: Communication time is significant
+  Consider: larger bucket size, faster interconnects, or larger models
+...
+```
 
 ### Profiling Multi-Node DDP
 
