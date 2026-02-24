@@ -1047,7 +1047,27 @@ A runnable script is in `code/profile_ddp.py`. From the chapter directory run (u
 CUDA_VISIBLE_DEVICES=0,1 torchrun --nproc_per_node=2 code/profile_ddp.py
 ```
 
-Rank 0 prints key profile tables and writes `ddp_trace.json` in the current working directory; open it at [chrome://tracing](chrome://tracing) in Chrome to inspect the timeline. Figure~\ref{fig:ddp-tracing-chrome} shows the Chrome tracing view of a DDP run: forward and backward passes and NCCL AllReduce communication appear on the timeline so you can check overlap between computation and communication.
+Rank 0 prints key profile tables and writes `ddp_trace.json` in __Chrome trace__ format in the current working directory. To open it at [chrome://tracing](chrome://tracing) in Chrome to inspect the timeline:
+
+1. Open Chrome browser
+2. Navigate to `chrome://tracing`
+3. Click "Load" and select the exported `.json` file
+4. Use the timeline view to see:
+
+   - When AllReduce operations occur
+   - Whether they overlap with backward compute
+   - Data loading timing
+   - GPU utilization
+
+When analyzing DDP profiler output, look for:
+
+1. **AllReduce operations**: Should see `nccl:all_reduce` or similar. These represent gradient synchronization.
+2. **Overlap indicators**: If you see backward compute operations (e.g., `ConvolutionBackward0`, `LinearBackward`) happening concurrently with AllReduce, overlap is working.
+3. **Communication time**: AllReduce time should be a small fraction of total backward time for good performance. As a rule of thumb: communication overhead (AllReduce time as a share of total step time) under 20% is good; 20–40% is acceptable; over 40% means communication is a bottleneck. If backward compute time is much larger than AllReduce time, overlap is working well.
+4. **Bucket boundaries**: You might see multiple AllReduce operations during backward pass—these correspond to different gradient buckets.
+5. **Data loading**: Look for `DataLoader` operations. If data loading time is significant, increase `num_workers` or optimize data preprocessing.
+
+Figure~\ref{fig:ddp-tracing-chrome} shows the Chrome tracing view of a DDP run: forward and backward passes and NCCL AllReduce communication appear on the timeline so you can check overlap between computation and communication.
 
 ![Chrome Tracing View of a DDP Run](img/ddp_tracing_analysis_in_chrome.png){#fig:ddp-tracing-chrome .block width=90% align=center}
 
@@ -1171,154 +1191,13 @@ ncclKernel_AllReduce_Sum_f32_RING_LL: 0.18 ms
 ...
 ```
 
-### Interpreting Profiler Results
-
-When analyzing DDP profiler output, look for:
-
-1. **AllReduce operations**: Should see `nccl:all_reduce` or similar. These represent gradient synchronization.
-
-2. **Overlap indicators**: If you see backward compute operations (e.g., `ConvolutionBackward0`, `LinearBackward`) happening concurrently with AllReduce, overlap is working.
-
-3. **Communication time**: AllReduce time should be a small fraction of total backward time for good performance. If AllReduce time is >30% of backward time, you have a communication bottleneck.
-
-4. **Bucket boundaries**: You might see multiple AllReduce operations during backward pass—these correspond to different gradient buckets.
-
-5. **Data loading**: Look for `DataLoader` operations. If data loading time is significant, increase `num_workers` or optimize data preprocessing.
-
 ### Example: Profiling ResNet50 on CIFAR-10
 
-Here's a complete example profiling ResNet50 training with DDP:
+To practice profiling a larger model, use the script in `code/profile_ddp_resnet50.py`. It runs ResNet50 on CIFAR-10 with DDP for 5 iterations under the profiler, then rank 0 prints the top operations and exports `resnet50_ddp_trace.json`. CIFAR-10 is downloaded to `./data` on first run. From the chapter directory run:
 
-```python
-import torch
-import torch.nn as nn
-import torchvision
-import torchvision.transforms as transforms
-from torch.nn.parallel import DistributedDataParallel as DDP
-from torch.utils.data.distributed import DistributedSampler
-from torch.profiler import profile, ProfilerActivity
-import torch.distributed as dist
-
-def profile_resnet_ddp():
-    rank = dist.get_rank()
-    local_rank = rank % torch.cuda.device_count()
-    # Create model
-    model = torchvision.models.resnet50(num_classes=10)
-    model = model.cuda(local_rank)
-    model = DDP(model, device_ids=[local_rank])
-    # Create dataset
-    transform = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
-    ])
-    trainset = torchvision.datasets.CIFAR10(
-        root='./data', train=True, download=True, transform=transform
-    )
-    sampler = DistributedSampler(trainset, num_replicas=dist.get_world_size(), rank=rank)
-    dataloader = torch.utils.data.DataLoader(
-        trainset, batch_size=128, sampler=sampler, num_workers=4, pin_memory=True
-    )
-    criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
-    # Profile training
-    model.train()
-    with profile(
-        activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
-        record_shapes=True,
-        profile_memory=True,
-    ) as prof:
-        for i, (data, target) in enumerate(dataloader):
-            if i >= 5:  # Profile 5 iterations
-                break
-            data = data.cuda(local_rank, non_blocking=True)
-            target = target.cuda(local_rank, non_blocking=True)
-            output = model(data)
-            loss = criterion(output, target)
-            loss.backward()
-            optimizer.step()
-            optimizer.zero_grad()
-    # Print results on rank 0
-    if rank == 0:
-        print("=" * 20)
-        print("ResNet50 DDP Performance Profile")
-        print("=" * 20)
-        print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=30))
-        # Export trace
-        prof.export_chrome_trace("resnet50_ddp_trace.json")
-        print("\nTrace exported to resnet50_ddp_trace.json")
+```bash
+torchrun --nproc_per_node=2 code/profile_ddp_resnet50.py
 ```
-
-### Visualizing Profiler Traces
-
-The profiler exports traces in Chrome trace format. To visualize:
-
-1. Open Chrome browser
-2. Navigate to `chrome://tracing`
-3. Click "Load" and select the exported `.json` file
-4. Use the timeline view to see:
-   - When AllReduce operations occur
-   - Whether they overlap with backward compute
-   - Data loading timing
-   - GPU utilization
-
-In the trace view, you should see:
-
-- **Forward pass**: Dense compute operations
-- **Backward pass**: Mix of compute (gradient computation) and communication (AllReduce)
-- **Overlap**: AllReduce operations happening concurrently with backward compute operations
-
-If AllReduce operations appear as separate blocks after all backward compute, overlap isn't working. If AllReduce appears interleaved with backward compute, overlap is working.
-
-### Performance Metrics from Profiling
-
-From profiler results, calculate these metrics:
-
-```python
-def calculate_ddp_metrics(prof):
-    """Calculate key DDP performance metrics from profiler output."""
-    events = prof.key_averages()
-    # Find key operations
-    forward_ops = [e for e in events if 'forward' in e.key.lower()]
-    backward_ops = [e for e in events if 'backward' in e.key.lower() or 'gradient' in e.key.lower()]
-    allreduce_ops = [e for e in events if 'allreduce' in e.key.lower() or 'nccl' in e.key.lower()]
-    dataloader_ops = [e for e in events if 'dataloader' in e.key.lower()]
-    # Calculate times (in milliseconds)
-    forward_time = sum(e.cuda_time_total for e in forward_ops) / 1000
-    backward_time = sum(e.cuda_time_total for e in backward_ops) / 1000
-    comm_time = sum(e.cuda_time_total for e in allreduce_ops) / 1000
-    data_time = sum(e.cuda_time_total for e in dataloader_ops) / 1000
-    total_time = forward_time + backward_time
-    metrics = {
-        'forward_time_ms': forward_time,
-        'backward_time_ms': backward_time,
-        'communication_time_ms': comm_time,
-        'data_loading_time_ms': data_time,
-        'total_time_ms': total_time,
-        'comm_overhead_percent': (comm_time / total_time) * 100 if total_time > 0 else 0,
-        'overlap_ratio': (backward_time - comm_time) / backward_time if backward_time > comm_time else 0,
-    }
-    return metrics
-
-# Usage
-prof = train_with_profiling(model, dataloader, optimizer, criterion)
-if dist.get_rank() == 0:
-    metrics = calculate_ddp_metrics(prof)
-    print("\nDDP Performance Metrics:")
-    print(f"Forward time: {metrics['forward_time_ms']:.2f} ms")
-    print(f"Backward time: {metrics['backward_time_ms']:.2f} ms")
-    print(f"Communication time: {metrics['communication_time_ms']:.2f} ms")
-    print(f"Communication overhead: {metrics['comm_overhead_percent']:.2f}%")
-    print(f"Overlap ratio: {metrics['overlap_ratio']:.2%}")
-```
-
-**Interpreting metrics**:
-
-- **Communication overhead < 20%**: Good—communication is well hidden
-- **Communication overhead 20-40%**: Acceptable—some optimization possible
-- **Communication overhead > 40%**: Poor—communication is a bottleneck
-- **Overlap ratio > 0.7**: Excellent overlap
-- **Overlap ratio 0.5-0.7**: Good overlap
-- **Overlap ratio < 0.5**: Limited overlap—consider tuning bucket size or model architecture
 
 ## Optimizing DDP Performance
 
