@@ -1335,13 +1335,11 @@ model = DDP(
 )
 ```
 
-**Warning**: `find_unused_parameters=True` adds overhead because DDP must traverse the computation graph to find which parameters are used. Only enable it if you have unused parameters.
-
-**Better solution**: If possible, ensure all parameters receive gradients. For conditional models, you might need to restructure code.
+Setting `find_unused_parameters=True` adds overhead, since DDP must traverse the computation graph to determine which parameters receive gradients; it is best enabled only when the model actually has unused parameters. When possible, structuring the model so that every parameter receives a gradient avoids this cost; for conditional models, that may require some restructuring.
 
 ### Static Graph Optimization
 
-If your model's computation graph doesn't change between iterations, you can enable `static_graph=True` for better performance:
+When the computation graph does not change between iterations, enabling `static_graph` as `True` allows DDP to optimize communication:
 
 ```python
 model = DDP(
@@ -1351,17 +1349,7 @@ model = DDP(
 )
 ```
 
-This tells DDP that:
-
-- The set of used/unused parameters doesn't change
-- The graph structure is the same every iteration
-
-DDP can then optimize communication patterns. This is especially useful for:
-
-- Models without conditional logic
-- Models where you've already verified the graph is static
-
-Check if your model can use static graph:
+With `static_graph=True`, DDP assumes that the set of used and unused parameters is fixed and that the graph structure is identical every iteration; it can then optimize communication patterns accordingly. This applies naturally to models without conditional logic, or to any model whose graph has been verified to be static. Whether a given model can use a static graph can be inspected after a few training iterations via DDP’s internal logging:
 
 ```python
 # After training for a few iterations
