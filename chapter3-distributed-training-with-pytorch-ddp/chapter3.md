@@ -1658,65 +1658,37 @@ Workers are formed through **rendezvous**. Nodes contact a rendezvous endpoint (
 
 ### Launching Elastic Training
 
-Run the same `torchrun` command on every node (or let your job scheduler do it). Example: **elastic** job with 2–4 nodes, 2 GPUs per node, up to 3 restarts:
+Run the same `torchrun` command on every node (or let your job scheduler do it). On a **single node**, fault-tolerant training is runnable as-is with the rendezvous endpoint on localhost:
 
 ```bash
-torchrun \
-    --nnodes=2:4 \
-    --nproc-per-node=2 \
-    --max-restarts=3 \
-    --rdzv-id=my_job \
-    --rdzv-backend=c10d \
-    --rdzv-endpoint=master_node:29400 \
-    code/train_ddp_multi_mini.py
+torchrun --nnodes=1 --nproc_per_node=2 --max_restarts=2 \
+    --rdzv_id=elastic_one_node --rdzv_backend=c10d \
+    --rdzv_endpoint=127.0.0.1:29400 \
+    code/train_elastic_checkpoint.py
 ```
 
-For **fault-tolerant** (fixed 2 nodes, no elasticity), use `--nnodes=2` (no `:MAX`). `--rdzv-id` must be the same on all nodes; `--rdzv-endpoint` is the host and port where the c10d store runs (often the master node).
+One process is started per GPU; if one fails, the launcher restarts the group up to `--max_restarts` times. The script `train_elastic_checkpoint.py` loads and saves checkpoints so that after a restart training resumes from the last epoch.
+
+**Multi-node elastic** (2–4 nodes, 2 GPUs per node, up to 3 restarts): run the same command on every node, replacing the endpoint with the master’s hostname or IP:
+
+```bash
+torchrun --nnodes=2:4 --nproc_per_node=2 --max_restarts=3 \
+    --rdzv_id=my_job --rdzv_backend=c10d \
+    --rdzv_endpoint=MASTER_HOST:29400 \
+    code/train_elastic_checkpoint.py
+```
+
+`--rdzv_id` must be the same on all nodes; `--rdzv_endpoint` is the host and port where the c10d store runs (the master node). For **fault-tolerant** mode with a fixed number of nodes (no elasticity), use `--nnodes=2` instead of `--nnodes=2:4`.
 
 ### Implementing Checkpointing for Elastic Training
 
-On failure or membership change, all workers are stopped and restarted with new ranks. Progress is only preserved if you checkpoint. Recommended pattern: load the latest checkpoint at startup; train; save checkpoints periodically (e.g. every epoch). Only rank 0 should write checkpoints; use a temporary file then rename for atomic writes (see the Checkpointing section earlier in this chapter).
+On failure or membership change, all workers are stopped and restarted with new ranks. Progress is only preserved if the training script checkpoints. The recommended pattern is: load the latest checkpoint at startup (if present); train; save checkpoints periodically (e.g. every epoch). Only rank 0 should write checkpoints; use a temporary file then rename for atomic writes (see the Checkpointing section earlier in this chapter). A runnable script that follows this pattern is in `code/train_elastic_checkpoint.py`. From the chapter directory:
 
-Sketch:
-
-```python
-import os
-import torch
-import torch.distributed as dist
-from torch.nn.parallel import DistributedDataParallel as DDP
-
-def load_checkpoint(checkpoint_path):
-    if os.path.exists(checkpoint_path):
-        return torch.load(checkpoint_path, map_location='cpu')
-    return None
-
-def save_checkpoint(model, optimizer, epoch, path):
-    if dist.get_rank() != 0:
-        return
-    tmp = path + '.tmp'
-    torch.save({'epoch': epoch, 'model_state_dict': model.module.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict()}, tmp)
-    os.replace(tmp, path)
-
-def main():
-    dist.init_process_group(backend='nccl')
-    rank = dist.get_rank()
-    device = torch.device(f'cuda:{rank}')
-    model = create_model().to(device)
-    model = DDP(model, device_ids=[rank])
-    optimizer = create_optimizer(model.parameters())
-    checkpoint = load_checkpoint('checkpoint.pt')
-    start_epoch = checkpoint['epoch'] + 1 if checkpoint else 0
-    if checkpoint:
-        model.module.load_state_dict(checkpoint['model_state_dict'])
-        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    for epoch in range(start_epoch, num_epochs):
-        train_epoch(model, optimizer, dataloader)
-        save_checkpoint(model, optimizer, epoch, 'checkpoint.pt')
-    dist.destroy_process_group()
+```
+$ torchrun --nproc_per_node=2 code/train_elastic_checkpoint.py
 ```
 
-To get clear error summaries (including tracebacks) when a worker fails, decorate your entrypoint with `@record` from `torch.distributed.elastic.multiprocessing.errors` (see the [Elastic docs](https://pytorch.org/docs/stable/elastic/errors.html)).
+The script runs a few epochs and writes `checkpoint_elastic.pt` each epoch. If the job is restarted (e.g. with fault-tolerant `torchrun` options such as `--max_restarts` and `--rdzv_backend=c10d`), the next run loads the last checkpoint and continues from the following epoch. For clearer error summaries (including tracebacks) when a worker fails, the entrypoint can be decorated with `@record` from `torch.distributed.elastic.multiprocessing.errors` (see the [Elastic docs](https://pytorch.org/docs/stable/elastic/errors.html)).
 
 ### When to Use Elastic Training
 
