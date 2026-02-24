@@ -1532,13 +1532,25 @@ def allreduce_hook(state, bucket):
 model.register_comm_hook(state=None, hook=allreduce_hook)
 ```
 
-A runnable example is in `code/ddp_comm_hook.py`. From the chapter directory, run `torchrun --nproc_per_node=2 code/ddp_comm_hook.py`; the script builds a small DDP model, registers the hook above, and runs one backward pass so the custom AllReduce runs per bucket.
+A runnable example is in `code/ddp_comm_hook.py`. From the chapter directory run:
+
+```
+$ torchrun --nproc_per_node=2 code/ddp_comm_hook.py
+```
+
+Output is printed from inside the hook as each bucket is reduced; for example:
+
+```
+  [rank 0] comm hook: AllReduce on bucket (numel=2048)
+  [rank 0] comm hook: AllReduce on bucket (numel=1024)
+  [rank 0] comm hook: AllReduce on bucket (numel=64)
+```
 
 Typical applications include gradient compression (e.g. quantization or sparsification), custom reduction operations, and gradient filtering. Communication hooks are advanced: an incorrect implementation can break DDP or cause incorrect training, so they are best used only when the synchronization semantics are well understood.
 
 ### Handling Uneven Inputs with join()
 
-If different processes have different amounts of data (uneven inputs), DDP will hang because some processes finish early. The `join()` context manager handles this:
+When different processes have different amounts of data (uneven inputs), some ranks finish their iteration before others; DDP then hangs because the remaining processes are still waiting in collective communication. The `join()` context manager avoids this by letting early-finished processes participate in dummy AllReduce operations so they stay in sync with ranks that are still training. The training loop is wrapped with `model.join()`:
 
 ```python
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -1554,23 +1566,30 @@ with model.join():
         optimizer.step()
 ```
 
-`join()` automatically handles processes that finish early by having them participate in dummy AllReduce operations to match processes that are still training.
+A runnable example is in `code/ddp_join_demo.py`: rank 0 has two batches and rank 1 has three, so without `join()` the run would hang when rank 0 finishes early. From the chapter directory:
 
-**When to use join()**:
+```
+$ torchrun --nproc_per_node=2 code/ddp_join_demo.py
+```
 
-- Dataset size isn't divisible by batch size × world_size
-- Different processes have different dataset sizes
-- You're using dynamic batching
+Example output:
 
-With the advanced features covered, let's consolidate the key practices that will help you write robust, efficient DDP training code.
+```
+Running with join(): rank 0 has 2 batches, rank 1 has 3 batches.
+  [rank 0] step 1 done.
+  [rank 0] step 2 done.
+join() demo finished (no hang).
+```
+
+Rank 0 completes its two steps and then participates in dummy AllReduces for rank 1’s third step before both exit.
+
+`join()` is appropriate when the dataset size is not divisible by batch size × world_size, when different processes have different dataset sizes, or when using dynamic batching.
 
 ## Best Practices and Common Patterns
 
-The sections below summarize practices that keep DDP training reliable and efficient—validation order, launch choice, reproducibility, data loading, profiling, and checkpointing.
+The following practices keep DDP training reliable and efficient—validation order, launch choice, reproducibility, data loading, profiling, and checkpointing.
 
-### Always Validate Single-Process First
-
-Before scaling to multiple GPUs, make sure single-GPU training works:
+**Always validate single-process first.** Before scaling to multiple GPUs, single-GPU training should be verified:
 
 ```bash
 # Test without DDP first
@@ -1581,20 +1600,9 @@ torchrun --nproc_per_node=1 code/train_ddp_multi_mini.py
 torchrun --nproc_per_node=4 code/train_ddp_multi_mini.py
 ```
 
-### Use torchrun for Launching
+**Use torchrun for launching.** `torchrun` is the recommended launcher: it handles process creation and cleanup, sets the required environment variables (e.g. `RANK`, `LOCAL_RANK`, `WORLD_SIZE`), produces clearer error messages than manual spawning, and supports elastic training when restarts are needed. Manual process spawning is only necessary when the launcher cannot meet a specific deployment or scheduling requirement.
 
-`torchrun` is the recommended launcher because it:
-
-- Handles process creation and cleanup
-- Sets environment variables correctly
-- Provides better error messages
-- Supports elastic training (restarting failed processes)
-
-Avoid manual process spawning unless you have a specific reason.
-
-### Set Seeds for Reproducibility
-
-Always set random seeds on all processes:
+**Set seeds for reproducibility.** Random seeds should be set on all processes:
 
 ```python
 def set_seed(seed):
@@ -1606,17 +1614,7 @@ def set_seed(seed):
 set_seed(42)  # After setup(), before creating model
 ```
 
-### Use DistributedSampler Correctly
-
-Remember to:
-
-- Set `shuffle=True` in sampler, not DataLoader
-- Call `sampler.set_epoch(epoch)` each epoch
-- Don't use `shuffle=True` in DataLoader when using sampler
-
-### Profile Before Optimizing
-
-Don't guess what's slow—profile:
+**Profile before optimizing.** Guessing what is slow is unreliable; profiling identifies bottlenecks:
 
 ```python
 with torch.profiler.profile(
@@ -1628,9 +1626,7 @@ with torch.profiler.profile(
 print(prof.key_averages().table(sort_by="cuda_time_total"))
 ```
 
-### Monitor GPU Utilization
-
-Keep an eye on GPU utilization:
+**Monitor GPU utilization.** GPU utilization can be watched in real time with `watch -n 1 nvidia-smi` or tools like `dstat`:
 
 ```bash
 # Real-time monitoring
@@ -1639,25 +1635,13 @@ watch -n 1 nvidia-smi
 dstat -cdngy
 ```
 
-If utilization is low, you're likely bottlenecked by data loading or communication.
+Low utilization often indicates a data-loading or communication bottleneck.
 
-### Use Mixed Precision
+**Use mixed precision.** For most training, mixed precision (FP16/BF16) reduces memory use and often doubles throughput with minimal code change; it is worth enabling unless there is a specific reason not to.
 
-For most training, mixed precision (FP16/BF16) is a free win:
+**Keep checkpoints.** Long training jobs often fail; checkpoints should be saved regularly and loading should be tested.
 
-- Halves memory usage
-- Often doubles throughput
-- Minimal code changes
-
-Always try it unless you have a specific reason not to.
-
-### Keep Checkpoints
-
-Long training jobs will fail. Save checkpoints regularly and test that they can be loaded.
-
-### Test Multi-Node Early
-
-If you plan to use multi-node training, test it early. Multi-node has different failure modes than single-node (network issues, different hardware, etc.).
+**Test multi-node early.** Multi-node training has different failure modes than single-node (network issues, differing hardware); if multi-node is planned, it should be tested early.
 
 
 ## Elastic Data Parallelism {#sec:elastic-data-parallelism}
@@ -1736,166 +1720,15 @@ To get clear error summaries (including tracebacks) when a worker fails, decorat
 
 ### When to Use Elastic Training
 
-Use elastic or fault-tolerant training when:
-
-- **Long-running jobs**: Jobs that run for days or weeks and cannot afford to lose all progress on a single node failure.
-- **Unreliable or shared clusters**: Frequent node failures or preemptions.
-- **Variable capacity**: You want to scale the number of nodes up or down during the run (elastic mode only).
-
-For short jobs or stable, dedicated clusters, standard DDP with plain `torchrun` is simpler and usually enough.
+Elastic or fault-tolerant training is appropriate for long-running jobs (days or weeks) that cannot afford to lose all progress on a single node failure, for unreliable or shared clusters where node failures or preemptions are frequent, or when the number of nodes must be scaled up or down during the run (elastic mode only). For short jobs or stable, dedicated clusters, standard DDP with plain `torchrun` is simpler and usually sufficient.
 
 ## Real-World Example: Training a Transformer with DDP
 
-Let's put it all together with a complete example: training a transformer model (GPT-style) with DDP, mixed precision, and checkpointing. This example demonstrates best practices and shows how the various DDP features work together in practice. It integrates everything we've learned: proper setup, DistributedSampler usage, mixed precision, checkpointing, and error handling.
+The following example ties together the ideas in this chapter: training a GPT-style transformer with DDP, mixed precision, DistributedSampler, and checkpointing. The full script is in `code/train_transformer_ddp.py`. It covers DDP setup and teardown, `DistributedSampler` with `set_epoch()` each epoch, AMP (autocast and GradScaler), per-epoch checkpointing on rank 0, and a small transformer (embedding, positional encoding, several transformer blocks, next-token prediction). From the chapter directory, launch with:
 
-```python
-import os
-import torch
-import torch.nn as nn
-import torch.distributed as dist
-from torch.nn.parallel import DistributedDataParallel as DDP
-from torch.utils.data.distributed import DistributedSampler
-from torch.cuda.amp import autocast, GradScaler
-import math
-
-class TransformerBlock(nn.Module):
-    def __init__(self, d_model, nhead, dim_feedforward, dropout=0.1):
-        super().__init__()
-        self.self_attn = nn.MultiheadAttention(d_model, nhead, dropout=dropout)
-        self.linear1 = nn.Linear(d_model, dim_feedforward)
-        self.dropout = nn.Dropout(dropout)
-        self.linear2 = nn.Linear(dim_feedforward, d_model)
-        self.norm1 = nn.LayerNorm(d_model)
-        self.norm2 = nn.LayerNorm(d_model)
-        self.dropout1 = nn.Dropout(dropout)
-        self.dropout2 = nn.Dropout(dropout)
-    
-    def forward(self, src):
-        src2 = self.self_attn(src, src, src)[0]
-        src = src + self.dropout1(src2)
-        src = self.norm1(src)
-        src2 = self.linear2(self.dropout(torch.relu(self.linear1(src))))
-        src = src + self.dropout2(src2)
-        src = self.norm2(src)
-        return src
-
-class TransformerModel(nn.Module):
-    def __init__(self, vocab_size, d_model=512, nhead=8, num_layers=6, dim_feedforward=2048):
-        super().__init__()
-        self.embedding = nn.Embedding(vocab_size, d_model)
-        self.pos_encoder = PositionalEncoding(d_model)
-        self.transformer_blocks = nn.ModuleList([
-            TransformerBlock(d_model, nhead, dim_feedforward)
-            for _ in range(num_layers)
-        ])
-        self.fc_out = nn.Linear(d_model, vocab_size)
-        self.d_model = d_model
-    
-    def forward(self, src):
-        src = self.embedding(src) * math.sqrt(self.d_model)
-        src = self.pos_encoder(src)
-        for block in self.transformer_blocks:
-            src = block(src)
-        output = self.fc_out(src)
-        return output
-
-class PositionalEncoding(nn.Module):
-    def __init__(self, d_model, max_len=5000):
-        super().__init__()
-        pe = torch.zeros(max_len, d_model)
-        position = torch.arange(0, max_len).unsqueeze(1).float()
-        div_term = torch.exp(torch.arange(0, d_model, 2).float() * -(math.log(10000.0) / d_model))
-        pe[:, 0::2] = torch.sin(position * div_term)
-        pe[:, 1::2] = torch.cos(position * div_term)
-        pe = pe.unsqueeze(0)
-        self.register_buffer('pe', pe)
-    
-    def forward(self, x):
-        return x + self.pe[:, :x.size(1)]
-
-def setup():
-    rank = int(os.environ['RANK'])
-    local_rank = int(os.environ['LOCAL_RANK'])
-    world_size = int(os.environ['WORLD_SIZE'])
-    torch.cuda.set_device(local_rank)
-    dist.init_process_group(backend='nccl')
-    return rank, local_rank, world_size
-
-def get_dataloader(rank, world_size, batch_size=32, seq_len=128):
-    # Dummy dataset for example
-    class DummyDataset(torch.utils.data.Dataset):
-        def __init__(self, size=10000, vocab_size=10000, seq_len=128):
-            self.size = size
-            self.vocab_size = vocab_size
-            self.seq_len = seq_len
-        
-        def __len__(self):
-            return self.size
-        
-        def __getitem__(self, idx):
-            return torch.randint(0, self.vocab_size, (self.seq_len,))
-    
-    dataset = DummyDataset()
-    sampler = DistributedSampler(dataset, num_replicas=world_size, rank=rank, shuffle=True)
-    dataloader = torch.utils.data.DataLoader(
-        dataset, batch_size=batch_size, sampler=sampler,
-        num_workers=4, pin_memory=True
-    )
-    return dataloader, sampler
-
-def train():
-    rank, local_rank, world_size = setup()
-    # Create model
-    model = TransformerModel(vocab_size=10000, d_model=512, nhead=8, num_layers=6)
-    model = model.to(local_rank)
-    model = DDP(model, device_ids=[local_rank], bucket_cap_mb=50)
-    # Optimizer and loss
-    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
-    criterion = nn.CrossEntropyLoss()
-    scaler = GradScaler()
-    # Data
-    dataloader, sampler = get_dataloader(rank, world_size, batch_size=32)
-    # Training loop
-    for epoch in range(10):
-        sampler.set_epoch(epoch)
-        model.train()
-        for batch_idx, src in enumerate(dataloader):
-            src = src.to(local_rank)
-            tgt = src[:, 1:]  # Shift for next-token prediction
-            src = src[:, :-1]
-            optimizer.zero_grad()
-            with autocast():
-                output = model(src)
-                output = output.view(-1, output.size(-1))
-                tgt = tgt.reshape(-1)
-                loss = criterion(output, tgt)
-            scaler.scale(loss).backward()
-            scaler.step(optimizer)
-            scaler.update()
-            if rank == 0 and batch_idx % 100 == 0:
-                print(f'Epoch {epoch}, Batch {batch_idx}, Loss: {loss.item():.4f}')
-        # Save checkpoint
-        if rank == 0:
-            checkpoint = {
-                'epoch': epoch,
-                'model_state_dict': model.module.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'scaler_state_dict': scaler.state_dict(),
-            }
-            torch.save(checkpoint, f'checkpoint_epoch_{epoch}.pt')
-    dist.destroy_process_group()
-
-if __name__ == '__main__':
-    train()
 ```
-
-Launch with:
-
-```bash
-torchrun --nproc_per_node=8 train_transformer.py
+$ torchrun --nproc_per_node=8 code/train_transformer_ddp.py
 ```
-
-This example includes DDP setup and teardown, DistributedSampler with `set_epoch()`, mixed precision training, checkpointing, and a realistic transformer model.
 
 ## Conclusion
 
