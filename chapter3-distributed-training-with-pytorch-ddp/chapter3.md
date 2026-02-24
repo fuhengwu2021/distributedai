@@ -1743,16 +1743,6 @@ Understanding how DDP works—gradient synchronization, bucketing, overlap—hel
 - **Performance optimization**: Profiling, bucket tuning, mixed precision, and other optimization techniques
 - **Fault tolerance**: Checkpointing and elastic training for long-running jobs
 
-Key takeaways:
-
-- Use `torchrun` for launching DDP jobs—it handles process management and error recovery
-- Always use `DistributedSampler` and call `set_epoch()` each epoch to ensure proper data shuffling
-- Enable mixed precision (FP16/BF16) for better performance—it's usually a free win
-- Profile before optimizing—use `torch.profiler.profile` to identify bottlenecks
-- Save checkpoints regularly—long training jobs will fail, and checkpoints let you resume
-- Test single-process before scaling—validate correctness before adding complexity
-- Understand your communication topology—NVLink for intra-node, InfiniBand for inter-node
-
 DDP is mature, well-optimized, and suitable for most distributed training scenarios. However, for very large models that don't fit on a single GPU, you'll need to move beyond DDP to techniques like FSDP (Fully Sharded Data Parallel), which we'll cover in the next chapter. FSDP extends DDP by sharding model parameters across GPUs, enabling training of models that are too large for any single GPU's memory.
 
 
