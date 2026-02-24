@@ -310,6 +310,12 @@ def train():
     cleanup()
 ```
 
+A runnable version of this pattern is in `code/train_ddp_sampler.py`. From the chapter directory, launch it with:
+
+```bash
+torchrun --nproc_per_node=4 code/train_ddp_sampler.py
+```
+
 Key points about `DistributedSampler`:
 
 - **Sharding**: Each process gets a different subset of data. With 4 processes and 1000 samples, each process sees 250 samples.
