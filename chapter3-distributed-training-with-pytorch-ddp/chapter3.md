@@ -374,6 +374,26 @@ The main process then consumes batches from the result queue for training. The a
 - Set `prefetch_factor=2` (default) to prefetch batches ahead
 - Use `persistent_workers=True` to keep workers alive between epochs (reduces startup overhead)
 
+### Device Selection Best Practices
+
+When setting up DDP, you need to assign each process to a GPU. The standard approach:
+
+```python
+local_rank = int(os.environ['LOCAL_RANK'])
+torch.cuda.set_device(local_rank)
+device = torch.device(f'cuda:{local_rank}')
+```
+
+This ensures process 0 uses GPU 0, process 1 uses GPU 1, etc. Always use `LOCAL_RANK` for device selection—don't use `RANK` (which is global across all nodes).
+
+You can also set `CUDA_VISIBLE_DEVICES` before launching to restrict which GPUs are visible:
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --nproc_per_node=4 train.py
+```
+
+This makes only GPUs 0-3 visible, and `LOCAL_RANK` will map to these GPUs (LOCAL_RANK 0 → GPU 0, LOCAL_RANK 1 → GPU 1, etc.).
+
 ### A Complete Single-Node Example
 
 Here's a complete example that trains a small CNN on CIFAR-10 with DDP. It uses **torchrun** (as earlier), so rank and world size come from the environment:
@@ -470,27 +490,7 @@ A runnable version is in `code/train_ddp_cifar10.py`. From the chapter directory
 torchrun --nproc_per_node=4 code/train_ddp_cifar10.py
 ```
 
-(Use your number of GPUs in place of `4`.) Same pattern as the minimal example: one entry point, environment variables set by torchrun.
-
-### Device Selection Best Practices
-
-When setting up DDP, you need to assign each process to a GPU. The standard approach:
-
-```python
-local_rank = int(os.environ['LOCAL_RANK'])
-torch.cuda.set_device(local_rank)
-device = torch.device(f'cuda:{local_rank}')
-```
-
-This ensures process 0 uses GPU 0, process 1 uses GPU 1, etc. Always use `LOCAL_RANK` for device selection—don't use `RANK` (which is global across all nodes).
-
-You can also set `CUDA_VISIBLE_DEVICES` before launching to restrict which GPUs are visible:
-
-```bash
-CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --nproc_per_node=4 train.py
-```
-
-This makes only GPUs 0-3 visible, and `LOCAL_RANK` will map to these GPUs (LOCAL_RANK 0 → GPU 0, LOCAL_RANK 1 → GPU 1, etc.).
+Use your number of GPUs in place of `4`; to limit which devices are used, set `CUDA_VISIBLE_DEVICES` before the command. On first run, CIFAR-10 is downloaded into `./data` (relative to the current working directory). Only rank 0 prints loss and the final message; the other ranks run silently. The example uses a fixed 10 epochs; for production, make the number of epochs (and other hyperparameters) configurable via config or the command line. Same pattern as the minimal example: one entry point, environment variables set by torchrun.
 
 ## Setting Up Multi-Node DDP
 
