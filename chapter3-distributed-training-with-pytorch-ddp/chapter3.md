@@ -1019,9 +1019,9 @@ def train_with_profiling(model, dataloader, optimizer, criterion, num_iterations
     # Print profiling results (only on rank 0 to avoid duplicate output)
     if rank == 0:
         # Print key averages sorted by CUDA time
-        print("=" * 80)
+        print("=" * 20)
         print("DDP Performance Profile - Key Averages")
-        print("=" * 80)
+        print("=" * 20)
         print(prof.key_averages().table(
             sort_by="cuda_time_total",
             row_limit=30
@@ -1029,7 +1029,7 @@ def train_with_profiling(model, dataloader, optimizer, criterion, num_iterations
         # Print events sorted by self CUDA time (excludes child operations)
         print("\n" + "=" * 80)
         print("Top Operations by Self CUDA Time")
-        print("=" * 80)
+        print("=" * 20)
         print(prof.key_averages().table(
             sort_by="cuda_time_total",
             row_limit=20
@@ -1074,9 +1074,9 @@ def analyze_ddp_overlap(model, loss):
         # Filter for NCCL AllReduce operations
         allreduce_ops = [e for e in events if 'nccl' in e.key.lower() and 'allreduce' in e.key.lower()]
         backward_ops = [e for e in events if 'backward' in e.key.lower() or 'gradient' in e.key.lower()]
-        print("=" * 80)
+        print("=" * 20)
         print("DDP Overlap Analysis")
-        print("=" * 80)
+        print("=" * 20)
         print(f"AllReduce operations found: {len(allreduce_ops)}")
         print(f"Backward operations found: {len(backward_ops)}")
         # Check if AllReduce overlaps with backward compute
@@ -1144,13 +1144,31 @@ def profile_multi_node_ddp(model, dataloader, optimizer, criterion):
         events = prof.key_averages()
         # Analyze NCCL operations
         nccl_ops = [e for e in events if 'nccl' in e.key.lower()]
-        print("=" * 80)
+        print("=" * 20)
         print("Multi-Node DDP Communication Analysis")
-        print("=" * 80)
+        print("=" * 20)
         for op in nccl_ops[:10]:  # Top 10 NCCL operations
             print(f"{op.key}: {op.cuda_time_total / 1000:.2f} ms")
         # Export for detailed analysis
         prof.export_chrome_trace(f"ddp_multinode_rank{rank}.json")
+```
+
+A runnable script is in `code/profile_ddp_multinode.py`. From the chapter directory run:
+
+```bash
+torchrun --nproc_per_node=2 code/profile_ddp_multinode.py
+```
+
+Rank 0 prints the top 10 NCCL operations and writes `ddp_multinode_rank0.json`.
+
+Example output:
+
+```
+Multi-Node DDP Communication Analysis
+====================================
+nccl:all_reduce: 0.18 ms
+ncclKernel_AllReduce_Sum_f32_RING_LL: 0.18 ms
+...
 ```
 
 ### Interpreting Profiler Results
@@ -1221,9 +1239,9 @@ def profile_resnet_ddp():
             optimizer.zero_grad()
     # Print results on rank 0
     if rank == 0:
-        print("=" * 80)
+        print("=" * 20)
         print("ResNet50 DDP Performance Profile")
-        print("=" * 80)
+        print("=" * 20)
         print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=30))
         # Export trace
         prof.export_chrome_trace("resnet50_ddp_trace.json")
