@@ -389,7 +389,7 @@ This ensures process 0 uses GPU 0, process 1 uses GPU 1, etc. Always use `LOCAL_
 You can also set `CUDA_VISIBLE_DEVICES` before launching to restrict which GPUs are visible:
 
 ```bash
-CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --nproc_per_node=4 train.py
+CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --nproc_per_node=4 code/train_ddp_multi_mini.py
 ```
 
 This makes only GPUs 0-3 visible, and `LOCAL_RANK` will map to these GPUs (LOCAL_RANK 0 → GPU 0, LOCAL_RANK 1 → GPU 1, etc.).
@@ -555,7 +555,7 @@ export WORLD_SIZE=$SLURM_NTASKS
 export RANK=$SLURM_PROCID
 export LOCAL_RANK=$SLURM_LOCALID
 # Launch training
-srun python train.py
+srun python code/train_ddp_multi_mini.py
 ```
 
 Or using `torchrun` with SLURM:
@@ -570,7 +570,7 @@ Or using `torchrun` with SLURM:
 export MASTER_ADDR=$(scontrol show hostnames $SLURM_JOB_NODELIST | head -n 1)
 export MASTER_PORT=29500
 srun torchrun --nnodes=$SLURM_NNODES --nproc_per_node=2 \
-  --node_rank=$SLURM_NODEID --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT train.py
+  --node_rank=$SLURM_NODEID --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT code/train_ddp_multi_mini.py
 ```
 
 For larger jobs (e.g. 4 nodes × 8 GPUs), set `--nodes=4`, `--ntasks-per-node=8`, `--gres=gpu:8`, and `--nproc_per_node=8` in the torchrun variant.
@@ -600,11 +600,11 @@ ib_write_bw <node0_ip>
 
 ### Environment Variables for Multi-Node
 
-The same variables as single-node apply (see "Understanding the Environment Variables"): `RANK`, `LOCAL_RANK`, `WORLD_SIZE`, `MASTER_ADDR`, `MASTER_PORT`—all set by torchrun or your job launcher. For multi-node, **MASTER_ADDR** must be the master node’s real IP (not localhost), and the same **MASTER_PORT** must be used on every node. Torchrun also sets **NODE_RANK** (this node’s index, 0 to num_nodes−1) and **NNODES**; with SLURM, you typically pass these into torchrun from `$SLURM_NODEID` and `$SLURM_NNODES`.
+Multi-node uses the same variables as single-node—`RANK`, `LOCAL_RANK`, `WORLD_SIZE`, `MASTER_ADDR`, and `MASTER_PORT`—all set by torchrun or your job launcher (see "Understanding the Environment Variables"). On multiple nodes, `MASTER_ADDR` must be the master node’s real IP address, not localhost, and every node must use the same `MASTER_PORT`. Torchrun also sets `NODE_RANK` (this node’s index from 0 to num_nodes−1) and `NNODES`. When you launch with SLURM, you usually pass the node index and node count into torchrun from `$SLURM_NODEID` and `$SLURM_NNODES`.
 
 ### A Complete Multi-Node Example
 
-Here's a training script that works for both single-node and multi-node:
+The same training script can be used for both single-node and multi-node; only the launch command changes. A runnable version is in `code/train_ddp_multi_mini.py`. Its structure looks like this:
 
 ```python
 import os
@@ -645,7 +645,7 @@ export MASTER_ADDR=<master_ip>   # IP of node 0
 export MASTER_PORT=29500
 export NODE_RANK=0               # 0 on master, 1 on worker node
 torchrun --nnodes=2 --nproc_per_node=2 --node_rank=$NODE_RANK \
-  --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT train.py
+  --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT code/train_ddp_multi_mini.py
 ```
 
 ## Debugging and Troubleshooting
@@ -718,11 +718,11 @@ Run with one process first to test basic correctness:
 
 ```bash
 # Test single-process first
-CUDA_VISIBLE_DEVICES=0 python train.py  # Should work without DDP
+CUDA_VISIBLE_DEVICES=0 python code/train_ddp_multi_mini.py  # Should work without DDP
 # Then test with torchrun
-torchrun --nproc_per_node=1 train.py  # Single process with DDP
+torchrun --nproc_per_node=1 code/train_ddp_multi_mini.py  # Single process with DDP
 # Then scale up
-torchrun --nproc_per_node=2 train.py
+torchrun --nproc_per_node=2 code/train_ddp_multi_mini.py
 ```
 
 ### Wrong Results or Inconsistent Gradients
@@ -785,10 +785,10 @@ Compare single-GPU vs multi-GPU results. They should match (within numerical pre
 
 ```python
 # Run with 1 GPU
-torchrun --nproc_per_node=1 train.py --seed 42
+torchrun --nproc_per_node=1 code/train_ddp_multi_mini.py --seed 42
 # Save checkpoint
 # Run with 4 GPUs
-torchrun --nproc_per_node=4 train.py --seed 42
+torchrun --nproc_per_node=4 code/train_ddp_multi_mini.py --seed 42
 # Compare checkpoints - should be identical
 ```
 
@@ -1692,11 +1692,11 @@ Before scaling to multiple GPUs, make sure single-GPU training works:
 
 ```bash
 # Test without DDP first
-CUDA_VISIBLE_DEVICES=0 python train.py
+CUDA_VISIBLE_DEVICES=0 python code/train_ddp_multi_mini.py
 # Then test with DDP (single process)
-torchrun --nproc_per_node=1 train.py
+torchrun --nproc_per_node=1 code/train_ddp_multi_mini.py
 # Then scale up
-torchrun --nproc_per_node=4 train.py
+torchrun --nproc_per_node=4 code/train_ddp_multi_mini.py
 ```
 
 ### Use torchrun for Launching
@@ -1802,7 +1802,7 @@ torchrun \
     --rdzv-id=my_job \
     --rdzv-backend=c10d \
     --rdzv-endpoint=master_node:29400 \
-    train.py
+    code/train_ddp_multi_mini.py
 ```
 
 For **fault-tolerant** (fixed 2 nodes, no elasticity), use `--nnodes=2` (no `:MAX`). `--rdzv-id` must be the same on all nodes; `--rdzv-endpoint` is the host and port where the c10d store runs (often the master node).
