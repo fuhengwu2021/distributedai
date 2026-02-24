@@ -1386,11 +1386,11 @@ def save_checkpoint(model, optimizer, epoch, loss, filepath):
     dist.barrier()
 ```
 
-**Important**: When saving DDP model state, use `model.module.state_dict()`, not `model.state_dict()`. The DDP wrapper adds a `.module` attribute containing the actual model.
+When saving DDP model state, the state dict must be taken from the underlying module via `model.module.state_dict()`, not from the DDP wrapper itself (`model.state_dict()`), because the DDP wrapper exposes the real model as its `.module` attribute.
 
 ### Loading Checkpoints
 
-All processes should load the same checkpoint:
+Each process loads the same checkpoint file so that all replicas resume from identical state:
 
 ```python
 def load_checkpoint(model, optimizer, filepath, scaler=None):
@@ -1414,7 +1414,7 @@ def load_checkpoint(model, optimizer, filepath, scaler=None):
 
 ### Saving RNG State for Reproducibility
 
-For fully reproducible resumes, save random number generator state:
+Fully reproducible resumes require saving and restoring random number generator state (PyTorch, CUDA, and optionally Python and NumPy). The following stores RNG state in the checkpoint:
 
 ```python
 def save_checkpoint_with_rng(model, optimizer, epoch, filepath):
@@ -1451,7 +1451,7 @@ def load_checkpoint_with_rng(model, optimizer, filepath):
 
 ### Atomic Checkpointing
 
-To avoid corrupted checkpoints if training crashes during save, use atomic writes:
+If the process crashes while writing, a partially written file can corrupt the checkpoint. Atomic writes—writing to a temporary file then renaming it to the final path—ensure the on-disk checkpoint is either complete or absent:
 
 ```python
 import os
@@ -1476,11 +1476,9 @@ def save_checkpoint_atomic(model, optimizer, epoch, filepath):
 
 ### Checkpointing Best Practices
 
-1. **Save regularly**: Save checkpoints every N epochs or every N iterations
-2. **Keep multiple checkpoints**: Don't overwrite the only checkpoint—keep the last few
-3. **Save on rank 0 only**: Avoid race conditions by having only one process write
-4. **Use barriers**: After saving, use `dist.barrier()` to ensure all processes see the checkpoint
-5. **Test loading**: Periodically test that checkpoints can be loaded correctly
+Checkpoints should be written on a regular schedule (e.g. every N epochs or every N iterations), and multiple checkpoints should be retained rather than overwriting a single file. Only rank 0 should write to storage to avoid race conditions; after it finishes, a `dist.barrier()` ensures all processes see the checkpoint before training continues. Periodically verifying that saved checkpoints load correctly avoids surprises when resuming or recovering from failure.
+
+The same checkpoint patterns (rank‑0‑only writes, barriers, atomic saves, load at startup) are reused for fault-tolerant and elastic training, where workers may be restarted after failures; see Section~\ref{sec:elastic-data-parallelism}.
 
 Now that we've covered the essentials of DDP setup, debugging, profiling, optimization, and checkpointing, let's explore some advanced features that DDP provides for specialized use cases.
 
@@ -1490,7 +1488,7 @@ DDP has several advanced features for specialized use cases: gradient hooks, com
 
 ### Gradient Hooks
 
-You can register hooks to inspect or modify gradients during backward:
+Hooks can be registered on parameters to inspect or modify gradients during the backward pass. The hook receives the gradient tensor and must return a gradient (the same or a modified one). Because the model is wrapped in DDP, the parameter is accessed via `model.module.*`:
 
 ```python
 def gradient_hook(grad):
@@ -1501,11 +1499,20 @@ def gradient_hook(grad):
 model.module.fc.weight.register_hook(gradient_hook)
 ```
 
-Hooks are useful for:
+Running a small example with:
 
-- Gradient clipping
-- Gradient logging/monitoring
-- Custom gradient modifications
+```
+torchrun --nproc_per_node=2 code/ddp_gradient_hook.py
+```
+
+produces output such as:
+
+```
+  [rank 0] gradient norm: 5.7640
+Gradient hook ran during backward.
+```
+
+Such hooks are often used to clip gradients, to log or monitor gradient norms during training, or to apply other per-parameter modifications before the optimizer updates the weights.
 
 ### Communication Hooks
 
@@ -1657,7 +1664,7 @@ Long training jobs will fail. Save checkpoints regularly and test that they can 
 If you plan to use multi-node training, test it early. Multi-node has different failure modes than single-node (network issues, different hardware, etc.).
 
 
-## Elastic Data Parallelism
+## Elastic Data Parallelism {#sec:elastic-data-parallelism}
 
 **Elastic data parallelism** extends data-parallel training with fault tolerance and optional elasticity. In standard DDP, a single node or process failure brings down the entire job. Long-running or multi-day training on shared or preemptible clusters often cannot afford that: you want the run to recover from failures and, in some environments, to scale the number of workers up or down as nodes join or leave. Elastic data parallelism addresses that by adding a *process and fault-tolerance* layer around the same gradient-synchronization logic that DDP already provides.
 
