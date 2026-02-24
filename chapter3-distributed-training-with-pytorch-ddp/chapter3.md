@@ -1188,11 +1188,13 @@ ncclKernel_AllReduce_Sum_f32_RING_LL: 0.18 ms
 
 ### Example: Profiling ResNet50 on CIFAR-10
 
-To practice profiling a larger model, use the script in `code/profile_ddp_resnet50.py`. It runs ResNet50 on CIFAR-10 with DDP for 5 iterations under the profiler, then rank 0 prints the top operations and exports `resnet50_ddp_trace.json`. From the chapter directory run:
+To practice profiling a larger model, use the script in `code/profile_ddp_resnet50.py`. It runs ResNet50 on CIFAR-10 with DDP for 5 iterations under the profiler. Rank 0 prints a table of the top operations (by CUDA time) and exports `resnet50_ddp_trace.json` in the current working directory. CIFAR-10 is downloaded to `./data` on first run. From the chapter directory run:
 
 ```bash
 torchrun --nproc_per_node=2 code/profile_ddp_resnet50.py
 ```
+
+Open `resnet50_ddp_trace.json` in Chrome at [chrome://tracing](chrome://tracing) and use the same checklist as before: look for AllReduce operations, whether they overlap with backward compute, and how communication time compares to total step time. With ResNet50 you should see more backward compute and a clearer picture of overlap than with the minimal linear model in the earlier scripts.
 
 ## Optimizing DDP Performance
 
