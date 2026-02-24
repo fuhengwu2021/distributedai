@@ -1095,6 +1095,8 @@ def analyze_ddp_overlap(model, loss):
         prof.export_chrome_trace("ddp_overlap_trace.json")
 ```
 
+A runnable script that does only this overlap analysis is in `code/profile_ddp_overlap.py`. From the chapter directory run `torchrun --nproc_per_node=2 code/profile_ddp_overlap.py` (or from the `code/` directory, `torchrun --nproc_per_node=2 profile_ddp_overlap.py`). Rank 0 prints the AllReduce vs backward times and writes `ddp_overlap_trace.json`.
+
 ### Profiling Multi-Node DDP
 
 For multi-node training, you want to profile communication between nodes separately from intra-node communication:
