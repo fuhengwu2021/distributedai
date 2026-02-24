@@ -1650,7 +1650,9 @@ Low utilization often indicates a data-loading or communication bottleneck.
 
 In PyTorch this process layer is built into `torchrun`. It starts and monitors worker processes, detects crashes, and re-runs a coordination step called **rendezvous** so that a new worker group can form—with the same or a different number of nodes. Gradient synchronization is still performed by DDP inside each worker; the elastic layer does not implement AllReduce or any training logic. It only manages process lifecycle and recovery. So in practice, elastic data parallelism is DDP (gradient sync) plus the fault-tolerant process management that torchrun provides when you enable it.
 
-You launch with the same tool you have been using: `torchrun`. Without any elastic or rendezvous options, it behaves as a static launcher and your job is ordinary DDP. When you add `--max-restarts`, `--rdzv-id`, `--rdzv-backend`, and `--rdzv-endpoint`—and optionally a node range such as `--nnodes=MIN:MAX`—you enable fault tolerance or elasticity. If a rank crashes, the launcher stops all workers, runs rendezvous again, respawns the worker group, and invokes your training script once more. If your script loads and saves checkpoints, training can resume from the last saved state; DDP itself is unaware of the restart. Two modes are available: **fault-tolerant** (fixed number of nodes; workers are restarted up to `--max-restarts`, world size unchanged) and **elastic** (`--nnodes=MIN:MAX`, so nodes can leave or join and world size can change between runs). For the full API, launch options, and implementation details, see the official **Torch Distributed Elastic**（TDE） documentation: <https://docs.pytorch.org/docs/stable/distributed.elastic.html>.
+You launch with the same tool you have been using: `torchrun`. Without any elastic or rendezvous options, it behaves as a static launcher and your job is ordinary DDP. When you add `--max-restarts`, `--rdzv-id`, `--rdzv-backend`, and `--rdzv-endpoint`—and optionally a node range such as `--nnodes=MIN:MAX`—you enable fault tolerance or elasticity. If a rank crashes, the launcher stops all workers, runs rendezvous again, respawns the worker group, and invokes your training script once more. If your script loads and saves checkpoints, training can resume from the last saved state; DDP itself is unaware of the restart. Two modes are available: **fault-tolerant** (fixed number of nodes; workers are restarted up to `--max-restarts`, world size unchanged) and **elastic** (`--nnodes=MIN:MAX`, so nodes can leave or join and world size can change between runs). For the full API, launch options, and implementation details, see the official **Torch Distributed Elastic** (TDE) documentation.[^tde]
+
+[^tde]: <https://docs.pytorch.org/docs/stable/distributed.elastic.html>
 
 ### How Elastic Training Works
 
@@ -1680,15 +1682,9 @@ torchrun --nnodes=2:4 --nproc_per_node=2 --max_restarts=3 \
 
 `--rdzv_id` must be the same on all nodes; `--rdzv_endpoint` is the host and port where the c10d store runs (the master node). For **fault-tolerant** mode with a fixed number of nodes (no elasticity), use `--nnodes=2` instead of `--nnodes=2:4`.
 
-### Implementing Checkpointing for Elastic Training
+Progress across restarts is only preserved when the training script checkpoints: load the latest checkpoint at startup (if present), train, and save periodically (e.g. every epoch). Only rank 0 should write; use a temporary file then rename for atomic writes (see the Checkpointing section earlier in this chapter). The script `code/train_elastic_checkpoint.py` used in the commands above follows this pattern. For clearer error summaries (including tracebacks) when a worker fails, the entrypoint can be decorated with `@record` from `torch.distributed.elastic.multiprocessing.errors`.[^elastic-errors]
 
-On failure or membership change, all workers are stopped and restarted with new ranks. Progress is only preserved if the training script checkpoints. The recommended pattern is: load the latest checkpoint at startup (if present); train; save checkpoints periodically (e.g. every epoch). Only rank 0 should write checkpoints; use a temporary file then rename for atomic writes (see the Checkpointing section earlier in this chapter). A runnable script that follows this pattern is in `code/train_elastic_checkpoint.py`. From the chapter directory:
-
-```
-$ torchrun --nproc_per_node=2 code/train_elastic_checkpoint.py
-```
-
-The script runs a few epochs and writes `checkpoint_elastic.pt` each epoch. If the job is restarted (e.g. with fault-tolerant `torchrun` options such as `--max_restarts` and `--rdzv_backend=c10d`), the next run loads the last checkpoint and continues from the following epoch. For clearer error summaries (including tracebacks) when a worker fails, the entrypoint can be decorated with `@record` from `torch.distributed.elastic.multiprocessing.errors` (see the [Elastic docs](https://pytorch.org/docs/stable/elastic/errors.html)).
+[^elastic-errors]: PyTorch Elastic errors documentation: <https://pytorch.org/docs/stable/elastic/errors.html>
 
 ### When to Use Elastic Training
 
