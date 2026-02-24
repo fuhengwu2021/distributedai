@@ -1690,13 +1690,19 @@ Progress across restarts is only preserved when the training script checkpoints:
 
 Elastic or fault-tolerant training is appropriate for long-running jobs (days or weeks) that cannot afford to lose all progress on a single node failure, for unreliable or shared clusters where node failures or preemptions are frequent, or when the number of nodes must be scaled up or down during the run (elastic mode only). For short jobs or stable, dedicated clusters, standard DDP with plain `torchrun` is simpler and usually sufficient.
 
-## Real-World Example: Training a Transformer with DDP
+## Complete Example: DDP with a Transformer
 
-The following example ties together the ideas in this chapter: training a GPT-style transformer with DDP, mixed precision, DistributedSampler, and checkpointing. The full script is in `code/train_transformer_ddp.py`. It covers DDP setup and teardown, `DistributedSampler` with `set_epoch()` each epoch, AMP (autocast and GradScaler), per-epoch checkpointing on rank 0, and a small transformer (embedding, positional encoding, several transformer blocks, next-token prediction). From the chapter directory, launch with:
+The script `code/train_transformer_ddp.py` ties together DDP setup, `DistributedSampler` with `set_epoch()`, mixed precision (autocast and GradScaler), and per-epoch checkpointing on rank 0, using a small GPT-style transformer (embedding, positional encoding, transformer blocks, next-token prediction). It uses a **dummy dataset** (random token IDs) so you can run it without downloading real data; the same wiring applies when you swap in a real dataset. To try real data, you can plug in a tokenized corpus (e.g. the data pipeline from NanoGPT,[^nanogpt] a small slice of a public dataset like C4 or OpenWebText, or any `Dataset` that returns integer token sequences).
+
+[^nanogpt]: <https://github.com/karpathy/nanoGPT>
+
+From the chapter directory, the script can be launched with:
 
 ```
 $ torchrun --nproc_per_node=8 code/train_transformer_ddp.py
 ```
+
+In the script, the dummy dataset or model can be replaced with real data or a larger architecture. The DDP, AMP, and checkpointing logic remains unchanged. That pattern—a single entrypoint, `torchrun` for launch, and a training loop that loads and saves checkpoints—is what scales to many GPUs and allows recovery from failures, and it carries over directly to production workloads.
 
 ## Conclusion
 
