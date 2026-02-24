@@ -512,14 +512,14 @@ For the 2 nodes × 2 GPUs layout above, run the following on each node. On the m
 
 ```bash
 torchrun --nnodes=2 --nproc_per_node=2 --node_rank=0 \
-  --master_addr=<master_ip> --master_port=29500 train.py
+  --master_addr=<master_ip> --master_port=29500 code/train_ddp_multi_mini.py
 ```
 
 On the worker node (node 1):
 
 ```bash
 torchrun --nnodes=2 --nproc_per_node=2 --node_rank=1 \
-  --master_addr=<master_ip> --master_port=29500 train.py
+  --master_addr=<master_ip> --master_port=29500 code/train_ddp_multi_mini.py
 ```
 
 Replace `<master_ip>` with the actual IP of the master node. You can find it with:
