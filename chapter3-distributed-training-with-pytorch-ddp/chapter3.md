@@ -1283,7 +1283,7 @@ With DDP, the scaler should be created before wrapping the model in DDP, and `sc
 
 ### Communication Overlap Optimization
 
-DDP automatically overlaps communication with computation, but you can help it:
+DDP is designed to overlap communication (AllReduce) with backward computation so that gradient synchronization does not add its full cost to the step time. How much overlap is achieved depends on how the training loop and data pipeline are set up. The following three aspects are worth attention.
 
 1. **Avoid blocking operations in backward**: Don't call `synchronize()` or blocking operations during backward pass.
 
