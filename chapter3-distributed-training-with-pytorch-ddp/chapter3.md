@@ -464,10 +464,10 @@ if __name__ == '__main__':
     main()
 ```
 
-Launch with:
+A runnable version is in `code/train_ddp_cifar10.py`. From the chapter directory, run:
 
 ```bash
-torchrun --nproc_per_node=4 train.py
+torchrun --nproc_per_node=4 code/train_ddp_cifar10.py
 ```
 
 (Use your number of GPUs in place of `4`.) Same pattern as the minimal example: one entry point, environment variables set by torchrun.
