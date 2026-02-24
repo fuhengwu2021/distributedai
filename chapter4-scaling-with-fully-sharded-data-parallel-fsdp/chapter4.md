@@ -27,42 +27,24 @@ This chapter focuses on FSDP2 for GPU training—it's the recommended approach f
 
 ## Why FSDP Enables Larger-Than-Memory Models
 
-The basic idea is straightforward: instead of keeping the full model on every GPU, you split it up. Each GPU holds a shard of the parameters. During forward pass, you all-gather the parameters you need. During backward, you compute gradients on the local shard, then reduce-scatter to aggregate across GPUs.
+The basic idea is straightforward: instead of keeping the full model on every GPU, you split it up. Each GPU holds a shard of the parameters. During forward pass, you __all-gather__ the parameters you need. During backward, you compute gradients on the local shard, then __reduce-scatter__ to aggregate across GPUs.
 
 But let's dig deeper into why this matters. When training a large model with DDP, each GPU needs to store:
 
-1. **Model parameters**: The weights themselves. For a 70B parameter model in FP32, that's 280 GB. In BF16, it's 140 GB.
-2. **Gradients**: Same size as parameters. Another 140 GB for BF16.
-3. **Optimizer states**: For Adam, this includes momentum and variance buffers, which are 2x the parameter size. That's another 280 GB for BF16 parameters.
-4. **Activations**: Depends on batch size and sequence length, but can easily be 50-200 GB for large models.
+1. **Model parameters**: The weights themselves. For a 7B parameter model in BF16, that's 7B × 2 bytes = 14 GB.
+2. **Gradients**: Same size as parameters. Another 14 GB for BF16.
+3. **Optimizer states**: For Adam, momentum and variance are 2× the parameter size in FP32. That's 7B × 4 bytes × 2 = 56 GB.
+4. **Activations**: Depends on batch size and sequence length, but can easily be tens of GB for large models.
 
-Total: For a 70B model with Adam, you're looking at 140 + 140 + 280 = 560 GB just for parameters, gradients, and optimizer states. Even the largest GPUs (H100 with 80 GB) can't fit this.
+>NOTES: FSDP shards only parameters, gradients, and optimizer state—not activations. Each GPU still stores activations for its share of the batch during forward and backward, so activation memory remains a per-GPU cost. Techniques like activation checkpointing (recomputing activations in backward instead of storing them) are often used with FSDP to free headroom for the temporarily all-gathered parameters.
 
-With FSDP, you shard all three across GPUs. With 8 GPUs, each GPU only holds 1/8 of the parameters, gradients, and optimizer states. That's 560 / 8 = 70 GB per GPU, which fits comfortably on an A100 (80 GB) or H100.
+>NOTEE
 
-The memory savings come from three places: parameters, gradients, and optimizer states. With FSDP, you're only storing 1/N of each on each GPU (where N is the number of GPUs). For a 70B parameter model with Adam optimizer, that's the difference between needing 8 GPUs versus 64 GPUs.
+So for a 7B model with Adam, parameters, gradients, and optimizer states alone are 14 + 14 + 56 = 84 GB per GPU—more than an 80 GB H100 can hold, and activations are not yet counted. With FSDP, those three components are sharded across GPUs: each device holds 1/N of each (N = number of GPUs). With 8 GPUs, that is 84 / 8 = 10.5 GB per GPU, leaving plenty of headroom for activations so the model fits comfortably on A100s or even V100s. In practice, that is the difference between fitting the same 7B model on 8 GPUs with FSDP versus not fitting on a single 80 GB GPU with DDP.
 
-### The Memory Breakdown
+![Per-GPU memory: DDP vs FSDP for a 7B model.](img/ddp_fsdp_mem.png){#fig:ddp-fsdp-mem .block width=100% align=center}
 
-Let's look at a concrete example. Say you're training a transformer model with 7 billion parameters:
-
-**Without FSDP (DDP):**
-
-- Parameters (BF16): 7B × 2 bytes = 14 GB
-- Gradients (BF16): 14 GB
-- Optimizer states (Adam, FP32): 7B × 4 bytes × 2 (momentum + variance) = 56 GB
-- **Total per GPU**: 84 GB
-
-This won't fit on most GPUs, and you haven't even accounted for activations yet.
-
-**With FSDP on 8 GPUs:**
-
-- Parameters (BF16): 14 GB / 8 = 1.75 GB
-- Gradients (BF16): 14 GB / 8 = 1.75 GB
-- Optimizer states (FP32): 56 GB / 8 = 7 GB
-- **Total per GPU**: 10.5 GB
-
-Now you have headroom for activations, and the model fits comfortably on A100s or even V100s.
+Figure~\ref{fig:ddp-fsdp-mem} illustrates the comparison: with DDP, each GPU holds the full 84 GB (parameters, gradients, and optimizer state) and exceeds an 80 GB device; with FSDP, memory per GPU falls as 84/N, and at 8 GPUs the 10.5 GB per GPU leaves room for activations.
 
 ### How FSDP Works: All-Gather and Reduce-Scatter
 
