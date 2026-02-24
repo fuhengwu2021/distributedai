@@ -1041,6 +1041,16 @@ def train_with_profiling(model, dataloader, optimizer, criterion, num_iterations
     return prof
 ```
 
+A runnable script is in `code/profile_ddp.py`. From the chapter directory run (use 2 or more GPUs, or omit `CUDA_VISIBLE_DEVICES` if you have multiple GPUs):
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1 torchrun --nproc_per_node=2 code/profile_ddp.py
+```
+
+Rank 0 prints key profile tables and writes `ddp_trace.json` in the current working directory; open it at [chrome://tracing](chrome://tracing) in Chrome to inspect the timeline. Figure~\ref{fig:ddp-tracing-chrome} shows the Chrome tracing view of a DDP run: forward and backward passes and NCCL AllReduce communication appear on the timeline so you can check overlap between computation and communication.
+
+![Chrome Tracing View of a DDP Run](img/ddp_tracing_analysis_in_chrome.png){#fig:ddp-tracing-chrome .block width=90% align=center}
+
 ### Analyzing Computation-Communication Overlap
 
 The key metric for DDP performance is whether communication overlaps with computation. You can verify this by looking for concurrent AllReduce and backward operations in the profiler output.
