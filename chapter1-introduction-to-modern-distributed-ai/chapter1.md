@@ -759,7 +759,7 @@ OMP_NUM_THREADS=1 torchrun --nproc_per_node=2 code/collective-operation/demo_all
 
 The communication cost of AllReduce scales with both data size and world size, but optimized implementations like NCCL's ring AllReduce achieve near-linear scaling efficiency. For large models with millions of parameters, AllReduce can become a bottleneck, which is why techniques like gradient compression, bucketing, and overlapping communication with computation are crucial for performance.
 
-#### AllGather
+#### AllGather {#sec:allgather}
 
 ![AllGather Operation: Gathering Data from All Ranks](img/all_gather.png){#fig:allgather}
 
@@ -915,7 +915,7 @@ OMP_NUM_THREADS=1 torchrun --nproc_per_node=2 code/collective-operation/demo_sca
 
 The communication cost of Scatter scales with data size but is independent of world size from the root's perspective—the root sends the same total amount of data regardless of the number of ranks. However, in practice, Scatter is often less efficient than using DistributedSampler for data partitioning, as DistributedSampler avoids the need to load all data on rank 0 before distribution.
 
-#### ReduceScatter
+#### ReduceScatter {#sec:reducescatter}
 
 ![ReduceScatter Operation: Reduce Then Scatter](img/reduce_scatter.png){#fig:reducescatter}
 

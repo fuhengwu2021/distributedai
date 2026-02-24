@@ -23,7 +23,9 @@ PyTorch provides three main FSDP implementations:
 2. **FSDP2** (`fully_shard()`): The newer per-parameter-sharding design for CUDA/GPUs, accessed via `fully_shard()`. This is simpler, more flexible, and is the direction PyTorch is moving for GPU training.
 3. **FSDP via SPMD** (`SpmdFullyShardedDataParallel`): An implementation for XLA/TPU devices that uses GSPMD (Generalized Single-Program Multiple-Data) for automatic parallelization.
 
-This chapter focuses on FSDP2 for GPU training—it's the recommended approach for new projects on CUDA devices. The original FSDP still works, but for new projects, the per-parameter-sharding API is recommended. For TPU training, see Section~\ref{sec:fsdp-spmd}.
+This chapter focuses on FSDP2 for GPU training—it's the recommended approach for new projects on CUDA devices. The original FSDP (FSDP1) still works and remains in use in production codebases; for example, Wan2.2 uses PyTorch FSDP together with DeepSpeed Ulysses for multi-GPU inference.[^wan22] We summarize FSDP1 below and then concentrate on FSDP2. For TPU training, see Section~\ref{sec:fsdp-spmd}.
+
+[^wan22]: <https://github.com/Wan-Video/Wan2.2>
 
 ## Why FSDP Enables Larger-Than-Memory Models
 
@@ -36,27 +38,44 @@ But let's dig deeper into why this matters. When training a large model with DDP
 3. **Optimizer states**: For Adam, momentum and variance are 2× the parameter size in FP32. That's 7B × 4 bytes × 2 = 56 GB.
 4. **Activations**: Depends on batch size and sequence length, but can easily be tens of GB for large models.
 
->NOTES: FSDP shards only parameters, gradients, and optimizer state—not activations. Each GPU still stores activations for its share of the batch during forward and backward, so activation memory remains a per-GPU cost. Techniques like activation checkpointing (recomputing activations in backward instead of storing them) are often used with FSDP to free headroom for the temporarily all-gathered parameters.
-
->NOTEE
-
 So for a 7B model with Adam, parameters, gradients, and optimizer states alone are 14 + 14 + 56 = 84 GB per GPU—more than an 80 GB H100 can hold, and activations are not yet counted. With FSDP, those three components are sharded across GPUs: each device holds 1/N of each (N = number of GPUs). With 8 GPUs, that is 84 / 8 = 10.5 GB per GPU, leaving plenty of headroom for activations so the model fits comfortably on A100s or even V100s. In practice, that is the difference between fitting the same 7B model on 8 GPUs with FSDP versus not fitting on a single 80 GB GPU with DDP.
 
 ![Per-GPU memory: DDP vs FSDP for a 7B model.](img/ddp_fsdp_mem.png){#fig:ddp-fsdp-mem .block width=100% align=center}
 
 Figure~\ref{fig:ddp-fsdp-mem} illustrates the comparison: with DDP, each GPU holds the full 84 GB (parameters, gradients, and optimizer state) and exceeds an 80 GB device; with FSDP, memory per GPU falls as 84/N, and at 8 GPUs the 10.5 GB per GPU leaves room for activations.
 
+>NOTES: FSDP shards only parameters, gradients, and optimizer state—not activations. Each GPU still stores activations for its share of the batch during forward and backward, so activation memory remains a per-GPU cost. Techniques like activation checkpointing (recomputing activations in backward instead of storing them) are often used with FSDP to free headroom for the temporarily all-gathered parameters.
+
+>NOTEE
+
 ### How FSDP Works: All-Gather and Reduce-Scatter
 
 FSDP uses two key collective operations:
 
-1. **All-Gather**: During forward pass, when you need parameters that aren't on the current GPU, FSDP all-gathers them from all GPUs. After all-gather, all GPUs have a full copy of the needed parameters, but only temporarily.
+1. **All-Gather**: During forward pass, when you need parameters that aren't on the current GPU, FSDP all-gathers them from all GPUs. After all-gather, all GPUs have a full copy of the needed parameters, but only temporarily (see Section~\ref{sec:allgather} in Chapter~\ref{chap:introduction-to-modern-distributed-ai}).
 
-2. **Reduce-Scatter**: During backward pass, gradients are computed locally, then reduce-scattered across GPUs. Each GPU ends up with its shard of the aggregated gradients.
+2. **Reduce-Scatter**: During backward pass, gradients are computed locally, then reduce-scattered across GPUs. Each GPU ends up with its shard of the aggregated gradients (see Section~\ref{sec:reducescatter} in Chapter~\ref{chap:introduction-to-modern-distributed-ai}).
 
 The key insight is that you don't need all parameters at once. During forward pass, you process layers sequentially. FSDP can all-gather parameters for the current layer, use them, then free them before moving to the next layer. This is why activation checkpointing is so important with FSDP—it reduces activation memory so you have room for the all-gathered parameters.
 
 The per-parameter-sharding design (introduced in PyTorch issue #114299) shards each parameter individually on dimension 0. This is simpler than the original flat-parameter approach and enables several useful features: flexible fp8 all-gather, frozen parameters in the same group, communication-free sharded state dicts, and better compiler integration.
+
+### Original FSDP (FSDP1)
+
+The **original FSDP** (often called FSDP1) is the wrapper class `FullyShardedDataParallel` in `torch.distributed.fsdp`. It flattens the parameters of each wrapped module into a single `FlatParameter` and shards that across ranks; the same all-gather and reduce-scatter ideas apply. Usage is similar to DDP: you wrap the model (or submodules via `wrap()`), then train as usual.
+
+```python
+from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+from torch.distributed.fsdp import ShardingStrategy
+
+model = FSDP(
+    model,
+    sharding_strategy=ShardingStrategy.FULL_SHARD,  # ZeRO-3 style
+    device_id=torch.cuda.current_device(),
+)
+```
+
+You can use `FSDP.set_state_dict_type()` and `StateDictConfig` / `OptimStateDictConfig` for checkpointing; mixed precision is configured via `MixedPrecision`. FSDP1 is stable and still used in many codebases. For instance, **Wan2.2** (open large-scale video generative models) runs multi-GPU inference with PyTorch FSDP and DeepSpeed Ulysses (sequence parallelism).[^wan22] For new PyTorch projects, FSDP2 is recommended; when you work with or extend projects that already use FSDP1, the wrapper style and flat-parameter behavior are what you will see.
 
 ## Understanding FSDP2: The Per-Parameter-Sharding API
 
@@ -1597,5 +1616,6 @@ FSDP2 handles most large model training scenarios well. But what if you need to 
 - https://arxiv.org/pdf/2304.11277
 - https://arxiv.org/pdf/2411.00284
 - https://docs.pytorch.org/xla/master/spmd.html
+- https://github.com/Wan-Video/Wan2.2 (Wan2.2: FSDP + DeepSpeed Ulysses for multi-GPU inference)
 - /media/wukong/jackie/git.repo/distributed-ai/resources/torch-examples/distributed/FSDP2
 
