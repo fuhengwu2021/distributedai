@@ -1198,7 +1198,7 @@ Open `resnet50_ddp_trace.json` in Chrome at [chrome://tracing](chrome://tracing)
 
 ## Optimizing DDP Performance
 
-Once you've profiled and identified bottlenecks, the next step is optimization. There are several levers you can tune: bucket size, gradient accumulation, mixed precision, and communication overlap.
+Once you've profiled and identified bottlenecks, the next step is optimization. There are several levers you can tune: __bucket size, gradient accumulation, mixed precision, and communication overlap__.
 
 ### Tuning Bucket Size
 
@@ -1212,21 +1212,9 @@ model = DDP(
 )
 ```
 
-**When to increase bucket size**:
+Larger buckets mean fewer AllReduce calls and lower communication overhead, but gradients are synchronized later in the backward pass. Smaller buckets synchronize earlier and can improve overlap on slow interconnects, at the cost of more AllReduce invocations. Larger buckets tend to work well for large models, for fast interconnects such as NVLink, or when profiling shows that communication dominates. Smaller buckets are more appropriate for small models, for slow or cross-node links, or when memory for communication buffers is limited.
 
-- Large models with many parameters: Larger buckets mean fewer AllReduce calls
-- Fast interconnects (NVLink): Can handle larger buckets efficiently
-- Communication-bound workloads: Larger buckets reduce communication overhead
-
-**When to decrease bucket size**:
-
-- Small models: Smaller buckets enable earlier synchronization
-- Slow interconnects: Smaller buckets reduce latency
-- Memory-constrained: Smaller buckets use less memory for communication buffers
-
-**How to find optimal bucket size**:
-
-Profile with different bucket sizes and measure throughput:
+A suitable value can be found by profiling a few choices (e.g. 10, 25, 50, and 100 MB), running a short training segment for each, and comparing throughput. The default 25 MB is a reasonable starting point for most setups.
 
 ```python
 bucket_sizes = [10, 25, 50, 100]  # MB
@@ -1237,11 +1225,9 @@ for bucket_size in bucket_sizes:
     # Record results
 ```
 
-The optimal size depends on your model and hardware. Start with the default (25 MB) and tune if needed.
-
 ### Gradient Accumulation
 
-Gradient accumulation lets you simulate larger batch sizes without increasing memory usage. Instead of updating parameters every step, you accumulate gradients over multiple steps:
+Gradient accumulation simulates a larger batch size without increasing memory use: parameters are updated only every few steps, while gradients are accumulated over those steps. The pattern looks like this:
 
 ```python
 accumulation_steps = 4
@@ -1262,13 +1248,7 @@ if (i + 1) % accumulation_steps != 0:
     optimizer.zero_grad()
 ```
 
-**When to use gradient accumulation**:
-
-- Memory constraints: Can't fit desired batch size in memory
-- Small batch sizes: Want larger effective batch size for stability
-- Uneven data: When dataset size isn't divisible by batch size
-
-**Important**: With DDP, gradient accumulation works correctly because DDP synchronizes gradients during `backward()`, not during `step()`. Each accumulation step triggers AllReduce, so you get the same gradients as if you used a larger batch size.
+It is useful when the desired batch size does not fit in memory, when a larger effective batch size is needed for training stability, or when the dataset size is not divisible by the per-step batch size. With DDP, gradient accumulation behaves correctly because DDP synchronizes gradients in `backward()`, not in `step()`. Each accumulation step triggers AllReduce, so the combined gradients match what would be obtained with a single larger batch.
 
 ### Mixed Precision Training
 
