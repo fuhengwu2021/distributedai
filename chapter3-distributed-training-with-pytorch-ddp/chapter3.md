@@ -1047,29 +1047,24 @@ A runnable script is in `code/profile_ddp.py`. From the chapter directory run (u
 CUDA_VISIBLE_DEVICES=0,1 torchrun --nproc_per_node=2 code/profile_ddp.py
 ```
 
-Rank 0 prints key profile tables and writes `ddp_trace.json` in __Chrome trace__ format in the current working directory. To open it at [chrome://tracing](chrome://tracing) in Chrome to inspect the timeline:
+Rank 0 prints key profile tables and writes `ddp_trace.json` in __Chrome trace__ format in the current working directory.
+
+![Chrome Tracing View of a DDP Run](img/ddp_tracing_analysis_in_chrome.png){#fig:ddp-tracing-chrome .block width=90% align=center}
+
+To open it at [chrome://tracing](chrome://tracing) in Chrome to inspect the timeline:
 
 1. Open Chrome browser
 2. Navigate to `chrome://tracing`
 3. Click "Load" and select the exported `.json` file
-4. Use the timeline view to see:
+4. In the timeline view, look for:
 
-   - When AllReduce operations occur
-   - Whether they overlap with backward compute
-   - Data loading timing
-   - GPU utilization
+    - **AllReduce operations**: Should see `nccl:all_reduce` or similar. These represent gradient synchronization.
+    - **Overlap indicators**: If you see backward compute operations (e.g., `ConvolutionBackward0`, `LinearBackward`) happening concurrently with AllReduce, overlap is working.
+    - **Communication time**: AllReduce time should be a small fraction of total backward time for good performance. As a rule of thumb: communication overhead (AllReduce time as a share of total step time) under 20% is good; 20–40% is acceptable; over 40% means communication is a bottleneck. If backward compute time is much larger than AllReduce time, overlap is working well.
+    - **Bucket boundaries**: You might see multiple AllReduce operations during backward pass—these correspond to different gradient buckets.
+    - **Data loading**: Look for `DataLoader` operations. If data loading time is significant, increase `num_workers` or optimize data preprocessing.
 
-When analyzing DDP profiler output, look for:
-
-1. **AllReduce operations**: Should see `nccl:all_reduce` or similar. These represent gradient synchronization.
-2. **Overlap indicators**: If you see backward compute operations (e.g., `ConvolutionBackward0`, `LinearBackward`) happening concurrently with AllReduce, overlap is working.
-3. **Communication time**: AllReduce time should be a small fraction of total backward time for good performance. As a rule of thumb: communication overhead (AllReduce time as a share of total step time) under 20% is good; 20–40% is acceptable; over 40% means communication is a bottleneck. If backward compute time is much larger than AllReduce time, overlap is working well.
-4. **Bucket boundaries**: You might see multiple AllReduce operations during backward pass—these correspond to different gradient buckets.
-5. **Data loading**: Look for `DataLoader` operations. If data loading time is significant, increase `num_workers` or optimize data preprocessing.
-
-Figure~\ref{fig:ddp-tracing-chrome} shows the Chrome tracing view of a DDP run: forward and backward passes and NCCL AllReduce communication appear on the timeline so you can check overlap between computation and communication.
-
-![Chrome Tracing View of a DDP Run](img/ddp_tracing_analysis_in_chrome.png){#fig:ddp-tracing-chrome .block width=90% align=center}
+Figure~\ref{fig:ddp-tracing-chrome} above is an example of this timeline view.
 
 ### Analyzing Computation-Communication Overlap
 
@@ -1193,7 +1188,7 @@ ncclKernel_AllReduce_Sum_f32_RING_LL: 0.18 ms
 
 ### Example: Profiling ResNet50 on CIFAR-10
 
-To practice profiling a larger model, use the script in `code/profile_ddp_resnet50.py`. It runs ResNet50 on CIFAR-10 with DDP for 5 iterations under the profiler, then rank 0 prints the top operations and exports `resnet50_ddp_trace.json`. CIFAR-10 is downloaded to `./data` on first run. From the chapter directory run:
+To practice profiling a larger model, use the script in `code/profile_ddp_resnet50.py`. It runs ResNet50 on CIFAR-10 with DDP for 5 iterations under the profiler, then rank 0 prints the top operations and exports `resnet50_ddp_trace.json`. From the chapter directory run:
 
 ```bash
 torchrun --nproc_per_node=2 code/profile_ddp_resnet50.py
