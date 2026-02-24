@@ -49,24 +49,26 @@ Figure~\ref{fig:ddp-fsdp-mem} illustrates the comparison: with DDP, each GPU hol
 
 >NOTEE
 
-### How FSDP Works: All-Gather and Reduce-Scatter
+### How FSDP Works?
 
-FSDP uses two key collective operations:
+FSDP (both FSDP1 and FSDP2) uses two key collective operations:
 
 1. **All-Gather**: During forward pass, when you need parameters that aren't on the current GPU, FSDP all-gathers them from all GPUs. After all-gather, all GPUs have a full copy of the needed parameters, but only temporarily (see Section~\ref{sec:allgather} in Chapter~\ref{chap:introduction-to-modern-distributed-ai}).
 
 2. **Reduce-Scatter**: During backward pass, gradients are computed locally, then reduce-scattered across GPUs. Each GPU ends up with its shard of the aggregated gradients (see Section~\ref{sec:reducescatter} in Chapter~\ref{chap:introduction-to-modern-distributed-ai}).
 
-Figure~\ref{fig:fsdp-allgather-reducescatter} illustrates the two steps. The key insight is that you don't need all parameters at once. During forward pass, you process layers sequentially. FSDP can all-gather parameters for the current layer, use them, then free them before moving to the next layer. This is why activation checkpointing is so important with FSDP—it reduces activation memory so you have room for the all-gathered parameters.
-
-The per-parameter-sharding design (introduced in PyTorch issue #114299[^fsdp2-rfc]) shards each parameter individually on dimension 0. This is simpler than the original flat-parameter approach and enables several useful features: flexible fp8 all-gather, frozen parameters in the same group, communication-free sharded state dicts, and better compiler integration.
+Figure~\ref{fig:fsdp-allgather-reducescatter} illustrates the two steps (same for FSDP1 and FSDP2). In the left panel (forward), each rank holds one parameter shard ($1/N$); after All-Gather, every rank has the full parameters temporarily. In the right panel (backward), each rank has full gradients; after Reduce-Scatter, each rank keeps only its shard of the reduced gradients ($1/N$). The key insight is that you don't need all parameters at once. During forward pass, you process layers sequentially. FSDP can all-gather parameters for the current layer, use them, then free them before moving to the next layer. This is why activation checkpointing is so important with FSDP—it reduces activation memory so you have room for the all-gathered parameters.
 
 ![FSDP: All-Gather in forward, Reduce-Scatter in backward.](img/fsdp_allgather_reducescatter.png){#fig:fsdp-allgather-reducescatter .block width=100% align=center}
 
 
+**FSDP2** uses a per-parameter-sharding design (introduced in PyTorch issue #114299[^fsdp2-rfc]) that shards each parameter individually on dimension 0. For example, a linear layer weight of shape $(4096, 1024)$ with 4 GPUs becomes four shards of shape $(1024, 1024)$—each rank holds one quarter of the rows. This is simpler than the original FSDP1 flat-parameter approach and enables several useful features: flexible fp8 all-gather, frozen parameters in the same group, communication-free sharded state dicts, and better compiler integration.
+
+To summarize, the difference between FSDP1 and FSDP2 is not the collectives (both use All-Gather and Reduce-Scatter) but how parameters are laid out: FSDP1 flattens many parameters into a single `FlatParameter` object (one instance of the `FlatParameter` class) per wrap unit and shards that; FSDP2 shards each parameter tensor individually on dimension 0, with no flattening.
+
 ### Original FSDP (FSDP1)
 
-The **original FSDP** (often called FSDP1) is the wrapper class `FullyShardedDataParallel` in `torch.distributed.fsdp`. It flattens the parameters of each wrapped module into a single `FlatParameter` and shards that across ranks; the same all-gather and reduce-scatter ideas apply. Usage is similar to DDP: you wrap the model (or submodules via `wrap()`), then train as usual.
+The **original FSDP** (often called FSDP1) is the wrapper class `FullyShardedDataParallel` in `torch.distributed.fsdp`. It flattens the parameters of each wrapped module into a single `FlatParameter` object (one instance of the class) and shards that across ranks; the same all-gather and reduce-scatter ideas apply. Usage is similar to DDP: you wrap the model (or submodules via `wrap()`), then train as usual.
 
 ```python
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
