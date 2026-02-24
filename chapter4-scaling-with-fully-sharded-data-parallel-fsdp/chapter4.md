@@ -15,13 +15,15 @@
 - `torch.distributed.fsdp.OptimStateDictConfig`: Configuration for optimizer state dict
 - `torch.distributed.fsdp.MixedPrecision`: Mixed precision configuration for FSDP
 
-PyTorch has three main FSDP implementations:
+**Fully Sharded Data Parallel (FSDP)** is a training strategy that shards model parameters, gradients, and optimizer state across multiple devices so that each device holds only a fraction of the full model. In Chapter~\ref{chap:distributed-training-with-pytorch-ddp}, we used DDP, which replicates the entire model on every GPU—effective when the model fits in a single GPU's memory. When the model (plus gradients and optimizer state) exceeds that memory, DDP is no longer viable. FSDP addresses this by distributing the model and its training state across GPUs, so you can train models that are larger than the memory of any one device.
+
+PyTorch provides three main FSDP implementations:
 
 1. **Original FSDP** (`FullyShardedDataParallel`): The wrapper class using a flat-parameter approach, primarily for CUDA/GPUs.
 2. **FSDP2** (`fully_shard()`): The newer per-parameter-sharding design for CUDA/GPUs, accessed via `fully_shard()`. This is simpler, more flexible, and is the direction PyTorch is moving for GPU training.
 3. **FSDP via SPMD** (`SpmdFullyShardedDataParallel`): An implementation for XLA/TPU devices that uses GSPMD (Generalized Single-Program Multiple-Data) for automatic parallelization.
 
-This chapter focuses on FSDP2 for GPU training—it's the recommended approach for new projects on CUDA devices. The original FSDP still works, but for new projects, you should use the per-parameter-sharding API. For TPU training, see the FSDP via SPMD section in Advanced Topics.
+This chapter focuses on FSDP2 for GPU training—it's the recommended approach for new projects on CUDA devices. The original FSDP still works, but for new projects, the per-parameter-sharding API is recommended. For TPU training, see Section~\ref{sec:fsdp-spmd}.
 
 ## Why FSDP Enables Larger-Than-Memory Models
 
@@ -1517,7 +1519,7 @@ Use these tools to monitor FSDP training:
 3. **Memory profiler**: Track memory usage over time
 4. **Distributed logging**: Use `torch.distributed` logging utilities
 
-## FSDP via SPMD for TPU/XLA
+## FSDP via SPMD for TPU/XLA {#sec:fsdp-spmd}
 
 This chapter has focused on FSDP2 for GPU training using CUDA devices. However, PyTorch also provides FSDP via SPMD for TPU/XLA devices, which uses a different approach based on GSPMD (Generalized Single-Program Multiple-Data) for automatic parallelization.
 
