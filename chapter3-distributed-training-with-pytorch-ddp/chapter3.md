@@ -280,10 +280,9 @@ def get_dataloader(rank, world_size, batch_size=32):
         num_replicas=world_size,
         rank=rank,
         shuffle=True,  # Shuffle data each epoch
-        drop_last=False  # Don't drop last incomplete batch
+        drop_last=True  # avoids DDP sync issues
     )
     # Create DataLoader with sampler
-    # Important: don't set shuffle=True when using DistributedSampler
     dataloader = DataLoader(
         dataset,
         batch_size=batch_size,
@@ -321,7 +320,7 @@ Key points about `DistributedSampler`:
 - **Sharding**: Each process gets a different subset of data. With 4 processes and 1000 samples, each process sees 250 samples.
 - **Shuffling**: Set `shuffle=True` in the sampler, not in DataLoader. The sampler handles shuffling per-process.
 - **set_epoch()**: Call this at the start of each epoch to ensure different shuffling each epoch. Without this, all epochs see data in the same order.
-- **drop_last**: If `True`, drops the last incomplete batch. This ensures all processes have the same number of batches, which simplifies synchronization. If `False`, some processes might have one extra batch.
+- **drop_last**: If `True`, the sampler drops the last incomplete batch so that each rank has the same number of batches; use this with DDP to avoid one rank running extra steps and causing hangs. If `False`, some ranks may have one more batch than others. Prefer `False` only when you need to use every sample (e.g. small datasets) and cannot afford to drop the tail; in that case you must wrap your training loop with DDP's `join()` so that ranks that finish early wait for those with an extra batch, otherwise you get a deadlock.
 
 ### DataLoader Internals for Distributed Training
 
