@@ -57,9 +57,12 @@ FSDP uses two key collective operations:
 
 2. **Reduce-Scatter**: During backward pass, gradients are computed locally, then reduce-scattered across GPUs. Each GPU ends up with its shard of the aggregated gradients (see Section~\ref{sec:reducescatter} in Chapter~\ref{chap:introduction-to-modern-distributed-ai}).
 
-The key insight is that you don't need all parameters at once. During forward pass, you process layers sequentially. FSDP can all-gather parameters for the current layer, use them, then free them before moving to the next layer. This is why activation checkpointing is so important with FSDP—it reduces activation memory so you have room for the all-gathered parameters.
+Figure~\ref{fig:fsdp-allgather-reducescatter} illustrates the two steps. The key insight is that you don't need all parameters at once. During forward pass, you process layers sequentially. FSDP can all-gather parameters for the current layer, use them, then free them before moving to the next layer. This is why activation checkpointing is so important with FSDP—it reduces activation memory so you have room for the all-gathered parameters.
 
 The per-parameter-sharding design (introduced in PyTorch issue #114299[^fsdp2-rfc]) shards each parameter individually on dimension 0. This is simpler than the original flat-parameter approach and enables several useful features: flexible fp8 all-gather, frozen parameters in the same group, communication-free sharded state dicts, and better compiler integration.
+
+![FSDP: All-Gather in forward, Reduce-Scatter in backward.](img/fsdp_allgather_reducescatter.png){#fig:fsdp-allgather-reducescatter .block width=100% align=center}
+
 
 ### Original FSDP (FSDP1)
 
