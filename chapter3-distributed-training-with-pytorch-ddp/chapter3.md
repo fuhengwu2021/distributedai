@@ -1516,7 +1516,7 @@ Such hooks are often used to clip gradients, to log or monitor gradient norms du
 
 ### Communication Hooks
 
-For advanced use cases, you can customize how DDP synchronizes gradients using communication hooks:
+Communication hooks replace DDP’s default gradient synchronization with custom logic. The hook is invoked once per bucket; it receives the bucket’s buffer, performs whatever reduction or transformation is desired, and must return a future that completes with the (possibly modified) tensor so that DDP can continue. Registering a hook that performs a plain AllReduce looks like this:
 
 ```python
 def allreduce_hook(state, bucket):
@@ -1532,13 +1532,9 @@ def allreduce_hook(state, bucket):
 model.register_comm_hook(state=None, hook=allreduce_hook)
 ```
 
-Communication hooks let you implement:
+A runnable example is in `code/ddp_comm_hook.py`. From the chapter directory, run `torchrun --nproc_per_node=2 code/ddp_comm_hook.py`; the script builds a small DDP model, registers the hook above, and runs one backward pass so the custom AllReduce runs per bucket.
 
-- Gradient compression (quantization, sparsification)
-- Custom reduction operations
-- Gradient filtering
-
-**Warning**: Communication hooks are advanced and can break DDP if implemented incorrectly. Only use if you know what you're doing.
+Typical applications include gradient compression (e.g. quantization or sparsification), custom reduction operations, and gradient filtering. Communication hooks are advanced: an incorrect implementation can break DDP or cause incorrect training, so they are best used only when the synchronization semantics are well understood.
 
 ### Handling Uneven Inputs with join()
 
