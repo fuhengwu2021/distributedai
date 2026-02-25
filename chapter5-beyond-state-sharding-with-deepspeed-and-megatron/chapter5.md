@@ -30,11 +30,7 @@ We'll cover DeepSpeed ZeRO first—it's worth understanding the full ZeRO family
 
 ![ZeRO stages comparison: DDP vs ZeRO-1/2/3.](img/zero_stages_comparison.png){#fig:zero-stages .block width=100% align=center}
 
-Figure~\ref{fig:zero-stages} shows how memory layout changes across ZeRO stages. In DDP (leftmost), every GPU holds full copies of parameters (P), gradients (G), and optimizer states (O). ZeRO-1 shards only optimizer states. ZeRO-2 shards both gradients and optimizer states. ZeRO-3 shards everything—each GPU holds only 1/N of each component (shown as smaller blocks). The progression trades communication overhead for memory savings.
-
-![ZeRO stages comparison: DDP vs ZeRO-1/2/3.](img/zero_stages_comparison.png){#fig:zero-stages .block width=100% align=center}
-
-Figure~\ref{fig:zero-stages} shows how memory layout changes across ZeRO stages. In DDP (leftmost), every GPU holds full copies of parameters (P), gradients (G), and optimizer states (O). ZeRO-1 shards only optimizer states. ZeRO-2 shards both gradients and optimizer states. ZeRO-3 shards everything—each GPU holds only 1/N of each component (shown as smaller blocks). The progression trades communication overhead for memory savings.
+Figure~\ref{fig:zero-stages} illustrates the memory layout across four ranks (R0–R3) for DDP and each ZeRO stage. Each row represents one GPU, and the three colored blocks show what that GPU stores: parameters (blue), gradients (red), and optimizer states (green). In DDP, all blocks are full-width because every GPU holds complete copies of everything—this is the memory redundancy we want to eliminate. ZeRO-1 keeps parameters and gradients replicated but shards optimizer states (notice the smaller green blocks). ZeRO-2 additionally shards gradients, so both red and green blocks shrink. ZeRO-3 shards all three components—every block becomes 1/4 the original size with 4 GPUs. The visual progression from left to right shows how memory per GPU decreases at each stage, with the trade-off being increased communication to reconstruct full tensors when needed.
 
 ## ZeRO Stage 1: Optimizer State Partitioning
 
