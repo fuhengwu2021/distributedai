@@ -970,55 +970,9 @@ Megatron Core achieves:
 
 ### Decision Tree
 
-```
-Model Size < 10B?
-+- Yes -> Use DDP or ZeRO-1
-|         (simplest, fastest, easiest to debug)
-+- No
-    |
-    Model Size < 50B?
-    +- Yes -> Use ZeRO-2 or FSDP2
-    |         (good balance, shards gradients too)
-    +- No
-        |
-        Can single layer fit and compute efficiently on one GPU?
-        +- Yes -> Use ZeRO-3 or FSDP2
-        |         (state sharding is sufficient)
-        |         Models: 7B-30B, standard architectures
-        +- No -> Use FSDP2 + Megatron TP (or ZeRO-3 + Megatron TP)
-                (need computation sharding for large layers)
-                |
-                Sequence Length >= 8K?
-                +- Yes -> Add Context Parallelism (CP)
-                |         FSDP2 + Megatron TP + CP
-                |         (reduces activation memory for long sequences)
-                +- No
-                    |
-                    Model Size < 200B?
-                    +- Yes -> FSDP2 + Megatron TP
-                    |         (or ZeRO-3 + Megatron TP)
-                    |         Models: 50B-200B, large hidden dims
-                    +- No
-                        |
-                        Multiple Nodes?
-                        +- Yes -> Add Pipeline Parallelism (PP)
-                        |         FSDP2 + Megatron TP + PP
-                        |         (hierarchical parallelism for inter-node scaling)
-                        |         Optional: ZeRO++ for communication optimization
-                        +- No
-                            |
-                            Model Size < 500B?
-                            +- Yes -> FSDP2 + Megatron TP
-                            +- No -> ZeRO-Infinity + Megatron TP
-                                    (offload to NVMe for extreme scale)
-                                    |
-                                    MoE Model?
-                                    +- Yes -> Add Expert Parallelism (EP)
-                                    |         FSDP2 + Megatron TP + EP
-                                    |         (or ZeRO-3 + Megatron TP + EP)
-                                    |         Models: Mixtral, DeepSeek-V3, Qwen-MoE
-                                    +- No -> Continue with TP + PP
-```
+![Parallelism strategy decision tree.](img/parallelism_decision_tree.png){#fig:parallelism-decision-tree .block width=80% align=center}
+
+Figure~\ref{fig:parallelism-decision-tree} provides a decision tree for choosing the right parallelism strategy. The key questions to ask are: How large is your model? Does a single layer fit on one GPU? How long are your sequences? Are you training across multiple nodes? Is it a Mixture-of-Experts model? Each path leads to a recommended combination of techniques—from simple DDP for small models to complex combinations of FSDP2, tensor parallelism, pipeline parallelism, context parallelism, and expert parallelism for the largest models.
 
 ### Comparison Table
 
