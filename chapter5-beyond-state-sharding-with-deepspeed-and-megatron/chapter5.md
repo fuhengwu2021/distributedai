@@ -421,13 +421,21 @@ So far we've discussed parallelism strategies that address model size—sharding
 
 Consider a Transformer with hidden dimension 4096 processing a 32K token sequence. Each layer stores activations of shape (batch, 32K, 4096), and with 32 layers, the activation memory can easily reach tens of gigabytes per GPU. This is where **sequence parallelism** and **context parallelism** come in.
 
+![Sequence parallelism and context parallelism (ring attention).](img/sequence_context_parallelism.png){#fig:seq-ctx-parallel .block width=100% align=center}
+
+Figure~\ref{fig:seq-ctx-parallel} illustrates both techniques. Sequence parallelism (left) splits activations along the sequence dimension—each GPU stores only its portion of the sequence for LayerNorm and Dropout operations. Context parallelism (right) uses ring attention: each GPU holds local Q, K, V chunks, and K, V pairs rotate around a ring so every query can attend to all keys without any GPU holding the full sequence.
+
 **Sequence parallelism**[^seqpar] is the simpler of the two. When tensor parallelism is enabled, certain operations like LayerNorm and Dropout don't participate in the TP communication—they operate on the full hidden dimension locally. Sequence parallelism extends the sharding to these operations by splitting activations along the sequence dimension. If you have TP=4, sequence parallelism means each GPU only stores 1/4 of the sequence's activations for these operations. It's typically enabled alongside tensor parallelism with minimal overhead.
 
 [^seqpar]: Korthikanti et al., "Reducing Activation Recomputation in Large Transformer Models," MLSys 2023. https://arxiv.org/abs/2205.05198
 
-**Context parallelism (CP)**[^ringatt] goes further.
+**Context parallelism (CP)**[^ringatt] takes a more aggressive approach. While sequence parallelism only shards the activations of LayerNorm and Dropout, context parallelism partitions *everything* along the sequence dimension—inputs, all intermediate activations, and attention computation itself. With CP=2 on an 8K sequence, each GPU processes only 4K tokens throughout the entire forward and backward pass.
 
-[^ringatt]: Liu et al., "Ring Attention with Blockwise Transformers for Near-Infinite Context," ICLR 2024. https://arxiv.org/abs/2310.01889 Instead of just splitting LayerNorm and Dropout activations, CP partitions *all* inputs and activations along the sequence dimension. With CP=2 on an 8K sequence, each GPU processes only 4K tokens. The challenge is attention: each token's query needs to attend to all keys and values, not just the local chunk. CP handles this by using all-gather to collect the full KV sequences across GPUs, computing attention, then reduce-scatter to distribute gradients back. The communication is optimized using a ring topology, and modern attention variants like Grouped-Query Attention (GQA) reduce the communication volume since KV heads are shared.
+[^ringatt]: Liu et al., "Ring Attention with Blockwise Transformers for Near-Infinite Context," ICLR 2024. https://arxiv.org/abs/2310.01889
+
+The challenge is attention. In standard self-attention, each token's query must attend to all keys and values in the sequence. If GPU 0 holds tokens 0–3999 and GPU 1 holds tokens 4000–7999, how does a query on GPU 0 attend to keys on GPU 1? Context parallelism solves this using a technique called **ring attention**. The idea is elegant: instead of gathering all KV pairs to every GPU (which would defeat the memory savings), we pass KV chunks around in a ring. GPU 0 computes attention for its queries against its local KV, then sends its KV to GPU 1 and receives GPU 1's KV. Now GPU 0 computes attention against the new KV chunk, accumulating the results. After one full rotation around the ring, every query has seen every key-value pair, but no GPU ever held the full sequence.
+
+The communication pattern is carefully optimized. Modern implementations overlap the KV transfer with attention computation—while computing attention against the current KV chunk, the next chunk is already being transferred. Combined with Grouped-Query Attention (GQA), which shares KV heads across multiple query heads, the communication volume is significantly reduced.
 
 The benefit is substantial. Without CP, training on very long sequences often requires activation checkpointing (recomputing activations during backward pass), which adds ~30% overhead. With CP, you can eliminate this recompute entirely by simply distributing the activation memory across more GPUs. The trade-off is communication, but for long sequences the compute-to-communication ratio remains favorable.
 
@@ -440,6 +448,21 @@ A typical configuration for long-context training:
 ```
 
 The rule of thumb: use context parallelism when sequence length exceeds 8K tokens and activation memory is your bottleneck. For shorter sequences, tensor parallelism and sequence parallelism are usually sufficient.
+
+To see how activation memory scales with sequence length and how these techniques help:
+
+```bash
+# Show memory scaling (single GPU)
+python code/sequence_parallel_demo.py --mode memory
+
+# Demonstrate sequence parallelism (2 GPUs)
+torchrun --nproc_per_node=2 code/sequence_parallel_demo.py --mode sequence_parallel
+
+# Demonstrate ring attention concept (2 GPUs)
+torchrun --nproc_per_node=2 code/sequence_parallel_demo.py --mode ring_attention
+```
+
+The ring attention demo shows the core idea behind context parallelism: each GPU holds a local chunk of Q, K, V, and KV pairs are passed around in a ring so every query can attend to all keys.
 
 ### Expert Parallelism: Scaling MoE Models
 
