@@ -92,7 +92,13 @@ You can use `FSDP.set_state_dict_type()` and `StateDictConfig` / `OptimStateDict
 
 The new API uses `fully_shard()` as a function that modifies modules in place. No wrapper class needed—it's more functional and composable. This is a significant departure from the original FSDP, which used a wrapper class similar to DDP.
 
-Here's what the API looks like:
+Here's what the API looks like. A complete runnable example is in `code/train_fsdp2.py`:
+
+```bash
+torchrun --nproc_per_node=2 code/train_fsdp2.py
+```
+
+The core pattern:
 
 ```python
 from torch.distributed.fsdp import fully_shard, MixedPrecisionPolicy
@@ -110,6 +116,12 @@ fully_shard(
 ```
 
 The key difference from the original FSDP is that `fully_shard()` modifies the model in place. It doesn't return a wrapped model—your model becomes an FSDP model. This makes it easier to compose with other transformations and works better with `torch.compile`.
+
+For a minimal transformer example with hierarchical sharding (each block wrapped separately), see `code/fsdp2_basic.py`:
+
+```bash
+torchrun --nproc_per_node=2 code/fsdp2_basic.py
+```
 
 ### Device Mesh: The Foundation
 
@@ -369,90 +381,47 @@ There are two approaches: using the Distributed Checkpoint (DCP) API, or manuall
 
 ### Using the DCP API (Recommended)
 
-The DCP API is the recommended way to save and load FSDP2 checkpoints. It handles all the complexity of sharded state dicts:
+The DCP API is the recommended way to save and load FSDP2 checkpoints. It handles all the complexity of sharded state dicts. A complete runnable example is in `code/fsdp2_checkpoint_dcp.py`:
+
+```bash
+torchrun --nproc_per_node=2 code/fsdp2_checkpoint_dcp.py
+```
+
+The key functions are `save_checkpoint_dcp` and `load_checkpoint_dcp`:
 
 ```python
 from torch.distributed.checkpoint.state_dict import (
-    get_model_state_dict,
-    get_optimizer_state_dict,
-    set_model_state_dict,
-    set_optimizer_state_dict,
-    StateDictOptions,
+    get_model_state_dict, get_optimizer_state_dict,
+    set_model_state_dict, set_optimizer_state_dict, StateDictOptions,
 )
-from torch.distributed.checkpoint import FileSystemReader, FileSystemWriter
-import os
-
+import torch.distributed.checkpoint as dcp
 
 def save_checkpoint_dcp(model, optimizer, epoch, checkpoint_dir):
     """Save checkpoint using DCP API."""
-    rank = torch.distributed.get_rank()
-    
-    # Get state dicts with full_state_dict=False to get sharded dicts
     model_state_dict = get_model_state_dict(
         model=model,
-        options=StateDictOptions(
-            full_state_dict=False,  # Keep sharded
-            cpu_offload=True,  # Offload to CPU for saving
-        ),
+        options=StateDictOptions(full_state_dict=False, cpu_offload=True),
     )
-    
     optim_state_dict = get_optimizer_state_dict(
-        model=model,
-        optimizers=optimizer,
-        options=StateDictOptions(
-            full_state_dict=False,
-            cpu_offload=True,
-        ),
+        model=model, optimizers=optimizer,
+        options=StateDictOptions(full_state_dict=False, cpu_offload=True),
     )
-    
     checkpoint_path = os.path.join(checkpoint_dir, f"epoch_{epoch}")
-    os.makedirs(checkpoint_path, exist_ok=True)
-    
-    # Save using DCP
-    writer = FileSystemWriter(checkpoint_path)
-    writer.save(
-        {
-            "model": model_state_dict,
-            "optimizer": optim_state_dict,
-            "epoch": epoch,
-        }
-    )
-    
-    if rank == 0:
-        print(f"Checkpoint saved to {checkpoint_path}")
-
+    dcp.save({"model": model_state_dict, "optimizer": optim_state_dict, "epoch": epoch},
+             checkpoint_id=checkpoint_path)
 
 def load_checkpoint_dcp(model, optimizer, checkpoint_dir, epoch):
     """Load checkpoint using DCP API."""
     checkpoint_path = os.path.join(checkpoint_dir, f"epoch_{epoch}")
-    
-    # Load using DCP
-    reader = FileSystemReader(checkpoint_path)
-    checkpoint = reader.load()
-    
-    # Set state dicts
-    set_model_state_dict(
-        model=model,
-        model_state_dict=checkpoint["model"],
-        options=StateDictOptions(
-            full_state_dict=False,
-        ),
-    )
-    
-    set_optimizer_state_dict(
-        model=model,
-        optimizers=optimizer,
-        optim_state_dict=checkpoint["optimizer"],
-        options=StateDictOptions(
-            full_state_dict=False,
-        ),
-    )
-    
-    loaded_epoch = checkpoint["epoch"]
-    if torch.distributed.get_rank() == 0:
-        print(f"Checkpoint loaded from {checkpoint_path}, epoch {loaded_epoch}")
-    
-    return loaded_epoch
+    state_dict = {"model": get_model_state_dict(model, options=StateDictOptions(full_state_dict=False)),
+                  "optimizer": get_optimizer_state_dict(model, optimizers=optimizer,
+                                                        options=StateDictOptions(full_state_dict=False)),
+                  "epoch": 0}
+    dcp.load(state_dict, checkpoint_id=checkpoint_path)
+    set_model_state_dict(model, state_dict["model"], options=StateDictOptions(full_state_dict=False))
+    set_optimizer_state_dict(model, optimizers=optimizer, optim_state_dict=state_dict["optimizer"],
+                             options=StateDictOptions(full_state_dict=False))
+    return state_dict["epoch"]
 ```
 
 The DCP API handles all the complexity of sharded state dicts. Each rank saves its shard, and loading is just reading the shards back. No gathering, no broadcasting.
