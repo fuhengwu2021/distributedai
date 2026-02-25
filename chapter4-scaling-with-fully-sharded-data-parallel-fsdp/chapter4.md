@@ -1062,27 +1062,13 @@ For more details, see the PyTorch/XLA SPMD documentation.[^xla-spmd]
 
 ## Conclusion
 
-FSDP2 is PyTorch's solution for training models that don't fit on a single GPU. It shards parameters, gradients, and optimizer states across GPUs, enabling training of models that are 8x, 16x, or even larger than what fits on a single GPU.
+FSDP2 is PyTorch's answer to training models that don't fit on a single GPU. By sharding parameters, gradients, and optimizer states across GPUs, it lets you train models 8×, 16×, or larger than what a single GPU can hold.
 
-Key takeaways:
+The practical advice is simple: if DDP works, use DDP—it's faster and simpler. When your model outgrows a single GPU, try optimization first (mixed precision, activation checkpointing, gradient accumulation). If you're still OOM, switch to FSDP2. Start with full sharding and the DCP API for checkpointing, profile to find bottlenecks, and test on 2-4 GPUs before scaling to many nodes. Don't optimize blindly—let the profiler guide you.
 
-1. **Use FSDP2 when your model doesn't fit on a single GPU**: If DDP works, use DDP. Only use FSDP2 when necessary.
+The code examples in this chapter are complete and runnable. Try them on your hardware to see sharding in action: each rank holds only its portion of the model, and the all-gather/reduce-scatter operations happen automatically.
 
-2. **Start simple**: Use full-shard with activation checkpointing first. Add complexity only if needed.
-
-3. **Understand the tradeoffs**: FSDP adds communication overhead (all-gather/reduce-scatter). Make sure your model is large enough that computation dominates.
-
-4. **Use the DCP API for checkpointing**: It handles sharded state dicts correctly and is the recommended approach.
-
-5. **Profile before optimizing**: Use PyTorch profiler to understand where time is spent. Don't optimize blindly.
-
-6. **Test on small scale first**: Get FSDP2 working on 2-4 GPUs before scaling to many nodes.
-
-FSDP2 is actively developed and is the direction PyTorch is moving for large model training. If you're starting a new project and need to train models that don't fit on a single GPU, FSDP2 is the recommended choice.
-
-The code examples in this chapter show complete working setups. Run them on your hardware to see FSDP2 in action—you'll see the model sharded across GPUs, with each rank only holding its portion of the parameters, gradients, and optimizer states.
-
-FSDP2 handles most large model training scenarios well. But what if you need to train models that are so large they don't fit even with full sharding? Or what if you want CPU or NVMe offloading to extend memory even further? Or if you're training across many nodes and need optimized communication patterns? That's where DeepSpeed's ZeRO optimization comes in. ZeRO-3 does parameter sharding similar to FSDP2, but DeepSpeed also provides ZeRO-Offload for CPU memory, ZeRO-Infinity for NVMe offloading, and ZeRO++ for communication optimization—features that extend beyond what FSDP2 currently offers. In the next chapter, we'll explore the ZeRO family of optimizations and when to choose DeepSpeed over FSDP2.
+FSDP2 handles most large model training scenarios well. But what if even full sharding isn't enough? What if you need CPU or NVMe offloading to push memory limits further, or optimized communication patterns for training across many nodes? That's where DeepSpeed's ZeRO comes in. In the next chapter, we'll explore ZeRO-Offload, ZeRO-Infinity, and ZeRO++—features that extend beyond what FSDP2 currently offers—and when to choose DeepSpeed over PyTorch-native solutions.
 
 ## References
 
