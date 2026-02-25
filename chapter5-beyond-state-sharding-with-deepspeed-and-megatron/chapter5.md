@@ -380,13 +380,17 @@ Tensor parallelism splits individual layers across GPUs, but there's another dim
 
 The idea is intuitive: data flows through the model like water through a pipe. GPU 0 processes the first half of the layers, then passes the intermediate activations to GPU 1, which processes the second half. But here's the catch—if we naively process one batch at a time, GPU 1 sits idle while GPU 0 is working, and vice versa. This "pipeline bubble" can waste up to 50% of compute.
 
-The solution is to split the batch into smaller **micro-batches** and pipeline them. While GPU 1 is processing micro-batch 1 through layers 16–31, GPU 0 can start processing micro-batch 2 through layers 0–15. With enough micro-batches in flight, we keep all GPUs busy most of the time.
+The solution is to split the batch into smaller **micro-batches** and pipeline them. While GPU 1 is processing micro-batch 1 through layers 16–31, GPU 0 can start processing micro-batch 2 through layers 0–15. With enough micro-batches in flight, we keep all GPUs busy most of the time. This approach is called **1F1B (One Forward One Backward)**: each GPU alternates between forward passes and backward passes, maintaining a steady state where all stages are active.
 
 ![Pipeline parallelism: naive vs 1F1B schedule.](img/pipeline_parallelism.png){#fig:pipeline-parallelism .block width=100% align=center}
 
 Figure~\ref{fig:pipeline-parallelism} contrasts the naive approach with the 1F1B schedule. In the naive pipeline (top), a single batch flows through all 4 GPUs sequentially—GPU 0 runs forward (F), passes to GPU 1, and so on until GPU 3 completes forward, then backward (B) propagates back. The white space represents idle time (bubbles). In the 1F1B schedule (bottom), we split the batch into 4 micro-batches (F1–F4, B1–B4). Each GPU processes multiple micro-batches in an interleaved fashion, dramatically reducing idle time.
 
-Megatron supports several pipeline schedules. The most common is **1F1B (One Forward One Backward)**: each GPU alternates between forward passes and backward passes, maintaining a steady state where all stages are active. The original **GPipe** schedule runs all forward passes first, then all backward passes—simpler but with larger bubbles. **Interleaved pipelines** (also called Virtual Pipeline Parallelism) go further by assigning multiple non-contiguous chunks of layers to each GPU, reducing bubble size at the cost of more communication.
+Megatron supports several pipeline schedules. The 1F1B schedule shown above is the most common. The original **GPipe** schedule[^gpipe] runs all forward passes first, then all backward passes—simpler but with larger bubbles. **Interleaved pipelines**[^interleaved] (also called Virtual Pipeline Parallelism) go further by assigning multiple non-contiguous chunks of layers to each GPU, reducing bubble size at the cost of more communication.
+
+[^interleaved]: Narayanan et al., "Efficient Large-Scale Language Model Training on GPU Clusters Using Megatron-LM," SC 2021. https://arxiv.org/abs/2104.04473
+
+[^gpipe]: Huang et al., "GPipe: Efficient Training of Giant Neural Networks using Pipeline Parallelism," NeurIPS 2019. https://arxiv.org/abs/1811.06965
 
 Virtual Pipeline Parallelism deserves special mention. Instead of assigning layers 0–15 to GPU 0 and 16–31 to GPU 1, we might assign layers 0–7 and 16–23 to GPU 0, and layers 8–15 and 24–31 to GPU 1. Each GPU now runs two "virtual stages." This interleaving reduces the pipeline bubble because micro-batches cycle through stages faster. The trade-off is additional point-to-point communication between stages.
 
@@ -409,6 +413,7 @@ torchrun --nproc_per_node=2 code/pipeline_parallel_simple.py
 ```
 
 This example demonstrates model partitioning, micro-batch scheduling, and forward/backward coordination across pipeline stages.
+
 
 ### Sequence Parallelism and Long Contexts
 
