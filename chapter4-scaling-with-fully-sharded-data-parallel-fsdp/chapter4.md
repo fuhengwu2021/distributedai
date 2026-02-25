@@ -933,275 +933,61 @@ A few tools help with FSDP debugging. For NCCL issues, `export NCCL_DEBUG=INFO` 
 
 ## Comparing FSDP2 with ZeRO and DDP
 
-When choosing a distributed training strategy, you need to understand the tradeoffs. Let's compare DDP, ZeRO (DeepSpeed), and FSDP2.
+Choosing between DDP, ZeRO (DeepSpeed), and FSDP2 depends on your model size and ecosystem preferences.
 
-### DDP: When Your Model Fits on One GPU
+**DDP** is the simplest option. Every GPU holds a full copy of the model, gradients, and optimizer state. Communication is just gradient synchronization (AllReduce), which is well-optimized. Use DDP when your model fits on a single GPU—this covers most models up to ~7B parameters on modern GPUs with mixed precision.
 
-**DDP** is the simplest—every GPU has a full copy of everything. Use it when your model fits on a single GPU.
+**ZeRO** (from DeepSpeed) does staged sharding: ZeRO-1 shards optimizer states, ZeRO-2 adds gradients, and ZeRO-3 shards everything including parameters. It's production-tested and integrates with DeepSpeed's other features like ZeRO-Offload (CPU) and ZeRO-Infinity (NVMe). The tradeoff is adding DeepSpeed as a dependency and learning its APIs.
 
-**Pros:**
+**FSDP2** is PyTorch-native and does full sharding like ZeRO-3. The per-parameter design is simpler (~3k lines vs ~14k for FSDP1), integrates well with `torch.compile`, and doesn't require external dependencies. It's newer than ZeRO, so there are fewer battle-tested examples, but it's the direction PyTorch is moving.
 
-- Simple to use: just wrap your model with `DDP`
-- Well-optimized: mature, battle-tested, excellent performance
-- Low communication overhead: only gradient synchronization
-- Works with any PyTorch model
+### Memory and Performance
 
-**Cons:**
+To make this concrete: a 7B parameter model with Adam optimizer needs ~84 GB per GPU with DDP (parameters + gradients + optimizer states, all replicated). With FSDP2 or ZeRO-3 on 8 GPUs, that drops to ~10.5 GB per GPU—everything is sharded 8 ways.
 
-- Requires model to fit on a single GPU
-- Doesn't help with very large models
+Performance-wise, DDP is fastest when the model fits (less communication). For models that don't fit, FSDP2 and ZeRO-3 perform similarly—both do all-gather and reduce-scatter, and the difference comes down to implementation details and network topology rather than fundamental design. Choose based on ecosystem fit, not performance.
 
-**When to use:** Models that fit on a single GPU (even with mixed precision and activation checkpointing). This covers most models up to ~7B parameters on modern GPUs.
+### When to Use What
 
-### ZeRO (DeepSpeed): The DeepSpeed Ecosystem
-
-**ZeRO** does staged sharding similar to FSDP, but it's part of the DeepSpeed ecosystem. ZeRO has three stages:
-
-- **ZeRO-1**: Shards optimizer states only
-- **ZeRO-2**: Shards optimizer states + gradients
-- **ZeRO-3**: Shards optimizer states + gradients + parameters
-
-**Pros:**
-
-- Part of DeepSpeed ecosystem: integrates with other DeepSpeed features (ZeRO-Offload, ZeRO-Infinity, etc.)
-- Well-documented: extensive documentation and examples
-- Production-tested: used by many organizations
-
-**Cons:**
-
-- Requires DeepSpeed: adds dependency, not pure PyTorch
-- More complex: DeepSpeed has many features, can be overwhelming
-- Less flexible: tied to DeepSpeed's APIs
-
-**When to use:** If you're already using DeepSpeed or need DeepSpeed-specific features (like ZeRO-Offload for CPU offloading, or ZeRO-Infinity for NVMe offloading).
-
-### FSDP2: PyTorch-Native Sharding
-
-**FSDP2** is PyTorch-native and integrates tightly with autograd. The per-parameter-sharding design is simpler (about 3k lines of code versus 14k for the original) and more flexible.
-
-**Pros:**
-
-- PyTorch-native: no external dependencies, integrates with PyTorch ecosystem
-- Flexible: per-parameter sharding enables features like fp8 all-gather, frozen parameters
-- Simpler API: functional approach with `fully_shard()`, easier to compose
-- Better compiler integration: works well with `torch.compile`
-- Active development: PyTorch team is actively improving it
-
-**Cons:**
-
-- Newer: less battle-tested than ZeRO, fewer examples
-- Limited offloading: CPU/NVMe offloading is available but less mature than DeepSpeed's ZeRO-Offload/Infinity
-
-**When to use:** If you're using PyTorch and want native integration. The new design is the direction PyTorch is moving, so new projects should use it.
-
-### Memory Comparison
-
-Let's compare memory usage for a 7B parameter model with Adam optimizer on 8 GPUs:
-
-**DDP:**
-
-- Parameters: 14 GB (BF16) × 8 GPUs = 112 GB total
-- Gradients: 14 GB × 8 GPUs = 112 GB total
-- Optimizer states: 56 GB × 8 GPUs = 448 GB total
-- **Per GPU**: 84 GB (doesn't fit on most GPUs)
-
-**ZeRO-3 / FSDP2:**
-
-- Parameters: 14 GB / 8 = 1.75 GB per GPU
-- Gradients: 14 GB / 8 = 1.75 GB per GPU
-- Optimizer states: 56 GB / 8 = 7 GB per GPU
-- **Per GPU**: 10.5 GB (fits comfortably)
-
-### Performance Comparison
-
-For models that fit on a single GPU, DDP is usually fastest (lowest communication overhead). For models that don't fit, FSDP2 and ZeRO-3 have similar performance:
-
-- **Communication overhead**: Both do all-gather and reduce-scatter. Performance depends on network topology and implementation details.
-- **Computation**: Same (both use data parallelism for computation).
-- **Memory**: Same (both shard parameters, gradients, optimizer states).
-
-In practice, performance is similar. Choose based on ecosystem fit, not performance.
-
-### Migration Path
-
-If you're using DDP and need to scale to larger models:
-
-1. **Try optimization first**: Mixed precision, activation checkpointing, gradient accumulation. You might be able to fit a larger model with DDP.
-
-2. **If still OOM, switch to FSDP2**: The API is similar to DDP, migration is straightforward. Just replace `DDP(model)` with `fully_shard(model, mesh=mesh)`.
-
-3. **If you need advanced features**: Consider DeepSpeed ZeRO if you need features like ZeRO-Offload or ZeRO-Infinity.
-
-### Recommendation
-
-**Use DDP if:**
-
-- Your model fits on a single GPU
-- You want the simplest solution
-- You don't need to scale beyond single-node
-
-**Use FSDP2 if:**
-
-- Your model doesn't fit on a single GPU
-- You want PyTorch-native solution
-- You're starting a new project
-
-**Use ZeRO if:**
-
-- You're already using DeepSpeed
-- You need DeepSpeed-specific features (ZeRO-Offload, ZeRO-Infinity)
-- You prefer the DeepSpeed ecosystem
-
-For most PyTorch users, FSDP2 is the recommended choice for models that don't fit on a single GPU.
+If your model fits on a single GPU, use DDP—it's simpler and faster. If it doesn't fit, try optimization first (mixed precision, activation checkpointing, gradient accumulation). Still OOM? Switch to FSDP2; the migration is straightforward since the API is similar. If you need DeepSpeed-specific features like ZeRO-Offload or ZeRO-Infinity, or you're already in the DeepSpeed ecosystem, use ZeRO instead.
 
 ## Practical Tips
 
-Here are practical tips from real-world FSDP usage:
+A few lessons from real-world FSDP usage.
 
-### State Dict Handling
+**State dicts**: With FSDP2, sharded state dicts match the training representation, so each rank just saves its shard. Use the DCP API (covered earlier) unless you need a full checkpoint for inference—gathering all shards to rank 0 is slow and memory-intensive.
 
-With FSDP2, sharded state dicts match the training representation, so saving and loading is straightforward. Each rank saves its shard.
+**Shared parameters**: If the same tensor is used in multiple places, those uses need to be in the same FSDP group. There's no way to preserve sharedness after parameter swapping, so structure your model to keep shared parameters in the same module hierarchy, or avoid sharing.
 
-**Key points:**
+**Memory profiling**: Sometimes the bottleneck isn't what you think. Use `torch.profiler` or `nvidia-smi` to check. Common culprits: activations (use checkpointing), temporary tensors accumulating across iterations (detach or delete them), or DataLoader with `pin_memory=True` on a memory-constrained system.
 
-- Use DCP API for checkpointing (recommended) or handle sharded state dicts manually
-- Don't try to gather all shards to rank 0 unless you need a full checkpoint for inference
-- Loading is just reading shards back—no gathering needed
-
-### Shared Parameters
-
-If you have shared parameters (same tensor used in multiple places), they need to be in the same FSDP group. This is a limitation—there's no way to preserve sharedness after parameter swapping.
-
-**Workaround:** If you have shared parameters, make sure they're in the same module hierarchy so FSDP treats them as a single parameter. Or restructure your model to avoid sharing.
-
-### Memory Profiling
-
-Use `torch.profiler` or `nvidia-smi` to see where memory is actually being used. Sometimes the bottleneck isn't what you think—it could be activations, not parameters.
-
-**Common memory issues:**
-
-- Activations: Use activation checkpointing
-- Optimizer states: Already sharded with FSDP, but can offload to CPU if needed
-- Temporary tensors: Make sure you're not accumulating tensors across iterations
-- DataLoader: Use `pin_memory=False` if you're memory-constrained
-
-### Tuning reshard_after_forward
-
-The default (`True`) is usually right. But if you have memory headroom and want to reduce communication, try `False`. You can also use an intermediate size (like `int` for ZeRO++ hpZ style).
-
-**When to use `False`:**
-
-- You have extra GPU memory
-- Communication is your bottleneck (slow network)
-- You want to reduce all-gather operations in backward
-
-**When to use `True` (default):**
-
-- You're memory-constrained
-- Communication is fast (NVLink, fast InfiniBand)
-- You want maximum memory savings
+**reshard_after_forward**: The default (`True`) saves memory by resharding after forward, but requires all-gather again in backward. If you have memory headroom and communication is your bottleneck, try `False` to keep parameters unsharded.
 
 ### Initialization Best Practices {#sec:fsdp-initialization-best-practices}
 
-1. **Use meta device for large models**: Create model on meta device first, then move to actual device after FSDP:
+For very large models, create on the meta device first, apply FSDP, then move to the actual device and initialize:
 
 ```python
 with torch.device("meta"):
     model = Transformer(args)
-
-# Apply FSDP
 fully_shard(model, mesh=mesh)
-
-# Move to actual device and initialize
 model.to_empty(device=device)
 model.reset_parameters()
 ```
 
-2. **Initialize on all ranks**: Make sure all ranks initialize parameters the same way (same seed).
+This avoids ever materializing the full model on a single device. Make sure all ranks use the same seed so parameters initialize identically.
 
-3. **Don't initialize before FSDP**: If you initialize parameters before applying FSDP, you'll waste memory. Initialize after.
+### Data Loading and Gradient Clipping
 
-### Data Loading
+Use `DistributedSampler` and call `sampler.set_epoch(epoch)` each epoch—forgetting this means all epochs see the same shuffle. Gradient clipping works with FSDP; just call `torch.nn.utils.clip_grad_norm_` as usual and FSDP handles the unsharding/resharding automatically.
 
-Use `DistributedSampler` correctly:
+### Mixed Precision
 
-```python
-sampler = DistributedSampler(
-    dataset,
-    num_replicas=world_size,
-    rank=rank,
-    shuffle=True,  # Shuffle data
-)
-dataloader = DataLoader(
-    dataset,
-    batch_size=batch_size,
-    sampler=sampler,
-    num_workers=4,  # Parallel data loading
-    pin_memory=True,  # Faster CPU->GPU transfer
-)
+BF16 is generally better than FP16 for parameters (wider dynamic range, less overflow risk). Keep gradient reduction in FP32 (`reduce_dtype=torch.float32`) for numerical stability. Get FSDP working without mixed precision first, then add it.
 
-# Important: call set_epoch each epoch
-for epoch in range(num_epochs):
-    sampler.set_epoch(epoch)  # Ensures different shuffle each epoch
-    for batch in dataloader:
-        # Training code
-```
+### Progressive Optimization
 
-### Gradient Clipping
-
-Gradient clipping works with FSDP, but you need to unshard parameters first:
-
-```python
-# Unshard parameters for gradient clipping
-model.unshard()
-
-# Clip gradients
-torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-
-# Reshard (happens automatically, but explicit is clearer)
-model.reshard()
-
-optimizer.step()
-```
-
-Or use the FSDP-aware gradient clipping:
-
-```python
-# FSDP handles unsharding/resharding automatically
-torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-```
-
-### Mixed Precision Best Practices
-
-1. **Use BF16 for parameters**: BF16 has better numerical stability than FP16.
-
-2. **Keep gradients in FP32**: Use `reduce_dtype=torch.float32` for gradient reduction to maintain precision.
-
-3. **Test without mixed precision first**: Get FSDP working without mixed precision, then add it.
-
-### Starting Simple
-
-Start simple: use full-shard with checkpointing, see if that's enough. Only add offloading if you're still hitting memory limits.
-
-**Progressive optimization:**
-1. Start with FSDP2 + mixed precision
-2. Add activation checkpointing if OOM
-3. Reduce batch size or sequence length if still OOM
-4. Add CPU offloading as last resort
-
-Don't optimize prematurely. Get it working first, then optimize.
-
-### Common Mistakes
-
-1. **Forgetting to call `set_epoch()`**: This causes all ranks to see the same data each epoch.
-
-2. **Different code paths per rank**: Conditional logic based on rank can cause hangs.
-
-3. **Initializing before FSDP**: Wastes memory. Initialize after applying FSDP.
-
-4. **Not using DistributedSampler**: Each rank will see the same data, defeating the purpose of distributed training.
-
-5. **Saving checkpoints incorrectly**: Make sure you understand sharded vs full state dicts.
+Start simple: FSDP2 with mixed precision. If you hit OOM, add activation checkpointing. Still OOM? Reduce batch size or sequence length. CPU offloading is the last resort—it works, but the slowdown is significant. Don't optimize prematurely; get it working first.
 
 ## Advanced Topics
 
