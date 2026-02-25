@@ -2,8 +2,8 @@
 
 *Extending memory capacity and sharding computation for very large models*
 
-> When training large models, practitioners often begin with state sharding techniques like FSDP2 or ZeRO-3, then add Megatron-style computation parallelism when per-layer computation becomes the bottleneck.
-- Adapted from Chapter 5
+> The future is already here. It's just unevenly distributed.
+- William Gibson
 
 **Code Summary**
 
