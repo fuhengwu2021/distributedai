@@ -470,19 +470,25 @@ The key insight behind Ulysses is straightforward: instead of rotating KV chunks
 
 Here's how it works. Before the attention computation, each GPU holds a chunk of the sequence with shape (batch, local_seq, num_heads, head_dim). Ulysses performs an **all-to-all** communication that reorganizes the data: instead of each GPU holding all heads for a portion of the sequence, each GPU now holds all sequence positions for a portion of the heads. After this transpose, the shape becomes (batch, full_seq, local_heads, head_dim). Now each GPU can compute standard self-attention on its subset of heads—no partial scores, no accumulation, just regular attention. After attention, another all-to-all reverses the transformation, returning to the original partitioning.
 
+![DeepSpeed-Ulysses: 2D transpose via all-to-all.](img/ulysses.png){#fig:ulysses .block width=85% align=center}
+
+Figure~\ref{fig:ulysses} illustrates this 2D transpose. On the left (sequence-parallel), each GPU holds a local sequence chunk $S_i$ with all heads $H_{all}$—the tensor shape is (local_seq, all_heads). The all-to-all collectively transposes the data: on the right (head-parallel), each GPU holds the full sequence $S_{all}$ but only its local heads $H_i$—the shape becomes (full_seq, local_heads). Now each GPU can compute standard self-attention independently on its subset of heads. After attention, another all-to-all reverses the transformation.
+
 The trade-off is communication volume versus communication pattern. Ring attention sends KV chunks P times around a ring of P GPUs, with each transfer overlapped with computation. Ulysses performs two all-to-all collectives (before and after attention), which involve all GPUs simultaneously. For small parallelism degrees (P ≤ 8), Ulysses often wins because all-to-all on modern interconnects like NVLink is highly optimized. For larger P or when interconnect bandwidth is limited, ring attention's overlapped communication can be more efficient.
 
-In practice, DeepSpeed-Ulysses shines in scenarios where you want sequence parallelism without the complexity of ring attention's partial softmax handling. It integrates cleanly with ZeRO and other DeepSpeed optimizations. The configuration is simple:
+In practice, DeepSpeed-Ulysses shines in scenarios where you want sequence parallelism without the complexity of ring attention's partial softmax handling. It integrates cleanly with ZeRO and other DeepSpeed optimizations.
 
-```python
-ds_config = {
-    "sequence_parallel_size": 4,  # Split sequence across 4 GPUs
-    "sequence_parallel_type": "ulysses",
-    # ... other DeepSpeed config
-}
+The accompanying `code/ulysses_demo.py` implements the core Ulysses algorithm from scratch. It demonstrates the two all-to-all operations: `all_to_all_seq_to_head` transposes from (batch, local_seq, num_heads, head_dim) to (batch, full_seq, local_heads, head_dim), and `all_to_all_head_to_seq` reverses this transformation. Between these two operations, each GPU runs standard self-attention on its subset of heads—no partial softmax accumulation required.
+
+```bash
+# Run Ulysses demo with 2 GPUs
+torchrun --nproc_per_node=2 code/ulysses_demo.py
+# Run with 4 GPUs (heads must be divisible by world_size)
+torchrun --nproc_per_node=4 code/ulysses_demo.py
 ```
 
 When should you choose Ulysses over ring attention? If you're already in the DeepSpeed ecosystem and want straightforward sequence parallelism with moderate parallelism degrees, Ulysses is the easier path. If you're scaling to very long sequences (100K+ tokens) with large parallelism degrees, ring attention's communication overlap may provide better efficiency.
+
 
 ### Expert Parallelism: Scaling MoE Models
 
