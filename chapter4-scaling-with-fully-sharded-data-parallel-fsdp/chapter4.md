@@ -138,18 +138,18 @@ The `DeviceMesh` is a new abstraction in PyTorch that represents a logical arran
 ```python
 from torch.distributed.device_mesh import init_device_mesh
 
-# 1D mesh for standard FSDP
-mesh = init_device_mesh("cuda", (world_size,))
+# 1D mesh for standard FSDP (4 GPUs)
+mesh = init_device_mesh("cuda", (4,))
 ```
 
-This creates a mesh where all GPUs are arranged in a single dimension. For 8 GPUs, this is `[0, 1, 2, 3, 4, 5, 6, 7]`.
+This creates a mesh where all GPUs are arranged in a single dimension. For 4 GPUs, this is `[0, 1, 2, 3]`.
 
-For hybrid sharding (HSDP), you can use a 2D mesh:
+For very large clusters, full sharding across all GPUs can create excessive cross-node communication. Hybrid Sharded Data Parallel (HSDP) addresses this by sharding parameters only within each node while replicating across nodes—trading some memory for reduced inter-node traffic. We cover HSDP in detail in Section~\ref{sec:hsdp}; for now, here's how to set up a 2D mesh:
 
 ```python
 # 2D mesh for hybrid sharding
-# 4 nodes × 8 GPUs per node = 32 GPUs total
-mesh = init_device_mesh("cuda", (4, 8))
+# 2 nodes × 4 GPUs per node = 8 GPUs total
+mesh = init_device_mesh("cuda", (2, 4))
 ```
 
 This arranges GPUs in a 2D grid, which is useful for very large scale training where you want to shard within a node but replicate across nodes.
@@ -997,7 +997,7 @@ Start simple: FSDP2 with mixed precision. If you hit OOM, add activation checkpo
 
 ## Advanced Topics
 
-### Hybrid Sharding (HSDP)
+### Hybrid Sharding (HSDP) {#sec:hsdp}
 
 At very large scale, you might want to shard within a node but replicate across nodes—this reduces inter-node communication, which is typically slower than intra-node (NVLink vs InfiniBand). Use a 2D mesh:
 
