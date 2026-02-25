@@ -25,7 +25,7 @@ def draw_gpu(ax, x, y, label, color, size=0.4):
     ax.text(x, y, label, ha="center", va="center", fontsize=9, fontweight="bold", color="white")
 
 def panel_zero3(ax):
-    ax.set_xlim(0, 5)
+    ax.set_xlim(0.3, 2.7)
     ax.set_ylim(-0.5, 5.5)
     ax.axis("off")
     ax.set_title("ZeRO-3 (Full Sharding)", fontsize=14, fontweight="bold", pad=10)
@@ -40,7 +40,7 @@ def panel_zero3(ax):
         linewidth=2, edgecolor=COLORS["node_border"], facecolor=COLORS["node"], alpha=0.5
     )
     ax.add_patch(node0)
-    ax.text(1.5, 4.8, "Node 0", ha="center", fontsize=11, fontweight="bold")
+    ax.text(1.5, 4.8, "Node 0", ha="center", fontsize=13, fontweight="normal")
     
     # GPUs in Node 0 - each has different shard (2 GPUs)
     for i in range(2):
@@ -53,7 +53,7 @@ def panel_zero3(ax):
         linewidth=2, edgecolor=COLORS["node_border"], facecolor=COLORS["node"], alpha=0.5
     )
     ax.add_patch(node1)
-    ax.text(1.5, 0.2, "Node 1", ha="center", fontsize=11, fontweight="bold")
+    ax.text(1.5, 0.1, "Node 1", ha="center", fontsize=13, fontweight="normal")
     
     # GPUs in Node 1 - each has different shard (2 GPUs)
     for i in range(2):
@@ -71,7 +71,7 @@ def panel_zero3(ax):
                 arrowprops=dict(arrowstyle="<->", color=COLORS["infiniband"], lw=2))
 
 def panel_hpz(ax):
-    ax.set_xlim(0, 5)
+    ax.set_xlim(0.3, 2.7)
     ax.set_ylim(-0.5, 5.5)
     ax.axis("off")
     ax.set_title("hpZ (Hierarchical)", fontsize=14, fontweight="bold", pad=10)
@@ -85,7 +85,7 @@ def panel_hpz(ax):
         linewidth=2, edgecolor=COLORS["node_border"], facecolor=COLORS["node"], alpha=0.5
     )
     ax.add_patch(node0)
-    ax.text(1.5, 4.8, "Node 0", ha="center", fontsize=11, fontweight="bold")
+    ax.text(1.5, 4.8, "Node 0", ha="center", fontsize=13, fontweight="normal")
     
     # All GPUs in Node 0 have same shard (replicated) - 2 GPUs
     for i in range(2):
@@ -98,7 +98,7 @@ def panel_hpz(ax):
         linewidth=2, edgecolor=COLORS["node_border"], facecolor=COLORS["node"], alpha=0.5
     )
     ax.add_patch(node1)
-    ax.text(1.5, 0.2, "Node 1", ha="center", fontsize=11, fontweight="bold")
+    ax.text(1.5, 0.1, "Node 1", ha="center", fontsize=13, fontweight="normal")
     
     # All GPUs in Node 1 have same shard - 2 GPUs
     for i in range(2):
