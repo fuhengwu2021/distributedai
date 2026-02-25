@@ -329,7 +329,7 @@ if hasattr(model, 'decoder') and hasattr(model.decoder, 'block'):
 fully_shard(model, **fsdp_kwargs)
 ```
 
-The T5 scripts load the model from HuggingFace and then shard; for models that do not fit in memory even for loading, the pattern is to create on the meta device, apply `fully_shard`, then `to_empty(device=device)` and load weights or `reset_parameters()`.
+For models that do not fit in memory even for loading, see Section~\ref{sec:fsdp-initialization-best-practices} (meta device, `to_empty`, and `reset_parameters`).
 
 ## Key Features of FSDP2
 
@@ -1283,7 +1283,7 @@ The default (`True`) is usually right. But if you have memory headroom and want 
 - Communication is fast (NVLink, fast InfiniBand)
 - You want maximum memory savings
 
-### Initialization Best Practices
+### Initialization Best Practices {#sec:fsdp-initialization-best-practices}
 
 1. **Use meta device for large models**: Create model on meta device first, then move to actual device after FSDP:
 
