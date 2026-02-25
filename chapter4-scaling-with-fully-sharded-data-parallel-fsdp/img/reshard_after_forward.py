@@ -32,78 +32,65 @@ def draw_timeline_block(ax, x, y, w, h, color, label="", fontsize=9):
 
 def panel_reshard_true(ax):
     ax.set_xlim(-0.5, 10)
-    ax.set_ylim(-1, 5)
+    ax.set_ylim(0.5, 5)
     ax.axis("off")
-    ax.set_title("reshard_after_forward=True (ZeRO-3 style)", fontsize=13, fontweight="bold", pad=5)
+    ax.set_title("reshard_after_forward=True", fontsize=16, fontweight="bold", pad=10)
     
     # Timeline
     y_fwd = 3.5
     y_bwd = 1.5
+    block_h = 0.7
     
-    ax.text(-0.3, y_fwd + 0.2, "Forward", fontsize=11, fontweight="bold", ha="right")
-    ax.text(-0.3, y_bwd + 0.2, "Backward", fontsize=11, fontweight="bold", ha="right")
+    ax.text(-0.3, y_fwd + 0.3, "Fwd", fontsize=13, fontweight="bold", ha="right")
+    ax.text(-0.3, y_bwd + 0.3, "Bwd", fontsize=13, fontweight="bold", ha="right")
     
     # Forward: all-gather -> compute -> free (reshard)
-    draw_timeline_block(ax, 0, y_fwd, 1.5, 0.5, COLORS["comm"], "All-Gather", 8)
-    draw_timeline_block(ax, 1.6, y_fwd, 2.0, 0.5, COLORS["compute"], "Compute L1", 8)
-    ax.text(3.8, y_fwd + 0.25, "free", fontsize=8, color=COLORS["arrow"], style="italic")
-    draw_timeline_block(ax, 4.2, y_fwd, 1.5, 0.5, COLORS["comm"], "All-Gather", 8)
-    draw_timeline_block(ax, 5.8, y_fwd, 2.0, 0.5, COLORS["compute"], "Compute L2", 8)
-    ax.text(8.0, y_fwd + 0.25, "free", fontsize=8, color=COLORS["arrow"], style="italic")
+    draw_timeline_block(ax, 0, y_fwd, 1.8, block_h, COLORS["comm"], "AG", 11)
+    draw_timeline_block(ax, 2.0, y_fwd, 2.2, block_h, COLORS["compute"], "L1", 11)
+    ax.text(4.4, y_fwd + 0.35, "free", fontsize=10, color=COLORS["arrow"], style="italic")
+    draw_timeline_block(ax, 5.0, y_fwd, 1.8, block_h, COLORS["comm"], "AG", 11)
+    draw_timeline_block(ax, 7.0, y_fwd, 2.2, block_h, COLORS["compute"], "L2", 11)
     
     # Backward: all-gather -> compute grad -> reduce-scatter
-    draw_timeline_block(ax, 0, y_bwd, 1.5, 0.5, COLORS["comm"], "All-Gather", 8)
-    draw_timeline_block(ax, 1.6, y_bwd, 1.5, 0.5, COLORS["compute"], "Grad L2", 8)
-    draw_timeline_block(ax, 3.2, y_bwd, 1.5, 0.5, COLORS["grads"], "Red-Scat", 8)
-    draw_timeline_block(ax, 4.8, y_bwd, 1.5, 0.5, COLORS["comm"], "All-Gather", 8)
-    draw_timeline_block(ax, 6.4, y_bwd, 1.5, 0.5, COLORS["compute"], "Grad L1", 8)
-    draw_timeline_block(ax, 8.0, y_bwd, 1.5, 0.5, COLORS["grads"], "Red-Scat", 8)
-    
-    # Memory indicator
-    ax.text(5, 0.3, "Memory: Low (only 1 layer params at a time)", 
-            ha="center", fontsize=10, color=COLORS["memory_bar"])
-    ax.text(5, -0.2, "Communication: High (all-gather in both fwd & bwd)", 
-            ha="center", fontsize=10, color=COLORS["comm_bar"])
+    draw_timeline_block(ax, 0, y_bwd, 1.5, block_h, COLORS["comm"], "AG", 11)
+    draw_timeline_block(ax, 1.6, y_bwd, 1.5, block_h, COLORS["compute"], "L2", 11)
+    draw_timeline_block(ax, 3.2, y_bwd, 1.5, block_h, COLORS["grads"], "RS", 11)
+    draw_timeline_block(ax, 4.8, y_bwd, 1.5, block_h, COLORS["comm"], "AG", 11)
+    draw_timeline_block(ax, 6.4, y_bwd, 1.5, block_h, COLORS["compute"], "L1", 11)
+    draw_timeline_block(ax, 8.0, y_bwd, 1.5, block_h, COLORS["grads"], "RS", 11)
 
 def panel_reshard_false(ax):
     ax.set_xlim(-0.5, 10)
-    ax.set_ylim(-1, 5)
+    ax.set_ylim(0.5, 5)
     ax.axis("off")
-    ax.set_title("reshard_after_forward=False (ZeRO-2 style)", fontsize=13, fontweight="bold", pad=5)
+    ax.set_title("reshard_after_forward=False", fontsize=16, fontweight="bold", pad=10)
     
     y_fwd = 3.5
     y_bwd = 1.5
+    block_h = 0.7
     
-    ax.text(-0.3, y_fwd + 0.2, "Forward", fontsize=11, fontweight="bold", ha="right")
-    ax.text(-0.3, y_bwd + 0.2, "Backward", fontsize=11, fontweight="bold", ha="right")
+    ax.text(-0.3, y_fwd + 0.3, "Fwd", fontsize=13, fontweight="bold", ha="right")
+    ax.text(-0.3, y_bwd + 0.3, "Bwd", fontsize=13, fontweight="bold", ha="right")
     
     # Forward: all-gather -> compute -> KEEP (no reshard)
-    draw_timeline_block(ax, 0, y_fwd, 1.5, 0.5, COLORS["comm"], "All-Gather", 8)
-    draw_timeline_block(ax, 1.6, y_fwd, 2.0, 0.5, COLORS["compute"], "Compute L1", 8)
-    ax.text(3.8, y_fwd + 0.25, "keep", fontsize=8, color="#2ecc71", style="italic", fontweight="bold")
-    draw_timeline_block(ax, 4.2, y_fwd, 1.5, 0.5, COLORS["comm"], "All-Gather", 8)
-    draw_timeline_block(ax, 5.8, y_fwd, 2.0, 0.5, COLORS["compute"], "Compute L2", 8)
-    ax.text(8.0, y_fwd + 0.25, "keep", fontsize=8, color="#2ecc71", style="italic", fontweight="bold")
+    draw_timeline_block(ax, 0, y_fwd, 1.8, block_h, COLORS["comm"], "AG", 11)
+    draw_timeline_block(ax, 2.0, y_fwd, 2.2, block_h, COLORS["compute"], "L1", 11)
+    ax.text(4.4, y_fwd + 0.35, "keep", fontsize=10, color="#2ecc71", style="italic", fontweight="bold")
+    draw_timeline_block(ax, 5.0, y_fwd, 1.8, block_h, COLORS["comm"], "AG", 11)
+    draw_timeline_block(ax, 7.0, y_fwd, 2.2, block_h, COLORS["compute"], "L2", 11)
     
     # Backward: NO all-gather needed (params still in memory) -> compute grad -> reduce-scatter
-    draw_timeline_block(ax, 0, y_bwd, 1.8, 0.5, COLORS["compute"], "Grad L2", 8)
-    draw_timeline_block(ax, 1.9, y_bwd, 1.5, 0.5, COLORS["grads"], "Red-Scat", 8)
-    draw_timeline_block(ax, 3.5, y_bwd, 1.8, 0.5, COLORS["compute"], "Grad L1", 8)
-    draw_timeline_block(ax, 5.4, y_bwd, 1.5, 0.5, COLORS["grads"], "Red-Scat", 8)
-    ax.text(8.0, y_bwd + 0.25, "(no all-gather)", fontsize=8, color="#2ecc71", style="italic")
-    
-    # Memory indicator
-    ax.text(5, 0.3, "Memory: High (all layer params kept after fwd)", 
-            ha="center", fontsize=10, color=COLORS["comm_bar"])
-    ax.text(5, -0.2, "Communication: Low (no all-gather in backward)", 
-            ha="center", fontsize=10, color=COLORS["memory_bar"])
+    draw_timeline_block(ax, 0, y_bwd, 2.2, block_h, COLORS["compute"], "L2", 11)
+    draw_timeline_block(ax, 2.4, y_bwd, 1.8, block_h, COLORS["grads"], "RS", 11)
+    draw_timeline_block(ax, 4.4, y_bwd, 2.2, block_h, COLORS["compute"], "L1", 11)
+    draw_timeline_block(ax, 6.8, y_bwd, 1.8, block_h, COLORS["grads"], "RS", 11)
 
 def main():
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 7))
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 5))
     panel_reshard_true(ax1)
     panel_reshard_false(ax2)
     
-    plt.tight_layout(pad=1.5)
+    plt.tight_layout(pad=1.0)
     script_dir = os.path.dirname(os.path.abspath(__file__))
     script_name = os.path.splitext(os.path.basename(__file__))[0]
     output_path = os.path.join(script_dir, f"{script_name}.png")

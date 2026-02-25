@@ -160,36 +160,28 @@ Figure~\ref{fig:device-mesh} shows the two mesh configurations. In the 1D mesh (
 
 ### Key Parameters
 
-**`mesh`**: The `DeviceMesh` over which to shard. For normal FSDP, this is a 1D mesh. For HSDP (hybrid sharding), it can be 2D.
+The `fully_shard()` function accepts several parameters that control sharding behavior. The `mesh` parameter specifies the `DeviceMesh` over which to shard—typically a 1D mesh for standard FSDP, or a 2D mesh for hybrid sharding (HSDP).
 
-**`reshard_after_forward`**: Controls when parameters are resharded. This is one of the most important parameters:
+The most important parameter is `reshard_after_forward`, which controls the memory-communication tradeoff. When set to `True` (the default), parameters are resharded immediately after each layer's forward pass, freeing memory but requiring an additional all-gather during backward. This corresponds to ZeRO-3 behavior. Setting it to `False` keeps parameters in memory after forward, which uses more memory but eliminates the backward all-gather—similar to ZeRO-2. You can also pass an integer to reshard to an intermediate size; for example, `reshard_after_forward=2` shards across only 2 GPUs instead of all GPUs, mimicking ZeRO++'s hybrid parameter zero (hpZ).
 
-- `True` (default): Parameters are resharded after forward pass. This saves memory but requires all-gather in backward. This is like ZeRO-3.
-- `False`: Parameters stay unsharded after forward. Uses more memory but avoids all-gather in backward. This is like ZeRO-2.
-- `int`: Reshards to an intermediate size. For example, `reshard_after_forward=2` means parameters are sharded across 2 GPUs instead of all GPUs. This is like ZeRO++ hpZ (hybrid parameter zero).
-
-The default (`True`) is usually the right choice unless you have memory headroom and want to reduce communication. If you're memory-constrained, stick with `True`. If you have extra memory and communication is your bottleneck, try `False`.
+For most memory-constrained scenarios, the default `True` is the right choice. If you have memory headroom and communication is your bottleneck, try `False`.
 
 ![reshard_after_forward: True vs False.](img/reshard_after_forward.png){#fig:reshard-after-forward .block width=100% align=center}
 
-Figure~\ref{fig:reshard-after-forward} compares the two modes. With `reshard_after_forward=True`, parameters are freed after each layer's forward pass and must be all-gathered again in backward—lower memory but more communication. With `False`, parameters stay in memory after forward, eliminating the backward all-gather at the cost of higher peak memory.
+Figure~\ref{fig:reshard-after-forward} compares the two modes. Each row shows the forward (Fwd) and backward (Bwd) passes for a two-layer model. The colored blocks represent: AG (All-Gather, purple) for collecting sharded parameters, L1/L2 (Compute, yellow) for layer computation, and RS (Reduce-Scatter, red) for distributing gradients. With `reshard_after_forward=True` (top), parameters are freed after each layer's forward pass (marked "free") and must be all-gathered again in backward—this keeps memory low but doubles the all-gather communication. With `False` (bottom), parameters stay in memory after forward (marked "keep"), so the backward pass skips all-gather entirely—higher peak memory but less communication.
 
-**`mp_policy`**: Mixed precision settings. You can specify:
-
-- `param_dtype`: Dtype for parameters (e.g., `torch.bfloat16`)
-- `reduce_dtype`: Dtype for gradient reduction (e.g., `torch.float32`)
-- `output_dtype`: Dtype for outputs (optional)
+Mixed precision is configured through `mp_policy`. You specify `param_dtype` for parameter storage (e.g., `torch.bfloat16`), `reduce_dtype` for gradient reduction (often `torch.float32` for numerical stability), and optionally `output_dtype` for layer outputs:
 
 ```python
 mp_policy = MixedPrecisionPolicy(
     param_dtype=torch.bfloat16,
-    reduce_dtype=torch.float32,  # Keep gradients in FP32 for precision
+    reduce_dtype=torch.float32,
 )
 ```
 
 Because FSDP2 shards per-parameter rather than flattening into a single buffer, you can mix dtypes freely—some layers in fp8, others in bf16. The original FSDP required all parameters in a group to share the same dtype.
 
-**`offload_policy`**: CPU/NVMe offloading configuration. This moves optimizer states or parameters to CPU/NVMe to save GPU memory:
+Finally, `offload_policy` enables CPU or NVMe offloading when GPU memory is exhausted:
 
 ```python
 from torch.distributed.fsdp import OffloadPolicy
@@ -201,7 +193,7 @@ fully_shard(
 )
 ```
 
-Offloading comes with a performance cost (20-50% slowdown), so only use it if you're still OOM after trying everything else.
+Offloading introduces a performance cost (typically 20-50% slowdown due to PCIe transfers), so treat it as a last resort after exhausting other memory optimizations.
 
 ### Hierarchical Sharding
 
