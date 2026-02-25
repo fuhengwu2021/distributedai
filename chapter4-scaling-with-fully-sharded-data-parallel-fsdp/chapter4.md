@@ -54,24 +54,29 @@ Figure~\ref{fig:ddp-fsdp-mem} illustrates the comparison: with DDP, each GPU hol
 
 ### How FSDP Works
 
-FSDP (both FSDP1 and FSDP2) uses two key collective operations:
+The core idea behind FSDP comes from the ZeRO (Zero Redundancy Optimizer) paper from Microsoft Research (2019).[^zero-paper] ZeRO observed that in data-parallel training, each GPU holds a full copy of the model, gradients, and optimizer state—most of which is redundant. By partitioning these across GPUs and gathering them only when needed, you can train much larger models without changing the underlying data-parallel algorithm. We cover ZeRO in detail in Chapter~\ref{chap:deepspeed-zero}; here we focus on PyTorch's native implementation of these ideas.
 
-1. **All-Gather**: During forward pass, when you need parameters that aren't on the current GPU, FSDP all-gathers them from all GPUs. After all-gather, all GPUs have a full copy of the needed parameters, but only temporarily (see Section~\ref{sec:allgather} in Chapter~\ref{chap:introduction-to-modern-distributed-ai}).
+[^zero-paper]: Rajbhandari et al., "ZeRO: Memory Optimizations Toward Training Trillion Parameter Models," SC 2020. <https://arxiv.org/abs/1910.02054>
 
-2. **Reduce-Scatter**: During backward pass, gradients are computed locally, then reduce-scattered across GPUs. Each GPU ends up with its shard of the aggregated gradients (see Section~\ref{sec:reducescatter} in Chapter~\ref{chap:introduction-to-modern-distributed-ai}).
-
-Figure~\ref{fig:fsdp-allgather-reducescatter} illustrates the two steps (same for FSDP1 and FSDP2). In the left panel (forward), each rank holds one parameter shard ($1/N$); after All-Gather, every rank has the full parameters temporarily. In the right panel (backward), each rank has full gradients; after Reduce-Scatter, each rank keeps only its shard of the reduced gradients ($1/N$). The key insight is that you don't need all parameters at once. During forward pass, you process layers sequentially. FSDP can all-gather parameters for the current layer, use them, then free them before moving to the next layer. This is why activation checkpointing is so important with FSDP—it reduces activation memory so you have room for the all-gathered parameters.
+PyTorch's FSDP implements this idea using two collective operations. During forward pass, when a layer needs its parameters, FSDP **all-gathers** them from all GPUs—temporarily reconstructing the full parameter tensor (see Section~\ref{sec:allgather} in Chapter~\ref{chap:introduction-to-modern-distributed-ai}). After the layer finishes, the gathered parameters are freed. During backward pass, gradients are computed locally on the full (temporarily gathered) parameters, then **reduce-scattered** across GPUs so each GPU ends up with its shard of the aggregated gradients (see Section~\ref{sec:reducescatter} in Chapter~\ref{chap:introduction-to-modern-distributed-ai}).
 
 ![FSDP: All-Gather in forward, Reduce-Scatter in backward.](img/fsdp_allgather_reducescatter.png){#fig:fsdp-allgather-reducescatter .block width=100% align=center}
 
+Figure~\ref{fig:fsdp-allgather-reducescatter} illustrates these two steps. In the left panel (forward), each rank holds one parameter shard ($1/N$); after All-Gather, every rank has the full parameters temporarily. In the right panel (backward), each rank has full gradients; after Reduce-Scatter, each rank keeps only its shard of the reduced gradients ($1/N$).
 
-**FSDP2** uses a per-parameter-sharding design (introduced in PyTorch issue #114299[^fsdp2-rfc]) that shards each parameter individually on dimension 0. For example, a linear layer weight of shape $(4096, 1024)$ with 4 GPUs becomes four shards of shape $(1024, 1024)$—each rank holds one quarter of the rows. This is simpler than the original FSDP1 flat-parameter approach and enables several useful features: flexible fp8 all-gather, frozen parameters in the same group, communication-free sharded state dicts, and better compiler integration.
+The key insight is that you don't need all parameters at once. Neural networks process layers sequentially—forward through layer 1, then layer 2, and so on. FSDP exploits this by all-gathering parameters for the current layer, using them, then freeing them before moving to the next layer. This is why activation checkpointing pairs well with FSDP: it reduces activation memory, leaving room for the temporarily all-gathered parameters.
 
-To summarize, the difference between FSDP1 and FSDP2 is not the collectives (both use All-Gather and Reduce-Scatter) but how parameters are laid out: FSDP1 flattens many parameters into a single `FlatParameter` object (one instance of the `FlatParameter` class) per wrap unit and shards that; FSDP2 shards each parameter tensor individually on dimension 0, with no flattening.
+### FSDP1 vs FSDP2: The Evolution
+
+PyTorch's original FSDP (released in 2021, often called FSDP1) used a **flat-parameter** design borrowed from FairScale's implementation. It flattens all parameters in a wrapped module into a single contiguous `FlatParameter` tensor, then shards that tensor across GPUs. This worked, but had limitations: all parameters in a group had to share the same dtype, frozen parameters needed separate groups, and the flattening made it harder for compilers to optimize communication patterns.
+
+**FSDP2** (introduced in 2024 via PyTorch RFC #114299[^fsdp2-rfc]) takes a different approach: **per-parameter sharding**. Instead of flattening, it shards each parameter tensor individually on dimension 0. A linear layer weight of shape $(4096, 1024)$ with 4 GPUs becomes four shards of shape $(1024, 1024)$—each rank holds one quarter of the rows. No flattening, no `FlatParameter` class.
 
 ![FSDP1 vs FSDP2 parameter layout.](img/fsdp1_vs_fsdp2_layout.png){#fig:fsdp1-vs-fsdp2-layout .block width=100% align=center}
 
-Figure~\ref{fig:fsdp1-vs-fsdp2-layout} illustrates the difference: FSDP1 concatenates parameters into a single flat tensor before sharding, while FSDP2 shards each parameter independently on dimension 0.
+Figure~\ref{fig:fsdp1-vs-fsdp2-layout} illustrates the difference. FSDP1 (left) concatenates parameters W1, W2, W3 into a single flat tensor before sharding across ranks. FSDP2 (right) shards each parameter independently on dimension 0—each rank holds a slice of every parameter.
+
+The per-parameter design is simpler (~3k lines of code vs ~14k for FSDP1) and more flexible. You can mix dtypes (some parameters in fp8, others in bf16), keep frozen and trainable parameters in the same group, save sharded checkpoints without gathering, and give compilers visibility into individual parameters for better optimization. The collectives are the same—All-Gather and Reduce-Scatter—but the parameter layout is fundamentally different.
 
 
 ### Original FSDP (FSDP1)
