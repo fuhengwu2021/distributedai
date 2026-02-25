@@ -514,34 +514,17 @@ The solution is to **distribute the model across multiple GPUs** using paralleli
 
 ## Overview of the vLLM Architecture
 
-vLLM's architecture centers around a **scheduler-executor-worker** pattern:
+vLLM's architecture centers around a **scheduler-executor-worker** pattern, as shown in Figure~\ref{fig:vllm-arch}. This layered design cleanly separates concerns: request management, distributed coordination, and actual computation.
 
-```
-┌─────────────┐
-│  Scheduler  │ ← Schedules requests
-└──────┬──────┘
-       │
-       ↓
-┌─────────────┐
-│  Executor   │ ← Manages workers, issues distributed commands
-└──────┬──────┘
-       │
-       ↓
-┌─────────────┐
-│   Workers   │ ← Associated with accelerators (GPUs)
-└─────────────┘
-```
+![vLLM scheduler-executor-worker architecture.](img/vllm_architecture.png){#fig:vllm-arch .block width=70% align=center}
 
-**Key Components**:
+The **Scheduler** sits at the top of the hierarchy. It receives incoming requests, groups them into batches based on available memory and scheduling policy, and decides which requests to process in each iteration. The scheduler implements continuous batching—it doesn't wait for an entire batch to complete before admitting new requests. Instead, it dynamically adds new requests as slots become available, maximizing GPU utilization.
 
-- **Scheduler**: Groups and schedules incoming requests
-- **Executor**: Manages workers and coordinates distributed inference
-  - Supports multiple backends: Ray, multi-processing, single GPU
-  - Issues distributed inference commands to all workers
-  - Returns results to the scheduler
-- **Workers**: Execute computation on their associated accelerators
+The **Executor** acts as the coordination layer between the scheduler and the actual compute resources. It manages the pool of workers and translates high-level scheduling decisions into distributed commands. vLLM supports multiple executor backends depending on the deployment scenario: a simple single-GPU executor for small models, a multi-processing executor for multi-GPU inference on a single node, and a Ray-based executor for distributed inference across multiple nodes. The executor broadcasts commands to all workers and collects their results.
 
-This architecture enables the distributed execution of inference across multiple GPUs and nodes.
+**Workers** are the compute units, each associated with one GPU (or other accelerator). A worker holds a shard of the model weights, manages its local KV cache, and executes the actual forward passes. In tensor-parallel configurations, workers coordinate through NCCL to perform collective operations like all-reduce. Each worker runs the same model code but operates on different data or model shards depending on the parallelism strategy.
+
+This architecture enables vLLM to scale from a single GPU to hundreds of GPUs across multiple nodes while maintaining the same programming model.
 
 ## Overview of Parallelism Strategies in vLLM
 
