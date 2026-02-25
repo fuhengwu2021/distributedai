@@ -34,7 +34,7 @@ We'll cover DeepSpeed ZeRO first—it's worth understanding the full ZeRO family
 
 ![ZeRO stages comparison: DDP vs ZeRO-1/2/3.](img/zero_stages_comparison.png){#fig:zero-stages .block width=100% align=center}
 
-Figure~\ref{fig:zero-stages} illustrates the memory layout across four ranks (R0–R3) for DDP and each ZeRO stage. Each row represents one GPU, and the three colored blocks show what that GPU stores: parameters (blue), gradients (red), and optimizer states (green). In DDP, all blocks are full-width because every GPU holds complete copies of everything—this is the memory redundancy we want to eliminate. ZeRO-1 keeps parameters and gradients replicated but shards optimizer states (notice the smaller green blocks). ZeRO-2 additionally shards gradients, so both red and green blocks shrink. ZeRO-3 shards all three components—every block becomes 1/4 the original size with 4 GPUs. The visual progression from left to right shows how memory per GPU decreases at each stage, with the trade-off being increased communication to reconstruct full tensors when needed.
+Figure~\ref{fig:zero-stages} illustrates the memory layout across four ranks (R0–R3) for DDP and each ZeRO stage. Each row represents one GPU, and the three colored blocks show what that GPU stores: P (parameters, blue), G (gradients, red), and O (optimizer states, green). In DDP, all blocks are full-width because every GPU holds complete copies of everything—this is the memory redundancy we want to eliminate. ZeRO-1 keeps parameters and gradients replicated but shards optimizer states (notice the smaller O blocks). ZeRO-2 additionally shards gradients, so both G and O blocks shrink. ZeRO-3 shards all three components—every block becomes 1/4 the original size with 4 GPUs. The visual progression from left to right shows how memory per GPU decreases at each stage, with the trade-off being increased communication to reconstruct full tensors when needed.
 
 ## ZeRO Stage 1: Optimizer State Partitioning
 
@@ -71,29 +71,29 @@ The key difference from DDP: DeepSpeed manages the optimizer internally based on
 
 ZeRO-1 fits scenarios where the model itself fits in GPU memory, but adding optimizer states pushes it over the limit. It requires minimal changes to the training loop and is the easiest to debug, making it a natural first step when migrating from DDP to ZeRO.
 
-To experience the DeepSpeed API, run this minimal example on a single GPU:
+To experience the DeepSpeed API, run this minimal example:
 
 ```bash
 pip install deepspeed
+# Single GPU (for API familiarization)
 deepspeed --num_gpus=1 code/zero_minimal.py --zero_stage 1
+# Multiple GPUs (to see actual sharding benefits)
+deepspeed --num_gpus=4 code/zero_minimal.py --zero_stage 1
 ```
 
 You should see output like:
 
 ```
-=================
 ZeRO Stage 1 Demo
-=================
 Model: 5,248,000 parameters
 ...
 Step 1/10, Loss: 1.0342, Peak Memory: 1.06 GB
-Step 2/10, Loss: 0.9927, Peak Memory: 1.06 GB
 ...
 ZeRO Stage 1 training complete!
 Final peak memory: 1.10 GB
 ```
 
-With a single GPU, sharding has limited effect (there's only one partition), but this example familiarizes you with the API and prepares you for multi-GPU experiments.
+With a single GPU, sharding has limited effect (there's only one partition). With 4 GPUs, each GPU stores only 1/4 of the optimizer states, and you'll observe lower per-GPU memory usage.
 
 ## ZeRO Stage 2: Optimizer State + Gradient Partitioning
 
