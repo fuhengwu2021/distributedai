@@ -415,52 +415,31 @@ torchrun --nproc_per_node=2 code/pipeline_parallel_simple.py
 This example demonstrates model partitioning, micro-batch scheduling, and forward/backward coordination across pipeline stages.
 
 
-### Sequence Parallelism and Long Contexts
+### Sequence Parallelism and Context Parallelism: Long Contexts
 
-Megatron also introduces **sequence parallelism**, which addresses another emerging bottleneck: extremely long sequence lengths.
+So far we've discussed parallelism strategies that address model size—sharding parameters, gradients, optimizer states, and computation. But there's another dimension that's becoming increasingly important: **sequence length**. Modern models are trained with context windows of 8K, 32K, even 128K tokens. At these lengths, activation memory—the intermediate values stored during forward pass for use in backward pass—can exceed the memory needed for the model itself.
 
-Instead of replicating activations across GPUs, sequence parallelism:
+Consider a Transformer with hidden dimension 4096 processing a 32K token sequence. Each layer stores activations of shape (batch, 32K, 4096), and with 32 layers, the activation memory can easily reach tens of gigabytes per GPU. This is where **sequence parallelism** and **context parallelism** come in.
 
-* Splits activations along the sequence dimension
-* Reduces activation memory and communication overhead
-* Improves scalability for long-context training
+**Sequence parallelism**[^seqpar] is the simpler of the two. When tensor parallelism is enabled, certain operations like LayerNorm and Dropout don't participate in the TP communication—they operate on the full hidden dimension locally. Sequence parallelism extends the sharding to these operations by splitting activations along the sequence dimension. If you have TP=4, sequence parallelism means each GPU only stores 1/4 of the sequence's activations for these operations. It's typically enabled alongside tensor parallelism with minimal overhead.
 
-This is increasingly important for models trained with long context windows, where activation memory can dominate total memory usage.
+[^seqpar]: Korthikanti et al., "Reducing Activation Recomputation in Large Transformer Models," MLSys 2023. https://arxiv.org/abs/2205.05198
 
-### Context Parallelism: Advanced Long-Context Training
+**Context parallelism (CP)**[^ringatt] goes further.
 
-**Context Parallelism (CP)** is Megatron's advanced solution for extremely long sequences. Unlike sequence parallelism which only splits Dropout and LayerNorm activations, CP partitions all network inputs and activations along the sequence dimension.
+[^ringatt]: Liu et al., "Ring Attention with Blockwise Transformers for Near-Infinite Context," ICLR 2024. https://arxiv.org/abs/2310.01889 Instead of just splitting LayerNorm and Dropout activations, CP partitions *all* inputs and activations along the sequence dimension. With CP=2 on an 8K sequence, each GPU processes only 4K tokens. The challenge is attention: each token's query needs to attend to all keys and values, not just the local chunk. CP handles this by using all-gather to collect the full KV sequences across GPUs, computing attention, then reduce-scatter to distribute gradients back. The communication is optimized using a ring topology, and modern attention variants like Grouped-Query Attention (GQA) reduce the communication volume since KV heads are shared.
 
-__How Context Parallelism Works:__
+The benefit is substantial. Without CP, training on very long sequences often requires activation checkpointing (recomputing activations during backward pass), which adds ~30% overhead. With CP, you can eliminate this recompute entirely by simply distributing the activation memory across more GPUs. The trade-off is communication, but for long sequences the compute-to-communication ratio remains favorable.
 
-* Each GPU processes only a chunk of the sequence (e.g., 8K sequence split across 2 GPUs = 4K tokens per GPU)
-* For attention computation, each token's Q (query) needs to compute with KV (key and value) of all tokens
-* CP uses all-gather across GPUs to collect full KV sequences, then reduce-scatter for gradients
-* Communication is optimized using point-to-point ring topology under the hood
-* Leverages MQA/GQA (Multi-Query/Grouped-Query Attention) to reduce communication volume
-
-__Benefits:__
-
-* **Eliminates OOM**: Activation memory per GPU is reduced by CP times
-* **No recompute overhead**: Avoids the ~30% overhead of full activation recomputation
-* **Better than TP scaling**: Unlike increasing TP which can make compute too short to overlap communication, CP reduces both computation and communication proportionally
-* **Optimal performance**: TP+CP combinations achieve optimal performance by eliminating recompute overheads
-
-__When to Use Context Parallelism:__
-
-* Sequence length >= 8K tokens
-* Activation memory dominates total memory usage
-* Training with very long context windows (32K, 128K+)
-* When full recompute causes significant overhead
-
-__Example Configuration:__
+A typical configuration for long-context training:
 
 ```bash
-# Enable context parallelism with TP
---tensor-model-parallel-size 4
---context-parallel-size 2        # Split 8K sequence across 2 GPUs
+--tensor-model-parallel-size 2
+--context-parallel-size 4        # Split 32K sequence across 4 GPUs = 8K per GPU
 --sequence-parallel              # Also enable sequence parallelism
 ```
+
+The rule of thumb: use context parallelism when sequence length exceeds 8K tokens and activation memory is your bottleneck. For shorter sequences, tensor parallelism and sequence parallelism are usually sufficient.
 
 ### Expert Parallelism: Scaling MoE Models
 
