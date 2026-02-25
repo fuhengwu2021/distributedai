@@ -227,7 +227,7 @@ Larger models (e.g. `--model-name google/flan-t5-xl` or `google/flan-t5-xxl`) ma
 For the smaller FLAN-T5-XL (3B) model, single-GPU training fits on one H200; with 2 GPUs, FSDP1 reduces memory per GPU and completes each epoch in less wall-clock time (49 s vs 91 s). Table~\ref{tab:fsdp-t5-xl-comparison} gives the numbers.
 
 | Mode   | GPUs | Mem/GPU | Peak mem/GPU | Throughput | Time/epoch |
-|--------|------|---------|--------------|------------|------------|
+|--------|------|---------|----------------------|------------|------------|
 | Single | 1    | ~43 GB  | ~58 GB       | ~4.36 it/s | ~91 s      |
 | FSDP1  | 2    | ~22 GB  | ~33 GB       | ~4.09 it/s | ~49 s      |
 
@@ -236,7 +236,7 @@ Table: FLAN-T5-XL (3B): single-GPU vs FSDP1 (2 GPUs). Example runs on H200 GPUs.
 For FLAN-T5-XXL (11B parameters), single-GPU training runs out of memory (OOM) even on an H200 (140 GB). Table~\ref{tab:fsdp-t5-comparison} compares FSDP1 and FSDP2 on 2 GPUs.
 
 | Mode   | GPUs | Mem/GPU | Peak mem/GPU | Throughput | Time/epoch |
-|--------|------|---------|--------------|------------|------------|
+|--------|------|---------|----------------------|------------|------------|
 | Single | 1    | OOM     | OOM          | —          | —          |
 | FSDP1  | 2    | ~84 GB  | ~105 GB      | ~1.96 it/s | ~101 s     |
 | FSDP2  | 2    | ~84 GB  | ~105 GB      | ~1.86 it/s | ~106 s     |
