@@ -220,9 +220,9 @@ for layer in model.transformer.layers:
 
 This gives you fine-grained control over what gets sharded. Small layers (like embeddings) might not benefit from sharding and can add communication overhead, so you can leave them unsharded.
 
-![Hierarchical vs flat sharding.](img/fsdp_hierarchical_sharding.png){#fig:fsdp-hierarchical-sharding .block width=100% align=center}
-
 Figure~\ref{fig:fsdp-hierarchical-sharding} contrasts the two approaches. Both panels show a transformer model with an embedding layer (Embed), four transformer blocks (Block 0–3), and an output head (Head). The red dashed boxes indicate FSDP unit boundaries. With hierarchical sharding (left), each transformer block is wrapped as a separate FSDP unit by calling `fully_shard(block)` in a loop, while the embedding and head remain unsharded. This means all-gather and reduce-scatter happen at block boundaries, enabling prefetching (the next block's parameters can be gathered while the current block computes) and fine-grained memory management (only one block's full parameters need to be in memory at a time). With flat sharding (right), a single `fully_shard(model)` call wraps the entire model as one FSDP unit. This is simpler but requires gathering all parameters at once, leading to higher peak memory.
+
+![Hierarchical vs flat sharding.](img/fsdp_hierarchical_sharding.png){#fig:fsdp-hierarchical-sharding .block width=100% align=center}
 
 ## A Complete Working Example: T5 Summarization with FSDP
 
