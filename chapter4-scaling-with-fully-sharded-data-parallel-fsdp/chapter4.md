@@ -993,64 +993,29 @@ Start simple: FSDP2 with mixed precision. If you hit OOM, add activation checkpo
 
 ### Hybrid Sharding (HSDP)
 
-Hybrid sharding combines data parallelism with model parallelism. You shard within a node but replicate across nodes. This is useful for very large scale training.
+At very large scale, you might want to shard within a node but replicate across nodes—this reduces inter-node communication, which is typically slower than intra-node (NVLink vs InfiniBand). Use a 2D mesh:
 
 ```python
-# 2D mesh: 4 nodes × 8 GPUs per node
-mesh = init_device_mesh("cuda", (4, 8))
-
-# Shard across the second dimension (within node)
-fully_shard(model, mesh=mesh, mesh_dim=1)
+mesh = init_device_mesh("cuda", (4, 8))  # 4 nodes × 8 GPUs per node
+fully_shard(model, mesh=mesh, mesh_dim=1)  # shard within node (dim 1)
 ```
 
-This shards parameters across 8 GPUs within each node, but replicates across 4 nodes. Useful when:
-
-- You have many nodes
-- Inter-node communication is slower than intra-node
-- You want to reduce inter-node communication
+This shards parameters across 8 GPUs within each node, but replicates across 4 nodes. The tradeoff: more memory usage (4× replication) but less cross-node traffic.
 
 ### Compiler Integration
 
-FSDP2 works well with `torch.compile`:
+FSDP2 works well with `torch.compile`—apply FSDP first, then compile:
 
 ```python
 fully_shard(model, mesh=mesh)
-model = torch.compile(model)  # Compile after FSDP
+model = torch.compile(model)
 ```
 
-The per-parameter design helps here. Because the compiler can see individual parameters rather than a flattened buffer, it can optimize all-gather and reduce-scatter patterns more effectively—fusing operations, reordering communication, and so on.
+The per-parameter design helps here. The compiler can see individual parameters rather than a flattened buffer, so it can optimize all-gather and reduce-scatter patterns more effectively.
 
-### Custom Communication Hooks
+### Other Integrations
 
-You can customize communication behavior with hooks, though this is advanced and rarely needed:
-
-```python
-def custom_all_gather_hook(state, bucket):
-    # Custom all-gather logic
-    pass
-
-# Register hook (advanced usage)
-```
-
-Most users won't need this, but it's available if you need fine-grained control.
-
-### Integration with Other PyTorch Features
-
-FSDP2 integrates with:
-
-- **torch.compile**: As mentioned, works well together
-- **Automatic Mixed Precision (AMP)**: Use `MixedPrecisionPolicy` instead
-- **Gradient accumulation**: Works naturally with FSDP
-- **Learning rate scheduling**: No special handling needed
-
-### Monitoring and Observability
-
-Use these tools to monitor FSDP training:
-
-1. **PyTorch profiler**: Profile to see communication patterns
-2. **NCCL logs**: Check NCCL debug output for communication issues
-3. **Memory profiler**: Track memory usage over time
-4. **Distributed logging**: Use `torch.distributed` logging utilities
+FSDP2 works naturally with gradient accumulation and learning rate scheduling—no special handling needed. For mixed precision, use `MixedPrecisionPolicy` instead of the standard AMP context manager. Custom communication hooks are available for fine-grained control, but most users won't need them.
 
 ## FSDP via SPMD for TPU/XLA {#sec:fsdp-spmd}
 
@@ -1062,54 +1027,38 @@ This chapter has focused on FSDP2 for GPU training using CUDA devices. However, 
 - **Mesh-based sharding**: Uses PyTorch/XLA's `Mesh` abstraction with named dimensions (e.g., `('fsdp', 'model')`).
 - **Compiler-driven**: The XLA compiler handles communication optimization, similar to how JAX's `pmap` works.
 
-Here's a basic example:
+A complete example is in `code/fsdp_spmd_tpu.py`. Note that this requires TPU hardware—it will not run on GPU:
+
+```bash
+# On a TPU VM:
+python code/fsdp_spmd_tpu.py
+```
+
+The core pattern:
 
 ```python
-import torch
-import torch_xla.core.xla_model as xm
 import torch_xla.runtime as xr
 import torch_xla.distributed.spmd as xs
 from torch_xla.experimental.spmd_fully_sharded_data_parallel import (
     SpmdFullyShardedDataParallel as FSDPv2
 )
 
-# Enable XLA SPMD execution mode
-xr.use_spmd()
+xr.use_spmd()  # Enable SPMD mode
 
-# Define the mesh (must have an axis named 'fsdp')
+# Create mesh with 'fsdp' axis
 num_devices = xr.global_runtime_device_count()
-mesh_shape = (num_devices, 1)
-device_ids = np.array(range(num_devices))
-mesh = xs.Mesh(device_ids, mesh_shape, ('fsdp', 'model'))
+mesh = xs.Mesh(np.array(range(num_devices)), (num_devices, 1), ('fsdp', 'model'))
 
-# Shard input tensors
+# Shard inputs and wrap model
 x = xs.mark_sharding(x, mesh, ('fsdp', None))
-
-# Apply FSDP via SPMD
-model = FSDPv2(my_module, mesh)
-optim = torch.optim.Adam(model.parameters(), lr=0.0001)
-
-output = model(x, y)
-loss = output.sum()
-loss.backward()
-optim.step()
+model = FSDPv2(model, mesh)
 ```
 
-**When to use FSDP via SPMD:**
+Use FSDP via SPMD when training on TPU devices or when you want compiler-optimized communication patterns. The XLA compiler handles communication optimization automatically, similar to JAX's `pmap`. For GPU training, use the `fully_shard()` API covered in this chapter—it gives you explicit control over communication patterns and doesn't require XLA.
 
-- You're training on TPU devices
-- You want compiler-optimized communication patterns
-- You're already using PyTorch/XLA for other features
+For more details, see the PyTorch/XLA SPMD documentation.[^xla-spmd]
 
-**When to use GPU FSDP2:**
-
-- You're training on CUDA/GPU devices (this chapter's focus)
-- You want explicit control over communication patterns
-- You're using standard PyTorch without XLA
-
-The SPMD approach is powerful because the XLA compiler can optimize communication patterns automatically, but it's specific to TPU/XLA devices. For GPU training, use the `fully_shard()` API covered in this chapter.
-
-For more details, see the [PyTorch/XLA SPMD documentation](https://docs.pytorch.org/xla/master/spmd.html).
+[^xla-spmd]: <https://docs.pytorch.org/xla/master/spmd.html>
 
 ## Conclusion
 
