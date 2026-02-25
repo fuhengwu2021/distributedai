@@ -568,11 +568,11 @@ Activation checkpointing is almost always used with FSDP. Instead of storing all
 
 With FSDP, you're already sharding parameters, gradients, and optimizer states. Activations can still be a memory bottleneck, especially for large batch sizes or long sequences. Activation checkpointing trades computation for memory: you recompute activations during backward instead of storing them.
 
-Activation memory scales with model architecture and batch size. A rough estimate for a transformer is:
+Activation memory scales with model architecture and batch size. A back-of-the-envelope estimate for a transformer is:
 
 $$\text{Activation Memory} \approx L \times B \times S \times H \times \text{bytes per element} \times k$$
 
-where $L$ is the number of layers, $B$ is batch size, $S$ is sequence length, $H$ is hidden dimension, and $k$ is a factor (typically 10–20) accounting for intermediate tensors in attention and MLP blocks. For a 7B model ($L=32$, $H=4096$) with sequence length 2048 and batch size 8 in fp16:
+where $L$ is the number of layers, $B$ is batch size, $S$ is sequence length, $H$ is hidden dimension, and $k$ is a factor (typically 10–20) accounting for intermediate tensors in attention and MLP blocks. This is not a precise formula—actual memory depends on implementation details like whether attention scores are materialized, MLP expansion ratio, and framework overhead. But it gives you the right order of magnitude. For a 7B model ($L=32$, $H=4096$) with sequence length 2048 and batch size 8 in fp16:
 
 $$32 \times 8 \times 2048 \times 4096 \times 2 \times 12 \approx 52\text{ GB}$$
 
