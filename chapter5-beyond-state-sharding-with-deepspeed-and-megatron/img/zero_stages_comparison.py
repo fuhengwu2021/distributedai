@@ -57,42 +57,42 @@ def draw_gpu_row(ax, y, params_sharded, grads_sharded, opt_sharded, gpu_label):
 
 def panel_ddp(ax):
     ax.set_xlim(-0.5, 8)
-    ax.set_ylim(0, 3.8)
+    ax.set_ylim(0, 2.5)
     ax.axis("off")
     ax.set_title("DDP (Baseline)", fontsize=14, fontweight="bold", pad=10)
     
-    for i in range(4):
-        draw_gpu_row(ax, 3 - i * 0.9, False, False, False, f"R{i}")
+    for i in range(2):
+        draw_gpu_row(ax, 1.5 - i * 1.0, False, False, False, f"R{i}")
 
 def panel_zero1(ax):
     ax.set_xlim(-0.5, 8)
-    ax.set_ylim(0, 3.8)
+    ax.set_ylim(0, 2.5)
     ax.axis("off")
     ax.set_title("ZeRO-1", fontsize=14, fontweight="bold", pad=10)
     
-    for i in range(4):
-        draw_gpu_row(ax, 3 - i * 0.9, False, False, True, f"R{i}")
+    for i in range(2):
+        draw_gpu_row(ax, 1.5 - i * 1.0, False, False, True, f"R{i}")
 
 def panel_zero2(ax):
     ax.set_xlim(-0.5, 8)
-    ax.set_ylim(0, 3.8)
+    ax.set_ylim(0, 2.5)
     ax.axis("off")
     ax.set_title("ZeRO-2", fontsize=14, fontweight="bold", pad=10)
     
-    for i in range(4):
-        draw_gpu_row(ax, 3 - i * 0.9, False, True, True, f"R{i}")
+    for i in range(2):
+        draw_gpu_row(ax, 1.5 - i * 1.0, False, True, True, f"R{i}")
 
 def panel_zero3(ax):
     ax.set_xlim(-0.5, 8)
-    ax.set_ylim(0, 3.8)
+    ax.set_ylim(0, 2.5)
     ax.axis("off")
     ax.set_title("ZeRO-3", fontsize=14, fontweight="bold", pad=10)
     
-    for i in range(4):
-        draw_gpu_row(ax, 3 - i * 0.9, True, True, True, f"R{i}")
+    for i in range(2):
+        draw_gpu_row(ax, 1.5 - i * 1.0, True, True, True, f"R{i}")
 
 def main():
-    fig, axes = plt.subplots(1, 4, figsize=(14, 4))
+    fig, axes = plt.subplots(1, 4, figsize=(14, 2.5))
     
     panel_ddp(axes[0])
     panel_zero1(axes[1])
