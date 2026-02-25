@@ -689,85 +689,55 @@ The trace file is in Chrome trace format. See Section~\ref{sec:ddp-profiling} in
 
 ### Optimizing Communication
 
-If communication is a bottleneck, try:
-
-1. **Enable prefetching**: As discussed earlier, prefetching can overlap communication with computation.
-
-2. **Tune reshard_after_forward**: If you have memory headroom, try `reshard_after_forward=False` to avoid all-gather in backward:
+If the profiler shows communication as a bottleneck, you have a few options. Prefetching (covered earlier) can overlap communication with computation. If you have memory headroom, setting `reshard_after_forward=False` avoids the all-gather in backward—parameters stay unsharded after forward, so backward doesn't need to fetch them again:
 
 ```python
-fully_shard(
-    model,
-    mesh=mesh,
-    reshard_after_forward=False,  # Keep parameters unsharded after forward
-)
+fully_shard(model, mesh=mesh, reshard_after_forward=False)
 ```
 
-This uses more memory but reduces communication. Only use if you have headroom.
+This trades memory for speed. Only use it if you have headroom after profiling.
 
-3. **Use faster interconnects**: NVLink for intra-node, InfiniBand for inter-node. Make sure NCCL is using them:
+Hardware matters too. NVLink for intra-node and InfiniBand for inter-node make a big difference. Check that NCCL is actually using them:
 
 ```bash
 export NCCL_IB_DISABLE=0 && export NCCL_DEBUG=INFO
 ```
 
+The debug output will show which interconnects NCCL detected.
+
 ### Optimizing Activation Memory
 
-If activation memory is a bottleneck:
-
-1. **Reduce batch size**: Smaller batches = less activation memory.
-
-2. **Reduce sequence length**: For transformers, shorter sequences = less memory.
-
-3. **Use gradient accumulation**: Instead of large batches, use smaller batches with gradient accumulation:
+If activation memory is the bottleneck, the simplest fix is reducing batch size or sequence length—smaller inputs mean fewer activations to store. But if you need a large effective batch size for convergence, gradient accumulation lets you get there without the memory cost:
 
 ```python
 accumulation_steps = 4
 optimizer.zero_grad()
 for i, (data, target) in enumerate(dataloader):
-    output = model(data)
-    loss = criterion(output, target) / accumulation_steps
+    loss = criterion(model(data), target) / accumulation_steps
     loss.backward()
-    
     if (i + 1) % accumulation_steps == 0:
         optimizer.step()
         optimizer.zero_grad()
 ```
 
-This gives you the effective batch size of `batch_size * accumulation_steps` but with the memory footprint of `batch_size`.
-
-4. **Selective checkpointing**: Checkpoint only some layers, not all. Experiment to find the right balance.
+This gives you the effective batch size of `batch_size * accumulation_steps` but with the memory footprint of a single `batch_size`. You can also try selective checkpointing—checkpoint only some layers instead of all, and experiment to find the right balance between memory and recomputation overhead.
 
 ### Memory Profiling
 
-Use `nvidia-smi` or PyTorch's memory profiler to see where memory is used:
+To understand where memory goes, sprinkle some print statements through your code:
 
 ```python
-import torch
-
 def print_memory_usage(step_name):
-    if torch.cuda.is_available():
-        allocated = torch.cuda.memory_allocated() / 1e9
-        reserved = torch.cuda.memory_reserved() / 1e9
-        print(f"{step_name}: allocated={allocated:.2f}GB, reserved={reserved:.2f}GB")
-
-# Before model creation
+    allocated = torch.cuda.memory_allocated() / 1e9
+    reserved = torch.cuda.memory_reserved() / 1e9
+    print(f"{step_name}: allocated={allocated:.2f}GB, reserved={reserved:.2f}GB")
 print_memory_usage("Before model")
-
-# After model creation
-print_memory_usage("After model")
-
-# After FSDP
 print_memory_usage("After FSDP")
-
-# After forward
 print_memory_usage("After forward")
-
-# After backward
 print_memory_usage("After backward")
 ```
 
-This helps you understand where memory is being used and where you can optimize.
+This tells you how much memory is used at each stage. If "After forward" is much higher than "After FSDP", activations are the culprit. If "After backward" stays high, gradients or optimizer state might be the issue. For a more detailed breakdown, `nvidia-smi` shows total GPU memory usage, and PyTorch's `torch.cuda.memory_summary()` gives a full allocation report.
 
 ## Multi-Node FSDP Training
 
