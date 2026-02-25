@@ -7,13 +7,15 @@
 
 **Code Summary**
 
-- `torch.distributed.fsdp.FullyShardedDataParallel(module...)`: FSDP1 wrapper class for sharding module parameters with FlatParameter
-- `torch.distributed.fsdp.fully_shard(module...)`: FSDP2 function to shard a module with DTensor
-- `torch.distributed.fsdp.wrap()`: Function to wrap submodules with FSDP
+- `torch.distributed.fsdp.fully_shard(module, mesh=..., mp_policy=...)`: Shard a module in place with per-parameter sharding (DTensor)
+- `torch.distributed.fsdp.MixedPrecisionPolicy`: Mixed precision configuration for FSDP2
+- `torch.distributed.device_mesh.init_device_mesh("cuda", (world_size,))`: Create a device mesh for sharding
+- `torch.distributed.checkpoint`: Distributed Checkpoint (DCP) API for saving/loading sharded state dicts
+- `torch.distributed.fsdp.FullyShardedDataParallel(module, ...)`: Wrapper class for sharding with FlatParameter
+- `torch.distributed.fsdp.wrap()`: Wrap submodules with FSDP1
+- `torch.distributed.fsdp.MixedPrecision`: Mixed precision configuration for FSDP1
 - `torch.distributed.fsdp.set_state_dict_type()`: Configure state dict type for checkpointing
-- `torch.distributed.fsdp.StateDictConfig`: Configuration for state dict handling
-- `torch.distributed.fsdp.OptimStateDictConfig`: Configuration for optimizer state dict
-- `torch.distributed.fsdp.MixedPrecision`: Mixed precision configuration for FSDP
+- `torch.distributed.fsdp.StateDictConfig` / `OptimStateDictConfig`: State dict configuration
 
 **Fully Sharded Data Parallel (FSDP)** is a training strategy that shards model parameters, gradients, and optimizer state across multiple devices so that each device holds only a fraction of the full model. In Chapter~\ref{chap:distributed-training-with-pytorch-ddp}, we used DDP, which replicates the entire model on every GPU—effective when the model fits in a single GPU's memory. When the model (plus gradients and optimizer state) exceeds that memory, DDP is no longer viable. FSDP addresses this by distributing the model and its training state across GPUs, so you can train models that are larger than the memory of any one device.
 
