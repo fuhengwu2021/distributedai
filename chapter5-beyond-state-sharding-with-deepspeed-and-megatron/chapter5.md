@@ -637,9 +637,11 @@ If none of these apply—your layers fit, your sequences are moderate, you're no
 
 ### Real-World Training Configurations
 
-Here are production-ready configurations based on actual Megatron training scripts. Note that `pretrain_gpt.py` is part of the Megatron-LM repository—you need to clone it from https://github.com/NVIDIA/Megatron-LM and run these commands from within that repository:
+Theory is useful, but seeing real configurations helps solidify understanding. Here are production-ready examples based on actual Megatron training scripts. Note that `pretrain_gpt.py` is part of the Megatron-LM repository—clone it from https://github.com/NVIDIA/Megatron-LM and run these commands from within that repository.
 
 __LLaMA-3 8B with FP8 Training (8 GPUs):__
+
+This configuration trains a LLaMA-3 8B model on a single 8-GPU node with long context (8K tokens) and FP8 precision.
 
 ```bash
 torchrun --nproc_per_node=8 pretrain_gpt.py \
@@ -664,7 +666,11 @@ torchrun --nproc_per_node=8 pretrain_gpt.py \
     --bf16
 ```
 
+The model architecture flags (`--num-layers`, `--hidden-size`, `--ffn-hidden-size`, `--num-attention-heads`) define the LLaMA-3 8B structure. `--group-query-attention` with `--num-query-groups 8` enables Grouped-Query Attention, where 32 query heads share 8 KV heads—this reduces KV cache memory significantly. For parallelism, we skip tensor parallelism (`--tensor-model-parallel-size 1`) since each layer fits on one GPU, but use context parallelism (`--context-parallel-size 2`) to handle the 8K sequence by splitting it across 2 GPUs. FP8 training (`--fp8-format hybrid`, `--fp8-param-gather`) provides speedup on H100 GPUs. The distributed optimizer with overlap flags maximizes memory efficiency and hides communication latency.
+
 __GPT-3 175B Scale (128 GPUs):__
+
+This configuration scales to 175B parameters across 16 nodes (128 GPUs total), requiring both tensor and pipeline parallelism.
 
 ```bash
 torchrun --nproc_per_node=8 --nnodes=16 pretrain_gpt.py \
@@ -680,7 +686,11 @@ torchrun --nproc_per_node=8 --nnodes=16 pretrain_gpt.py \
     --fp16
 ```
 
+At this scale, a single layer with hidden dimension 12288 benefits from tensor parallelism across all 8 GPUs within a node (`--tensor-model-parallel-size 8`). The 96 layers are distributed across 16 pipeline stages (`--pipeline-model-parallel-size 16`), with each stage handling 6 layers. The effective data parallelism is 128 / (8 × 16) = 1, meaning all GPUs are dedicated to model parallelism. The large `--global-batch-size 1536` is achieved through gradient accumulation across many micro-batches.
+
 __Mixtral 8x7B MoE (64 GPUs):__
+
+This configuration trains a Mixture-of-Experts model with 8 experts distributed across GPUs.
 
 ```bash
 torchrun --nproc_per_node=8 --nnodes=8 pretrain_gpt.py \
@@ -703,268 +713,145 @@ torchrun --nproc_per_node=8 --nnodes=8 pretrain_gpt.py \
     --bf16
 ```
 
+The MoE-specific flags define the sparse architecture: `--num-experts 8` creates 8 expert networks per MoE layer, and `--expert-model-parallel-size 8` distributes them one per GPU within the expert-parallel group. `--moe-router-topk 2` means each token is routed to 2 experts. The optimization flags `--moe-grouped-gemm` and `--moe-permute-fusion` batch expert computations and fuse token rearrangement operations for efficiency. Pipeline parallelism (`--pipeline-model-parallel-size 4`) distributes the 32 layers across 4 stages, while tensor parallelism is disabled for the MoE layers since expert parallelism handles the distribution.
+
 ### Complete Training Example with Megatron
 
-The code examples include a complete Megatron Core training script (`code/train_megatron_mcore.py`) that demonstrates how to set up tensor parallelism, create a GPT model, and run a training loop. The script handles distributed initialization, model creation with `TransformerConfig`, and gradient synchronization with Megatron's `DistributedDataParallel`.
+To tie everything together, let's look at how to actually run a Megatron training job. The `code/train_megatron_mcore.py` script in this chapter demonstrates the essential pieces: initializing distributed state, creating a model with `TransformerConfig`, wrapping it with Megatron's `DistributedDataParallel`, and running a training loop with proper gradient synchronization.
 
-__Running the Megatron training script:__
+Running on a single node with 4 GPUs:
 
 ```bash
-# Single node, 4 GPUs with tensor parallelism
 torchrun --nproc_per_node=4 code/train_megatron_mcore.py
+```
 
-# Multi-node (2 nodes, 4 GPUs each, TP=4 per node)
-torchrun --nproc_per_node=4 \
-  --nnodes=2 \
-  --node_rank=0 \
-  --master_addr=node0 \
-  --master_port=29500 \
+For multi-node training, you need to specify the cluster topology. On node 0:
+
+```bash
+torchrun --nproc_per_node=4 --nnodes=2 --node_rank=0 \
+  --master_addr=node0 --master_port=29500 \
   code/train_megatron_mcore.py
 ```
 
-__Key points in this example:__
+And on node 1, the same command with `--node_rank=1`. The script uses Megatron Core's `GPTModel`, which has tensor parallelism built in—you don't manually implement the column-parallel and row-parallel patterns. Megatron's DDP wrapper handles gradient synchronization with optimized communication overlap, and the distributed optimizer shards optimizer states automatically.
 
-1. **Megatron Core Models**: Uses `GPTModel` from Megatron Core with built-in tensor parallelism
-2. **DistributedDataParallel**: Megatron's DDP wrapper with optimized communication overlap
-3. **Distributed Optimizer**: Shards optimizer states across data-parallel ranks
-4. **Pipeline Schedule**: Uses Megatron's forward-backward function for efficient pipeline execution
-5. **Memory Efficiency**: Each GPU only stores a fraction of each layer's parameters and optimizer states
-
-__Using Megatron-FSDP for State Sharding:__
-
-For even larger models, combine Megatron TP with Megatron-FSDP:
+For models that need both computation sharding and aggressive state sharding, you can combine Megatron's tensor parallelism with Megatron-FSDP:
 
 ```bash
-# Enable Megatron-FSDP with tensor parallelism
 --use-megatron-fsdp
 --data-parallel-sharding-strategy optim_grads_params
 --tensor-model-parallel-size 4
---use-distributed-optimizer
 --overlap-grad-reduce
 --overlap-param-gather
 ```
 
-This gives you:
-* **Computation sharding**: Megatron TP for large per-layer computation
-* **State sharding**: Megatron-FSDP for parameters, gradients, and optimizer states
-* **Performance**: 15-25% faster than PyTorch FSDP2 + Megatron TP
-* **Memory**: 23% memory savings compared to PyTorch FSDP2
+This configuration gives you the best of both worlds: tensor parallelism splits large matrix multiplications across GPUs, while FSDP shards parameters, gradients, and optimizer states across the data-parallel dimension. The overlap flags ensure that communication happens concurrently with computation whenever possible.
 
-__Performance Optimizations:__
+A few additional optimizations worth enabling in production. `--tp-comm-overlap` overlaps tensor parallelism's all-reduce with computation. `--sequence-parallel` reduces activation memory by sharding along the sequence dimension for LayerNorm and Dropout. `--calculate-per-token-loss` optimizes gradient scaling for variable-length sequences.
 
-```bash
-# Enable all performance optimizations
---overlap-grad-reduce              # Overlap gradient reduction
---overlap-param-gather             # Overlap parameter gathering
---tp-comm-overlap                  # Overlap TP communication
---sequence-parallel                # Reduce activation memory
---use-distributed-optimizer        # Shard optimizer states
---calculate-per-token-loss        # Optimize gradient scaling
-```
-
-__Advanced Features:__
-
-* **Virtual Pipeline Parallelism**: Reduces pipeline bubbles by interleaving micro-batches
-* **Distributed Checkpointing**: Up to 50x faster than native PyTorch, supports resharding
-* **CUDA Graphs**: Capture and replay training iterations for reduced overhead
-* **Activation Recomputation**: Selective recompute for memory-constrained scenarios
+Beyond these flags, Megatron offers several advanced features. Virtual pipeline parallelism (interleaved scheduling) reduces pipeline bubbles by having each GPU handle multiple non-contiguous stages. Distributed checkpointing saves and loads sharded model states up to 50x faster than naive PyTorch checkpointing, with support for resharding—you can save a checkpoint from a 64-GPU run and load it on 128 GPUs. CUDA graphs capture entire training iterations and replay them with minimal CPU overhead. Activation recomputation lets you selectively recompute activations during backward pass to trade compute for memory when needed.
 
 ## Hybrid Parallelism in Practice
 
-Large-scale model training rarely relies on a single parallelism strategy. In practice, modern systems combine multiple forms of parallelism to address different bottlenecks simultaneously. This section describes how **state sharding** and **computation sharding** are composed in real training systems, and provides guidance on common hybrid configurations.
+We've now covered the individual parallelism techniques: ZeRO's state sharding, Megatron's tensor and pipeline parallelism, sequence and context parallelism for long sequences, and expert parallelism for MoE models. But real training systems rarely use just one. A 70B model might use tensor parallelism within nodes, pipeline parallelism across nodes, and FSDP for optimizer state sharding—all simultaneously. How do these pieces fit together?
 
-### The Two-Axis View of Parallelism
+### The Two-Axis View
 
-Hybrid parallelism can be understood as operating along two orthogonal axes:
+The key insight is that state sharding and computation sharding operate on orthogonal axes. State sharding (FSDP, ZeRO) addresses memory redundancy: instead of every GPU storing all parameters and optimizer states, each GPU stores a fraction. Computation sharding (tensor parallelism, pipeline parallelism) addresses computational load: instead of one GPU computing an entire layer, multiple GPUs share the work.
 
-* **State axis**: how model parameters, gradients, and optimizer states are distributed across devices
-  (e.g., FSDP or ZeRO)
+These axes are independent. You can have state sharding without computation sharding (a 7B model with ZeRO-3), computation sharding without state sharding (a 70B model with TP=8 and full parameter replication), or both (a 405B model with TP, PP, and FSDP). The choice depends on which bottleneck you're hitting.
 
-* **Computation axis**: how the computation of a single forward and backward pass is distributed
-  (e.g., Megatron tensor, pipeline, and sequence parallelism)
+### Building a Hybrid Configuration
 
-A key insight is that these axes are independent. State sharding reduces memory redundancy, while computation sharding reduces per-device computational load. Effective large-scale training requires both.
+Let's walk through how you might configure a 70B model training on 64 GPUs across 8 nodes. Each node has 8 GPUs connected by NVLink; nodes are connected by InfiniBand.
 
-### A Canonical Hybrid Configuration
+Start with tensor parallelism. The model's hidden dimension is 8192, and each attention layer has large weight matrices. We set TP=4, splitting each layer's computation across 4 GPUs within a node. This requires high-bandwidth communication (NVLink), so we keep the TP group within a single node.
 
-A widely used hybrid setup combines:
+Next, consider pipeline parallelism. The model has 80 layers, and even with TP=4, storing all layers' activations is challenging. We set PP=2, splitting the model into two pipeline stages of 40 layers each. Pipeline communication (sending activations between stages) is less frequent than TP communication, so it can tolerate the slower inter-node InfiniBand.
 
-* **FSDP (or ZeRO-3)** for state sharding across all data-parallel ranks
-* **Megatron Tensor Parallelism (TP)** within each data-parallel group
-* **Megatron Pipeline Parallelism (PP)** across groups of layers
-* Optional **Sequence Parallelism (SP)** for long sequences
+Finally, data parallelism. With TP=4 and PP=2, each "model replica" uses 8 GPUs. We have 64 GPUs total, so DP=8: eight replicas process different micro-batches in parallel. We enable FSDP to shard optimizer states across these 8 replicas, reducing per-GPU memory.
 
-Conceptually, the system is organized hierarchically:
+The math: Total GPUs = TP × PP × DP = 4 × 2 × 8 = 64. From a single GPU's perspective, it stores 1/8 of the optimizer states (FSDP), computes 1/4 of each layer (TP), and handles 1/2 of the model's depth (PP).
 
-1. **Tensor-parallel groups** cooperate to compute individual layers
-2. **Pipeline stages** split the model depth across groups of GPUs
-3. **Data-parallel / FSDP groups** replicate computation across batches while sharding state
+### Why This Works
 
-Each layer of parallelism addresses a different scaling limit.
+This layered approach succeeds because each technique addresses a different constraint. FSDP eliminates redundant optimizer state storage—critical for Adam's momentum and variance tensors. Tensor parallelism enables matrix multiplications that wouldn't fit or would be too slow on a single GPU. Pipeline parallelism bounds activation memory by limiting how many layers are active simultaneously. Each technique has costs (communication overhead, pipeline bubbles), but when applied to the right bottleneck, the benefits outweigh the costs.
 
-### Example: Training a Large Transformer Model
+### Choosing Your Configuration
 
-Consider training a large Transformer model whose individual layers are too large to compute efficiently on a single GPU.
+The decision process is incremental. Start simple and add complexity only when needed.
 
-A typical configuration might look like:
+If your model's layers fit on one GPU and compute efficiently, use state sharding alone (FSDP or ZeRO-3). This is the simplest setup and works for most models under 10-15B parameters on modern GPUs.
 
-* Tensor Parallelism: TP = 4
-* Pipeline Parallelism: PP = 2
-* Data Parallelism with FSDP: DP = 8
+If layers are too large or too slow on one GPU, add tensor parallelism. Keep TP within a node to leverage NVLink. TP=2, 4, or 8 are common choices depending on layer size.
 
-This yields a total of:
+If the model is very deep or you need to scale across many nodes, add pipeline parallelism. PP introduces bubbles, so use it when necessary rather than by default.
 
-$$
-\text{Total GPUs} = \text{TP} \times \text{PP} \times \text{DP} = 4 \times 2 \times 8 = 64
-$$
+If sequence length is your bottleneck (8K+ tokens), enable sequence parallelism or context parallelism. These reduce activation memory proportionally to the parallelism degree.
 
-In this setup:
+If you're training an MoE model, expert parallelism distributes experts naturally. EP often replaces TP for the expert layers since the experts are already separate computations.
 
-* Each layer's matrix multiplications are split across 4 GPUs (TP)
-* The model is divided into 2 pipeline stages (PP)
-* 8 replicas process different micro-batches, with parameters sharded across them (FSDP)
+### Operational Realities
 
-From the perspective of a single GPU, it:
+Hybrid parallelism adds operational complexity. Tensor parallel groups must be placed on GPUs with fast interconnects—putting a TP group across nodes will cripple performance. Pipeline parallelism requires tuning the number of micro-batches to minimize bubble overhead. Checkpointing becomes more complex: a checkpoint from a TP=4, PP=2 configuration can't be directly loaded into a TP=8, PP=1 setup without resharding.
 
-* Stores only a shard of the model state
-* Computes only a fraction of each layer
-* Participates in pipeline execution for a subset of layers
-
-### Why This Composition Works
-
-This hybrid design works because it aligns each technique with the bottleneck it is best suited to address:
-
-* **FSDP / ZeRO** minimizes memory usage by eliminating redundant state
-* **Tensor Parallelism** reduces per-GPU compute and enables larger hidden dimensions
-* **Pipeline Parallelism** limits activation memory and enables scaling across nodes
-* **Sequence Parallelism** reduces activation replication for long-context models
-
-No single technique can address all of these constraints alone.
-
-### Choosing a Hybrid Strategy
-
-In practice, the choice of hybrid configuration depends on a small number of structural questions:
-
-* Can a single Transformer layer be computed efficiently on one GPU?
-* Is the model too deep to fit activation memory comfortably?
-* Is sequence length a dominant factor in memory usage?
-* How many GPUs are available per node, and how fast is inter-node communication?
-
-A useful rule of thumb is:
-
-* If layers fit on one GPU, start with state sharding alone.
-* If layers do not fit or are inefficient, add tensor parallelism.
-* If depth or node count becomes limiting, add pipeline parallelism.
-* If long sequences dominate memory, enable sequence parallelism.
-
-Hybrid parallelism is typically introduced incrementally, as each additional dimension increases system complexity.
-
-### Operational Considerations
-
-Hybrid parallelism introduces new operational challenges:
-
-* **Communication topology awareness**: Tensor parallel groups benefit from fast intra-node interconnects, while pipeline stages often span nodes.
-* **Micro-batch sizing**: Pipeline parallelism requires careful tuning of micro-batch count to maintain utilization.
-* **Checkpointing**: State-sharded checkpoints must be coordinated with tensor- and pipeline-parallel layouts.
-* **Debugging complexity**: Errors may surface only under specific parallel configurations.
-
-For this reason, hybrid setups are typically adopted only after simpler configurations have reached their limits.
-
-### Summary
-
-Hybrid parallelism combines state sharding and computation sharding to overcome both memory and compute limits. By composing FSDP or ZeRO with Megatron's tensor, pipeline, and sequence parallelism, training systems can scale far beyond what any single technique enables on its own. Understanding how these strategies interact is important for building robust large-scale training systems.
-
-Large-scale training is no longer about choosing a single parallelism strategy, but about composing multiple strategies along orthogonal axes.
+Debugging also becomes harder. A bug might only manifest with specific parallelism configurations, making reproduction difficult. For these reasons, start with the simplest configuration that meets your needs and add parallelism dimensions incrementally.
 
 ### Performance Optimization Best Practices
 
-__Communication Overlap:__
+Once you have a working hybrid configuration, there are several optimizations that can significantly improve throughput.
 
-Enable all available communication overlap options:
-
-```bash
---overlap-grad-reduce          # Overlap gradient reduction (DP/FSDP)
---overlap-param-gather        # Overlap parameter gathering (FSDP)
---tp-comm-overlap             # Overlap tensor parallel communication
-```
-
-__Memory Optimizations:__
+The most impactful is communication overlap. By default, communication and computation happen sequentially—the GPU computes, then communicates, then computes again. With overlap enabled, communication happens in the background while the next computation proceeds. Megatron provides several overlap flags:
 
 ```bash
---sequence-parallel            # Reduce activation memory (required with TP+EP)
---use-distributed-optimizer   # Shard optimizer states
---calculate-per-token-loss   # Optimize gradient scaling
---recompute-activations       # Activation checkpointing when needed
+--overlap-grad-reduce          # Overlap gradient all-reduce with backward
+--overlap-param-gather         # Overlap parameter gather with forward
+--tp-comm-overlap              # Overlap tensor parallel all-reduce
 ```
 
-__Parallelism Topology Guidelines:__
+For memory optimization, sequence parallelism reduces activation memory by sharding along the sequence dimension for LayerNorm and Dropout. The distributed optimizer shards optimizer states across data-parallel ranks. Activation recomputation trades compute for memory by recomputing activations during backward instead of storing them.
 
-1. **Keep TP and EP within NVLink domain**: Both are communication-intensive
-2. **Use PP for inter-node scaling**: Pipeline stages can span nodes
-3. **CP for long sequences**: Enable when sequence length >= 8K
-4. **Minimize model parallelism**: Prefer DP with distributed optimizer when possible
+```bash
+--sequence-parallel
+--use-distributed-optimizer
+--recompute-activations        # When memory-constrained
+```
 
-__Reference Configurations:__
+A few topology guidelines based on communication characteristics. Tensor parallelism and expert parallelism are communication-intensive—keep them within the NVLink domain (same node). Pipeline parallelism tolerates higher latency—it can span nodes. Context parallelism for long sequences works best within a node but can extend across nodes if necessary.
 
-Based on NVIDIA NeMo production configurations:
+### Configuration Patterns
 
-| Model | Size | GPUs | TP | PP | CP | EP | Notes |
-|-------|------|------|----|----|----|----|-------|
-| LLaMA-3 | 8B | 8 | 1 | 1 | 2 | 1 | CP for long seqlen (8K) |
-| LLaMA-3 | 70B | 64 | 4 | 4 | 2 | 1 | TP+PP for large model |
-| LLaMA-3.1 | 405B | 1024 | 8 | 8 | 2 | 1 | 3D parallelism |
-| GPT-3 | 175B | 128-512 | 4-8 | 8-16 | 1 | 1 | Large model config |
-| Mixtral | 8x7B | 64 | 1 | 4 | 1 | 8 | EP for MoE |
-| Mixtral | 8x22B | 256 | 4 | 4 | 8 | 8 | Combined TP+EP |
-| DeepSeek-V3 | 671B | 1024 | 2 | 16 | 1 | 64 | Large MoE config |
+A few patterns emerge from production training setups. For dense models under 10B parameters, tensor parallelism is often unnecessary—layers fit on one GPU, so state sharding (FSDP or ZeRO) handles memory while data parallelism handles scaling. For larger dense models (70B+), tensor parallelism becomes essential for the large matrix multiplications, typically TP=4 or TP=8 within a node. Pipeline parallelism adds another scaling dimension when you need more GPUs than fit in a TP group.
 
-__Performance Benchmarks:__
+MoE models follow a different pattern. Expert parallelism naturally distributes the experts, often replacing tensor parallelism for the expert layers entirely. A Mixtral-style 8x7B model might use EP=8 (one expert per GPU) with no tensor parallelism, plus pipeline parallelism for depth.
 
-Megatron Core achieves:
-* **Up to 47% Model FLOP Utilization (MFU)** on H100 clusters
-* **468 TFLOPS** for Mixtral 8X7B bf16 training
-* **15-25% speedup** with Megatron-FSDP vs PyTorch FSDP2
-* **50x faster checkpointing** with distributed checkpointing vs native PyTorch
+Context parallelism appears when sequence length drives memory usage. For 8K+ token sequences, CP=2 or CP=4 can halve or quarter activation memory without the complexity of full model parallelism.
 
-## Choosing the Right Strategy: ZeRO, FSDP, and Megatron
+## Choosing the Right Strategy
 
-### Decision Tree
+With so many parallelism techniques available, how do you decide which to use? The answer depends on your specific constraints: model size, layer size, sequence length, available hardware, and whether you're training a dense or MoE model.
+
+### A Decision Framework
 
 ![Parallelism strategy decision tree.](img/parallelism_decision_tree.png){#fig:parallelism-decision-tree .block width=80% align=center}
 
-Figure~\ref{fig:parallelism-decision-tree} provides a decision tree for choosing the right parallelism strategy. The key questions to ask are: How large is your model? Does a single layer fit on one GPU? How long are your sequences? Are you training across multiple nodes? Is it a Mixture-of-Experts model? Each path leads to a recommended combination of techniques—from simple DDP for small models to complex combinations of FSDP2, tensor parallelism, pipeline parallelism, context parallelism, and expert parallelism for the largest models.
+Figure~\ref{fig:parallelism-decision-tree} provides a visual guide. The decision process starts with the simplest question: does your model fit on one GPU with standard data parallelism? If yes, use DDP—it's the simplest and most efficient. If not, the next question is whether a single layer fits on one GPU. If layers fit but the full model doesn't, state sharding (FSDP2 or ZeRO-3) is your answer. If individual layers are too large, you need computation sharding (tensor parallelism). From there, additional dimensions like pipeline parallelism, context parallelism, and expert parallelism address specific bottlenecks.
 
-### Comparison Table
+### Understanding the Trade-offs
 
-| Stage | Params | Grads | Opt States | Memory/GPU | Comm Overhead | Best For |
-|-------|--------|-------|------------|------------|---------------|----------|
-| **DDP** | Full | Full | Full | N× | All-reduce | <10B params |
-| **ZeRO-1** | Full | Full | Shard | 0.5× | All-reduce | 10-30B params |
-| **ZeRO-2** | Full | Shard | Shard | 0.33× | Reduce-scatter | 30-50B params |
-| **ZeRO-3** | Shard | Shard | Shard | 1/N× | All-gather + RS | 50-200B params |
-| **ZeRO-Offload** | Full | Shard | CPU | GPU: 0.25× | CPU-GPU transfer | Limited GPU mem |
-| **ZeRO-Infinity** | NVMe | Shard | CPU/NVMe | GPU: minimal | Multi-tier transfer | >500B params |
-| **ZeRO++** | Shard | Shard | Shard | 2/N× | Reduced by 4-6× | Multi-node large models |
-| **FSDP2** | Shard | Shard | Shard | 1/N× | All-gather + RS | 7B-200B params (when layers fit on one GPU) |
-| **Megatron TP** | Shard | Shard | Shard | 1/TP× | All-gather per layer | Large layers, 50B+ models |
-| **Megatron TP + CP** | Shard | Shard | Shard | 1/(TP×CP)× | TP + CP comm | Long sequences (>=8K), activation memory reduction |
-| **Megatron TP + PP** | Shard | Shard | Shard | 1/(TP×PP)× | TP + PP comm | Very large models, inter-node scaling |
-| **Megatron EP (MoE)** | Shard | Shard | Shard | 1/EP× (MoE layer) | All-to-all | MoE models (Mixtral, DeepSeek-V3) |
-| **FSDP2 + Megatron TP** | Shard | Shard | Shard | 1/(N×TP)× | Both patterns | 50B-200B+ models with large layers |
-| **Megatron-FSDP + TP** | Shard | Shard | Shard | 1/(N×TP)× | Optimized overlap | Maximum performance, 15-25% faster than FSDP2+TP |
-| **Full Hybrid (TP+PP+CP+EP)** | Shard | Shard | Shard | 1/(TP×PP×CP×EP)× | All patterns | Extreme scale (200B+), MoE, long context |
+Each technique makes a different trade-off between memory savings and communication overhead. DDP replicates everything—maximum communication efficiency but no memory savings. ZeRO-1 shards only optimizer states, cutting memory roughly in half with minimal overhead. ZeRO-2 adds gradient sharding, and ZeRO-3 shards everything, achieving near-linear memory scaling with GPU count but requiring all-gather operations before each layer's computation.
 
-### Memory Savings Example
+Tensor parallelism shards computation rather than just storage. It reduces per-GPU memory and compute proportionally to the TP degree, but requires high-bandwidth communication (all-reduce) within each layer. This is why TP works best within a node where NVLink provides the bandwidth.
 
-For a **175B parameter model with Adam** on **4 GPUs**:
+Pipeline parallelism shards by depth rather than width. It introduces pipeline bubbles (idle time) but tolerates higher-latency communication, making it suitable for cross-node scaling.
 
-| Configuration | Params/GPU | Grads/GPU | Opt/GPU | Total/GPU | Savings |
-|---------------|------------|-----------|---------|-----------|---------|
-| DDP | 350 GB | 350 GB | 1,400 GB | **2,100 GB** | 1× |
-| ZeRO-1 | 350 GB | 350 GB | 350 GB | **1,050 GB** | 2× |
-| ZeRO-2 | 350 GB | 88 GB | 350 GB | **788 GB** | 2.7× |
-| ZeRO-3 | 88 GB | 88 GB | 350 GB | **526 GB** | 4× |
-| ZeRO-3 (8 GPUs) | 44 GB | 44 GB | 175 GB | **263 GB** | 8× |
+### Concrete Memory Example
+
+To make this concrete, consider a 70B parameter model with Adam optimizer. In FP16, parameters take 140GB, gradients another 140GB, and Adam's optimizer states (FP32 master weights, momentum, variance) take 840GB—over 1TB total.
+
+With DDP on 8 GPUs, each GPU stores all 1TB+. With ZeRO-1, optimizer states are sharded: each GPU stores 140GB params + 140GB grads + 105GB optimizer = 385GB. With ZeRO-3, everything is sharded: each GPU stores roughly 140GB total (1/8 of each component). The memory scales linearly with GPU count—add more GPUs, use less memory per GPU.
+
+The catch is communication. ZeRO-3 must all-gather parameters before each layer and reduce-scatter gradients after. For models where layers are small relative to communication latency, this overhead can be significant. For large models with substantial per-layer computation, the overhead is amortized and ZeRO-3 works well.
 
 ## Practical Tips and Best Practices
 
