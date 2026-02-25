@@ -18,7 +18,17 @@
 - `vllm.sampling_params.SamplingParams`: Sampling parameters for generation
 - `vllm.utils.random`: Random number generation utilities for sampling
 
-## Introduction to vLLM and Setup
+## From Training to Inference
+
+The previous chapters covered how to train large models across multiple GPUs—state sharding with ZeRO and FSDP, computation sharding with Megatron's tensor and pipeline parallelism. But training is only half the equation. Once you have a trained model, you need to serve it to users, and serving brings an entirely different set of challenges.
+
+Training optimizes for throughput: process as many tokens as possible per second, amortized over long training runs. Inference optimizes for latency and throughput simultaneously: users expect responses in milliseconds, while the system must handle thousands of concurrent requests. Training processes fixed batch sizes; inference must handle variable-length requests arriving at unpredictable times. Training can checkpoint and restart; inference must be always available.
+
+The memory characteristics also differ fundamentally. During training, memory is dominated by optimizer states (momentum, variance) and activation checkpoints. During inference, there are no optimizer states—memory is dominated by model weights and the **KV cache**, the key-value pairs stored from previous tokens to avoid recomputation during autoregressive generation. For long sequences, the KV cache can exceed the model weights in size.
+
+This chapter introduces vLLM, the inference engine that pioneered many techniques now standard in LLM serving. We'll explore PagedAttention (which revolutionized KV cache management), continuous batching (which maximizes GPU utilization), and the distributed inference patterns that enable serving models too large for a single GPU.
+
+## Introduction to vLLM
 
 **vLLM** (virtual Large Language Model) is a high-throughput, memory-efficient inference and serving engine for large language models. It was designed to address the critical challenges of serving LLMs in production: maximizing throughput while minimizing latency and memory usage.
 
@@ -64,8 +74,8 @@ docker run --runtime nvidia --gpus all \
 
 Here are some small models suitable for learning purposes:
 
-| Model Name | Type | Parameter Size |
-|------------|------|----------------|
+| Model Name | Type | Parameter |
+|-------------------------------------|------------|------|
 | `facebook/opt-125m` | Base | 125M |
 | `Qwen/Qwen2.5-0.5B-Instruct` | Chat/Instruct | 0.5B |
 | `meta-llama/Llama-3.2-1B-Instruct` | Chat/Instruct | 1B |
