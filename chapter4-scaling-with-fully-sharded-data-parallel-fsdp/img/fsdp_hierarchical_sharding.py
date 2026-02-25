@@ -40,76 +40,50 @@ def draw_fsdp_boundary(ax, x, y, w, h, label=""):
                 va="center", fontweight="bold")
 
 def panel_hierarchical(ax):
-    ax.set_xlim(-0.5, 8)
-    ax.set_ylim(-0.5, 6)
+    ax.set_xlim(-0.5, 5)
+    ax.set_ylim(-0.2, 6)
     ax.axis("off")
-    ax.set_title("Hierarchical Sharding: Block-Level FSDP Units", fontsize=13, fontweight="bold", pad=10)
+    ax.set_title("Hierarchical Sharding", fontsize=18, fontweight="bold", pad=10)
     
-    # Model structure
-    x_start = 0.5
-    block_w, block_h = 1.8, 0.6
-    spacing = 0.15
+    # Model structure - larger blocks
+    x_start = 0.8
+    block_w, block_h = 2.5, 0.8
+    spacing = 0.2
     
     # Embedding (not sharded in this example)
-    draw_module(ax, x_start, 5.0, block_w, block_h, COLORS["embedding"], "Embedding")
-    ax.text(x_start + block_w + 0.2, 5.3, "(not sharded)", fontsize=9, color=COLORS["arrow"], style="italic")
+    draw_module(ax, x_start, 5.0, block_w, block_h, COLORS["embedding"], "Embed", fontsize=13)
     
     # Transformer blocks (each is an FSDP unit)
     for i in range(4):
-        y_pos = 4.2 - i * (block_h + spacing)
-        draw_module(ax, x_start, y_pos, block_w, block_h, COLORS["block"], f"Block {i}")
-        draw_fsdp_boundary(ax, x_start - 0.1, y_pos - 0.08, block_w + 0.2, block_h + 0.16, "FSDP unit")
+        y_pos = 4.0 - i * (block_h + spacing)
+        draw_module(ax, x_start, y_pos, block_w, block_h, COLORS["block"], f"Block {i}", fontsize=13)
+        draw_fsdp_boundary(ax, x_start - 0.15, y_pos - 0.1, block_w + 0.3, block_h + 0.2, "")
     
     # LM Head (not sharded)
-    draw_module(ax, x_start, 0.8, block_w, block_h, COLORS["lm_head"], "LM Head")
-    ax.text(x_start + block_w + 0.2, 1.1, "(not sharded)", fontsize=9, color=COLORS["arrow"], style="italic")
-    
-    # Root FSDP
-    draw_fsdp_boundary(ax, x_start - 0.3, 0.6, block_w + 0.6, 5.0, "Root FSDP")
-    
-    # Explanation
-    ax.text(5.5, 4.5, "Code pattern:", fontsize=11, fontweight="bold")
-    ax.text(5.5, 4.0, "for block in model.blocks:", fontsize=10, family="monospace")
-    ax.text(5.5, 3.6, "    fully_shard(block)", fontsize=10, family="monospace")
-    ax.text(5.5, 3.2, "fully_shard(model)  # root", fontsize=10, family="monospace")
-    
-    ax.text(5.5, 2.4, "Benefits:", fontsize=11, fontweight="bold")
-    ax.text(5.5, 2.0, "• All-gather/reduce-scatter\n  at block boundaries", fontsize=10)
-    ax.text(5.5, 1.2, "• Fine-grained memory\n  management", fontsize=10)
-    ax.text(5.5, 0.4, "• Prefetching between\n  blocks possible", fontsize=10)
+    draw_module(ax, x_start, 0.0, block_w, block_h, COLORS["lm_head"], "Head", fontsize=13)
 
 def panel_flat(ax):
-    ax.set_xlim(-0.5, 8)
-    ax.set_ylim(-0.5, 6)
+    ax.set_xlim(-0.5, 5)
+    ax.set_ylim(-0.2, 6)
     ax.axis("off")
-    ax.set_title("Flat Sharding: Single FSDP Unit", fontsize=13, fontweight="bold", pad=10)
+    ax.set_title("Flat Sharding", fontsize=18, fontweight="bold", pad=10)
     
-    x_start = 0.5
-    block_w, block_h = 1.8, 0.6
-    spacing = 0.15
+    x_start = 0.8
+    block_w, block_h = 2.5, 0.8
+    spacing = 0.2
     
     # All modules in one FSDP unit
-    draw_module(ax, x_start, 5.0, block_w, block_h, COLORS["embedding"], "Embedding")
+    draw_module(ax, x_start, 5.0, block_w, block_h, COLORS["embedding"], "Embed", fontsize=13)
     for i in range(4):
-        y_pos = 4.2 - i * (block_h + spacing)
-        draw_module(ax, x_start, y_pos, block_w, block_h, COLORS["block"], f"Block {i}")
-    draw_module(ax, x_start, 0.8, block_w, block_h, COLORS["lm_head"], "LM Head")
+        y_pos = 4.0 - i * (block_h + spacing)
+        draw_module(ax, x_start, y_pos, block_w, block_h, COLORS["block"], f"Block {i}", fontsize=13)
+    draw_module(ax, x_start, 0.0, block_w, block_h, COLORS["lm_head"], "Head", fontsize=13)
     
     # Single FSDP boundary around everything
-    draw_fsdp_boundary(ax, x_start - 0.2, 0.6, block_w + 0.4, 5.0, "Single FSDP unit")
-    
-    # Explanation
-    ax.text(5.5, 4.5, "Code pattern:", fontsize=11, fontweight="bold")
-    ax.text(5.5, 4.0, "fully_shard(model)  # only", fontsize=10, family="monospace")
-    
-    ax.text(5.5, 3.0, "Characteristics:", fontsize=11, fontweight="bold")
-    ax.text(5.5, 2.5, "• All params in one group", fontsize=10)
-    ax.text(5.5, 2.0, "• Single all-gather for\n  entire model", fontsize=10)
-    ax.text(5.5, 1.2, "• Higher peak memory\n  (all params at once)", fontsize=10)
-    ax.text(5.5, 0.4, "• Simpler but less\n  memory-efficient", fontsize=10)
+    draw_fsdp_boundary(ax, x_start - 0.25, -0.15, block_w + 0.5, 5.8, "")
 
 def main():
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 5))
     panel_hierarchical(ax1)
     panel_flat(ax2)
     

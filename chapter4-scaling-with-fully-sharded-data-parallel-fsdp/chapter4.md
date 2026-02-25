@@ -197,7 +197,7 @@ Offloading introduces a performance cost (typically 20-50% slowdown due to PCIe 
 
 ### Hierarchical Sharding
 
-You can apply `fully_shard()` at different levels of your model hierarchy. For example, you might shard individual transformer layers but not the embedding layer:
+Beyond these per-call parameters, FSDP2 gives you control over *where* in the model hierarchy sharding boundaries are placed. You can apply `fully_shard()` at different levels—for example, wrapping individual transformer blocks while leaving the embedding layer unsharded:
 
 ```python
 # Shard each transformer layer individually
@@ -212,7 +212,7 @@ This gives you fine-grained control over what gets sharded. Small layers (like e
 
 ![Hierarchical vs flat sharding.](img/fsdp_hierarchical_sharding.png){#fig:fsdp-hierarchical-sharding .block width=100% align=center}
 
-Figure~\ref{fig:fsdp-hierarchical-sharding} contrasts the two approaches. With hierarchical sharding (left), each transformer block is a separate FSDP unit, so all-gather and reduce-scatter happen at block boundaries—this enables prefetching and fine-grained memory management. With flat sharding (right), the entire model is one FSDP unit, which is simpler but requires gathering all parameters at once.
+Figure~\ref{fig:fsdp-hierarchical-sharding} contrasts the two approaches. Both panels show a transformer model with an embedding layer (Embed), four transformer blocks (Block 0–3), and an output head (Head). The red dashed boxes indicate FSDP unit boundaries. With hierarchical sharding (left), each transformer block is wrapped as a separate FSDP unit by calling `fully_shard(block)` in a loop, while the embedding and head remain unsharded. This means all-gather and reduce-scatter happen at block boundaries, enabling prefetching (the next block's parameters can be gathered while the current block computes) and fine-grained memory management (only one block's full parameters need to be in memory at a time). With flat sharding (right), a single `fully_shard(model)` call wraps the entire model as one FSDP unit. This is simpler but requires gathering all parameters at once, leading to higher peak memory.
 
 ## A Complete Working Example: T5 Summarization with FSDP
 
