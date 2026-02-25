@@ -243,17 +243,54 @@ For FLAN-T5-XXL (11B parameters), single-GPU training runs out of memory (OOM) e
 
 Table: Comparison of single-GPU, FSDP1, and FSDP2 on FLAN-T5-XXL (11B). Example runs on H200 GPUs. {#tab:fsdp-t5-comparison}
 
-A minimal transformer that uses only the FSDP2 API (meta device, `fully_shard`, `to_empty`, `reset_parameters`) is available in `code/model.py` and `code/train_fsdp2_transformer.py` for readers who want a short runnable without the T5 pipeline.
+**Key points (from the T5 code in `code/FSDP/`).** The following snippets show how the T5 example implements loading, hierarchical sharding, and mixed precision.
 
-**Key points**
+*FSDP2: load model, then shard each block and the root* (`T5_training_FSDP2.py`):
 
-1. **Meta device initialization**: Create the model on the meta device first so no memory is allocated until after FSDP is applied—essential for very large models (as in the T5 XL/XXL runs in `code/FSDP/`).
+```python
+model = T5ForConditionalGeneration.from_pretrained(model_name)
+model = model.to(device)
 
-2. **Hierarchical sharding**: Shard each layer (or block) individually, then shard the whole model. The T5 scripts wrap encoder/decoder blocks accordingly.
+fsdp_kwargs = {}
+if mp_policy is not None:
+    fsdp_kwargs["mp_policy"] = mp_policy
 
-3. **Parameter initialization**: After `fully_shard()`, call `to_empty(device=device)` then load pretrained weights or `reset_parameters()`.
+# Shard encoder blocks
+for block in model.encoder.block:
+    fully_shard(block, **fsdp_kwargs)
+# Shard decoder blocks
+for block in model.decoder.block:
+    fully_shard(block, **fsdp_kwargs)
+# Shard the entire model (root)
+fully_shard(model, **fsdp_kwargs)
+```
 
-4. **Mixed precision**: The T5 example uses bfloat16; the scripts report "bFloat16 enabled for mixed precision."
+*FSDP2: mixed precision policy* (`T5_training_FSDP2.py`):
+
+```python
+from torch.distributed.fsdp import fully_shard, MixedPrecisionPolicy
+
+mp_policy = MixedPrecisionPolicy(
+    param_dtype=torch.bfloat16,
+    reduce_dtype=torch.bfloat16,
+)
+# Pass mp_policy into fully_shard(..., mp_policy=mp_policy)
+```
+
+*FSDP1: wrapper with auto wrap policy* (`T5_training_FSDP1.py`):
+
+```python
+mixed_precision_policy, t5_auto_wrap_policy = get_policies(train_config, rank)
+
+model = FSDP(model,
+    auto_wrap_policy=t5_auto_wrap_policy,
+    mixed_precision=mixed_precision_policy,
+    sharding_strategy=fsdp_config.sharding_strategy,
+    device_id=torch.cuda.current_device(),
+    limit_all_gathers=fsdp_config.limit_all_gathers)
+```
+
+The T5 scripts load the model from HuggingFace and then shard; for models that do not fit in memory even for loading, the pattern is to create on the meta device, apply `fully_shard`, then `to_empty(device=device)` and load weights or `reset_parameters()`.
 
 ## Key Features of FSDP2
 
