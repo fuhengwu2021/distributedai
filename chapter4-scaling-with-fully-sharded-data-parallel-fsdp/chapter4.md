@@ -70,7 +70,7 @@ The key insight is that you don't need all parameters at once. Neural networks p
 
 PyTorch's original FSDP (released in 2021, often called FSDP1) used a **flat-parameter** design borrowed from FairScale's implementation. It flattens all parameters in a wrapped module into a single contiguous `FlatParameter` tensor, then shards that tensor across GPUs. This worked, but had limitations: all parameters in a group had to share the same dtype, frozen parameters needed separate groups, and the flattening made it harder for compilers to optimize communication patterns.
 
-**FSDP2** (introduced in 2024 via PyTorch RFC #114299[^fsdp2-rfc]) takes a different approach: **per-parameter sharding**. Instead of flattening, it shards each parameter tensor individually on dimension 0. A linear layer weight of shape $(4096, 1024)$ with 4 GPUs becomes four shards of shape $(1024, 1024)$—each rank holds one quarter of the rows. No flattening, no `FlatParameter` class.
+**FSDP2** (introduced in 2024 via PyTorch RFC #114299[^fsdp2-rfc]) takes a different approach: **per-parameter sharding** using DTensor with `Shard(0)`. Instead of flattening, it shards each parameter tensor individually on dimension 0. A linear layer weight of shape $(4096, 1024)$ with 4 GPUs becomes four shards of shape $(1024, 1024)$—each rank holds one quarter of the rows. No flattening, no `FlatParameter` class. When dimension 0 isn't evenly divisible by the world size, FSDP2 pads the tensor; very small parameters may be replicated instead of sharded.
 
 ![FSDP1 vs FSDP2 parameter layout.](img/fsdp1_vs_fsdp2_layout.png){#fig:fsdp1-vs-fsdp2-layout .block width=100% align=center}
 
@@ -156,7 +156,7 @@ This arranges GPUs in a 2D grid, which is useful for very large scale training w
 
 ![Device Mesh: 1D (FSDP) vs 2D (HSDP).](img/device_mesh.png){#fig:device-mesh .block width=100% align=center}
 
-Figure~\ref{fig:device-mesh} shows the two mesh configurations. With a 1D mesh, parameters are sharded across all GPUs. With a 2D mesh (HSDP), parameters are sharded within each node (dim 1) but replicated across nodes (dim 0), reducing inter-node communication.
+Figure~\ref{fig:device-mesh} shows the two mesh configurations. In the 1D mesh (left panel), four GPUs labeled R0–R3 form a single sharding group—each GPU holds a different shard of every parameter. In the 2D mesh (right panel), N0 and N1 represent two physical nodes (e.g., two servers connected via InfiniBand). Within each node, GPUs are sharded along dim 1 (the green arrow), so R0–R3 in N0 each hold different parameter shards. Across nodes, GPUs at the same position share identical shards along dim 0 (the red arrow)—R0 in N0 and R4 in N1 hold the same data. This hybrid approach keeps the heavy all-gather traffic within the fast intra-node interconnect (NVLink) while only exchanging gradients across the slower inter-node network.
 
 ### Key Parameters
 
