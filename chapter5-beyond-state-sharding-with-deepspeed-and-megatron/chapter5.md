@@ -323,6 +323,10 @@ So far, we have focused on **state sharding**—how to distribute parameters, gr
 
 However, state sharding alone is not sufficient for the largest models. As model sizes continue to grow, a second, orthogonal limitation emerges: **computation itself becomes too large to execute efficiently on a single GPU**, even when memory is fully sharded. This is where Megatron enters the picture.
 
+Megatron-LM emerged from NVIDIA's Applied Deep Learning Research team in 2019, introduced in the paper "Megatron-LM: Training Multi-Billion Parameter Language Models Using Model Parallelism."[^megatron] At the time, GPT-2 with 1.5B parameters was considered large, and the research community was just beginning to explore how to scale beyond what a single GPU could handle. The NVIDIA team recognized that simply adding more GPUs for data parallelism wouldn't solve the fundamental problem: some layers were simply too large to compute on one device. Their solution was to split individual matrix operations across GPUs—what they called *tensor parallelism*. The original Megatron paper demonstrated training of an 8.3B parameter model, unprecedented at the time. Since then, Megatron's techniques have become foundational infrastructure for training models like GPT-3 (175B), Llama (up to 405B), and virtually every frontier model today.
+
+[^megatron]: Shoeybi et al., "Megatron-LM: Training Multi-Billion Parameter Language Models Using Model Parallelism," arXiv:1909.08053, 2019. https://arxiv.org/abs/1909.08053
+
 ### State Sharding vs. Computation Sharding
 
 The key distinction can be summarized as follows:
