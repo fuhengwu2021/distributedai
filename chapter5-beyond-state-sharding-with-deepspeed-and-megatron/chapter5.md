@@ -492,42 +492,26 @@ When should you choose Ulysses over ring attention? If you're already in the Dee
 
 ### Expert Parallelism: Scaling MoE Models
 
-**Expert Parallelism (EP)** is Megatron's specialized parallelism for Mixture-of-Experts (MoE) models. In MoE architectures, different experts handle different tokens, making expert parallelism a natural fit.
+Mixture-of-Experts (MoE) models present a unique scaling opportunity: instead of making every layer wider, we add multiple "expert" sub-networks and route each token to only a subset of them. A model like Mixtral 8x7B has 8 experts per MoE layer, but each token only activates 2 of them. This means the model has the capacity of a much larger network while keeping per-token computation manageable. But how do we distribute these experts across GPUs?
 
-__How Expert Parallelism Works:__
+This is where **Expert Parallelism (EP)** comes in. The idea is natural: if we have 8 experts and 8 GPUs, put one expert on each GPU. When a token needs to be processed by expert 3, it gets routed to GPU 3, processed, and the result is sent back. The communication pattern is all-to-all: tokens from all GPUs may need to go to any expert, and results flow back to their origin.
 
-* Experts are partitioned across multiple GPUs
-* Each GPU processes one or more experts for each MoE layer
-* Tokens are routed to appropriate experts via all-to-all communication
-* Combines seamlessly with TP, PP, CP, and DP
+The challenge is load balancing. If the router sends 80% of tokens to expert 0 and only 2% to expert 7, GPU 0 is overloaded while GPU 7 sits idle. MoE training typically includes an auxiliary loss that encourages the router to distribute tokens more evenly. Megatron supports several load balancing strategies: auxiliary loss (adds a penalty for imbalanced routing), Sinkhorn (iterative normalization to enforce balance), and aux-loss-free methods that achieve balance through architectural constraints.
 
-__Key Features:__
+Expert parallelism combines naturally with other parallelism dimensions. A typical large-scale MoE training might use EP=8 for the experts, PP=4 for pipeline stages, and DP for data parallelism across nodes. The non-expert layers (attention, LayerNorm) can use tensor parallelism independently. This flexibility is essential for models like DeepSeek-V3 or Qwen-MoE that have hundreds of experts.
 
-* **Token Routing**: Efficient all-to-all communication to dispatch tokens to experts
-* **Load Balancing**: Multiple strategies (auxiliary loss, Sinkhorn, aux-loss-free)
-* **GroupedGEMM**: Optimized computation when multiple experts per GPU
-* **DeepEP/HybridEP**: High-performance token dispatching backends for large-scale training
-
-__MoE Training Configuration Example:__
+A configuration for Mixtral 8x7B training might look like:
 
 ```bash
-# Mixtral 8x7B training with expert parallelism
 --num-experts 8
---expert-model-parallel-size 8   # 8-way expert parallelism
---moe-router-topk 2              # Top-2 routing
+--expert-model-parallel-size 8   # One expert per GPU
+--moe-router-topk 2              # Each token activates 2 experts
 --moe-router-load-balancing-type aux_loss
---moe-grouped-gemm               # Optimize expert computation
---moe-permute-fusion             # Fuse token rearrangement
---tensor-model-parallel-size 1   # No TP for MoE layer
---pipeline-model-parallel-size 4 # 4 pipeline stages
---sequence-parallel               # Required when EP + TP
+--moe-grouped-gemm               # Batch expert computations
+--pipeline-model-parallel-size 4
 ```
 
-__Performance Highlights:__
-
-* Megatron-Core MoE achieves **468 TFLOPS** for Mixtral 8X7B bf16 training
-* Supports state-of-the-art MoE architectures: DeepSeek-V3, Qwen-MoE, Mixtral
-* Distributed checkpointing with full resharding support across TP/CP/EP/PP
+The `--moe-grouped-gemm` flag is worth noting: when a GPU hosts multiple experts (EP < num_experts), it batches the computations across experts into a single grouped matrix multiplication, significantly improving GPU utilization. For very large expert counts, Megatron also provides high-performance token dispatching backends (DeepEP, HybridEP) that optimize the all-to-all communication patterns.
 
 ### Why FSDP2 Cannot Replace Megatron
 
