@@ -511,163 +511,129 @@ A configuration for Mixtral 8x7B training might look like:
 --pipeline-model-parallel-size 4
 ```
 
-The `--moe-grouped-gemm` flag is worth noting: when a GPU hosts multiple experts (EP < num_experts), it batches the computations across experts into a single grouped matrix multiplication, significantly improving GPU utilization. For very large expert counts, Megatron also provides high-performance token dispatching backends (DeepEP, HybridEP) that optimize the all-to-all communication patterns.
+The `--moe-grouped-gemm` flag is worth noting: when a GPU hosts multiple experts (EP < num_experts), it batches the computations across experts into a single grouped matrix multiplication, significantly improving GPU utilization. For very large expert counts, specialized communication libraries like DeepEP[^deepep] optimize the all-to-all token dispatching with low-latency GPU kernels and efficient cross-node transfers.
+
+[^deepep]: DeepEP is DeepSeek's open-source expert-parallel communication library. https://github.com/deepseek-ai/DeepEP
+
+The accompanying `code/expert_parallel_demo.py` is a from-scratch implementation that demonstrates the core EP mechanics without Megatron dependencies. It shows how a router assigns tokens to experts, how all-to-all communication dispatches tokens to their destination GPUs, how each GPU processes tokens with its local expert, and how another all-to-all returns results. The demo prints token distribution statistics so you can see how routing decisions affect load balance.
+
+```bash
+# Run with 2 experts (2 GPUs)
+torchrun --nproc_per_node=2 code/expert_parallel_demo.py
+# Run with 4 experts (4 GPUs)
+torchrun --nproc_per_node=4 code/expert_parallel_demo.py
+```
 
 ### Why FSDP2 Cannot Replace Megatron
 
-It is tempting to view Megatron as an alternative to FSDP2 or ZeRO. This is incorrect. They operate on **different axes**.
+A common misconception is that FSDP2 (or ZeRO) and Megatron are interchangeable—that you pick one or the other based on preference. This misunderstands what each system actually does.
 
-FSDP2:
+FSDP2 and ZeRO shard *state*: parameters, gradients, and optimizer states are distributed across GPUs, then gathered when needed for computation. The key assumption is that each layer's forward and backward pass fits on a single GPU. When GPU 0 needs to compute layer 5, it gathers layer 5's parameters from all GPUs, runs the computation locally, then releases the memory. The computation itself is not distributed—only the storage is.
 
-* Shards *state*
-* Assumes per-layer computation fits on one GPU
-* Uses all-gather and reduce-scatter around layer boundaries
+Megatron shards *computation*: a single layer's matrix multiplication is split across multiple GPUs, with each GPU computing a portion of the result. The communication happens *inside* the layer, not around it. This is fundamentally different from gathering parameters before computation.
 
-Megatron:
+Why does this distinction matter? Consider a model where a single attention layer has a 16K × 16K weight matrix. Even if you shard the parameters across 8 GPUs with FSDP2, when it's time to compute, one GPU must gather the full matrix and perform the multiplication. If that matrix doesn't fit in one GPU's memory, or if the computation is too slow on one GPU, FSDP2 cannot help—it only shards storage, not compute.
 
-* Shards *computation*
-* Assumes per-layer computation must be distributed
-* Introduces communication inside each layer
+This is where Megatron becomes necessary. With tensor parallelism, that 16K × 16K matrix is split across 8 GPUs, each holding a 16K × 2K slice. The computation happens in parallel, and only the results are communicated. No single GPU ever needs to hold or compute with the full matrix.
 
-Once a single Transformer layer becomes too large or too slow for a single GPU, **Megatron-style computation sharding becomes necessary**, regardless of how aggressively the model state is sharded.
+The practical implication: FSDP2 and Megatron are complementary, not competing. You might use Megatron's tensor parallelism to split large layers across GPUs within a node, while using FSDP2-style sharding across nodes for memory efficiency. The choice isn't "which one" but "how to combine them."
 
 ### Hybrid Parallelism: Combining State and Computation Sharding
 
-A common pattern for training very large models is **hybrid parallelism**, which combines state sharding with computation sharding:
+Given that FSDP2/ZeRO and Megatron solve different problems, the natural question is: can we use both? The answer is yes, and this is exactly what large-scale training systems do.
 
-* **FSDP2 or ZeRO-3** handles state sharding across all GPUs
-* **Megatron tensor parallelism** handles large per-layer computation
-* **Pipeline parallelism** enables scaling across nodes
-* Optional **sequence parallelism** reduces activation pressure
+Consider training a 70B parameter model on 64 GPUs across 8 nodes. Within each node (8 GPUs connected by NVLink), you use Megatron's tensor parallelism with TP=8 to split the large matrix multiplications. Across nodes (connected by slower InfiniBand), you use ZeRO-3 or FSDP2 to shard the optimizer states and gradients—this reduces memory pressure without requiring the high-bandwidth communication that tensor parallelism demands. If the model is deep, you might add pipeline parallelism to distribute layers across node groups.
 
-This combination allows:
+This layered approach plays to each technique's strengths. Tensor parallelism needs high bandwidth (hence NVLink within a node), but it enables computation that wouldn't fit on a single GPU. State sharding tolerates higher latency (hence cross-node), but it dramatically reduces per-GPU memory. Pipeline parallelism adds another dimension of scaling with relatively modest communication.
 
-* Memory-efficient storage of model state
-* Efficient execution of massive matrix operations
-* Scaling to hundreds or thousands of GPUs
-
-Both FSDP2 + Megatron and ZeRO-3 + Megatron are viable approaches. FSDP2 offers tighter PyTorch integration and compiler support, while ZeRO-3 provides additional features like CPU/NVMe offloading and is well-integrated with the DeepSpeed ecosystem.
+The choice between FSDP2 and ZeRO-3 for the state sharding layer depends on your ecosystem. FSDP2 integrates tightly with PyTorch's compiler stack (torch.compile) and is the native PyTorch solution. ZeRO-3, through DeepSpeed, offers additional features like CPU and NVMe offloading for memory-constrained setups, and has a mature ecosystem of optimizations. Both work well with Megatron-style computation sharding—the key is understanding that they operate on orthogonal axes.
 
 ### Megatron Core: Production-Ready Library
 
-**Megatron Core** is the production-ready library extracted from Megatron-LM, providing GPU-optimized building blocks for custom training frameworks. It offers:
+Throughout this chapter, we've discussed Megatron's parallelism strategies conceptually. But how do you actually use them in practice? The answer is **Megatron Core**, a library extracted from the original Megatron-LM research codebase and refined for production use.
 
-__Key Components:__
+Megatron Core provides GPU-optimized building blocks: attention layers with tensor parallelism built in, MLP blocks that understand pipeline boundaries, embedding layers that handle vocabulary parallelism. You don't implement the column-parallel and row-parallel patterns yourself—you use `ColumnParallelLinear` and `RowParallelLinear` from the library, and the communication is handled automatically.
 
-* **Composable Transformer Blocks**: Attention mechanisms, MLP layers, embeddings
-* **Advanced Parallelism**: TP, PP, CP, EP with seamless composition
-* **Memory Management**: Activation recomputation, distributed checkpointing
-* **FP8 Precision**: Optimized for NVIDIA Hopper, Ada, and Blackwell GPUs
-* **Distributed Optimizer**: Shards optimizer states across data-parallel ranks
-* **High-Performance Data Loaders**: Optimized dataset utilities
+Beyond the basic building blocks, Megatron Core includes the infrastructure that large-scale training requires: activation recomputation to trade compute for memory, distributed checkpointing that saves and loads sharded model states efficiently, and FP8 precision support optimized for NVIDIA's latest GPUs (Hopper, Ada, Blackwell). The distributed optimizer shards optimizer states across data-parallel ranks, complementing the computation sharding we've discussed.
 
-__Installation:__
+Getting started is straightforward:
 
 ```bash
-# Install Megatron Core
 pip install --no-build-isolation megatron-core[mlm,dev]
 
-# Or use Docker (recommended)
+# Or use NVIDIA's container with everything pre-installed
 docker run --gpus all -it nvcr.io/nvidia/pytorch:25.04-py3
 ```
 
-For a complete Megatron-LM pretraining example, see `code/megatron_gpt_pretrain.sh`. This script demonstrates a production-ready configuration with tensor parallelism, distributed optimizer, and flash attention.
+The `code/megatron_gpt_pretrain.sh` script in this chapter's code directory demonstrates a production configuration: tensor parallelism across GPUs, distributed optimizer for memory efficiency, flash attention for speed, and the various flags we've discussed throughout this chapter.
 
 ### Megatron-FSDP: Optimized State Sharding
 
-**Megatron-FSDP** is NVIDIA's high-performance implementation of Fully Sharded Data Parallelism, providing **15-25% speedup and 23% memory savings** compared to PyTorch FSDP2.
+We've established that state sharding (FSDP/ZeRO) and computation sharding (Megatron) are complementary. But when you combine them, the implementation details matter. PyTorch's FSDP2 is a general-purpose solution; it doesn't know about Megatron's tensor parallelism or the specific communication patterns involved. This is where **Megatron-FSDP** comes in.
 
-__Key Advantages:__
+Megatron-FSDP is NVIDIA's implementation of fully sharded data parallelism, designed to work seamlessly with Megatron's other parallelism dimensions. The performance difference is meaningful: benchmarks show 15-25% speedup and 23% memory savings compared to PyTorch FSDP2. These gains come from optimizations that are only possible when the FSDP implementation understands the surrounding context—better bucketing of parameters, smarter buffer management, and more aggressive overlap of communication with computation.
 
-* **Better Performance**: Optimized bucketing, buffer management, and communication overlap
-* **SM Usage Reduction**: Uses NCCL userbuffer to reduce Streaming Multiprocessor consumption
-* **FP8 Support**: Native FP8 mixed precision with Transformer Engine
-* **Compatibility**: Works with TP, CP, EP, and native PyTorch DTensor
+One technical detail worth noting: Megatron-FSDP uses NCCL's userbuffer feature to reduce GPU Streaming Multiprocessor (SM) consumption during communication. In large-scale training, SMs spent on communication are SMs not available for computation. This optimization keeps more SMs free for the actual matrix multiplications.
 
-__Usage:__
+Enabling Megatron-FSDP in your training script looks like:
 
 ```bash
-# Enable Megatron-FSDP
 --use-megatron-fsdp
---data-parallel-sharding-strategy optim_grads_params  # ZeRO-3 equivalent
+--data-parallel-sharding-strategy optim_grads_params  # Equivalent to ZeRO-3
+--overlap-grad-reduce
+--overlap-param-gather
+```
+
+When should you choose Megatron-FSDP over PyTorch FSDP2? If you're already using Megatron's tensor parallelism, context parallelism, or expert parallelism, Megatron-FSDP integrates naturally and delivers better performance. If you need FP8 training with Transformer Engine, Megatron-FSDP has native support. On the other hand, if you want a pure PyTorch stack with torch.compile support and no external dependencies, PyTorch FSDP2 is the cleaner choice.
+
+### Distributed Optimizer: Memory-Efficient Optimization
+
+Even with tensor parallelism and pipeline parallelism handling the computation, optimizer states remain a significant memory burden. Adam, for example, stores two additional tensors (momentum and variance) for every parameter—that's 8 bytes per parameter on top of the parameters and gradients themselves. For a 70B model, optimizer states alone can consume over 500GB.
+
+Megatron's **distributed optimizer** addresses this by sharding optimizer states across data-parallel ranks, conceptually similar to ZeRO Stage 1. Each GPU only stores the optimizer states for a fraction of the parameters. During the optimizer step, gradients are reduce-scattered (each GPU gets the reduced gradient for its shard), the local optimizer updates its shard, and the updated parameters are all-gathered back.
+
+The memory savings scale with data-parallel size. With 8-way data parallelism using bf16 parameters and fp32 gradients, per-GPU memory drops from 18 bytes per parameter to roughly 7.5 bytes—a 2.4x reduction. The exact formula depends on your precision configuration:
+
+| Config | Without distributed | Distributed (d GPUs) |
+|--------------|-----------------|-------------------------------------|
+| fp16 params, fp16 grads | 20 bytes/param | 4 + 16/d bytes/param |
+| bf16 params, fp32 grads | 18 bytes/param | 6 + 12/d bytes/param |
+| fp32 params, fp32 grads | 16 bytes/param | 8 + 8/d bytes/param |
+
+The implementation includes several optimizations beyond basic sharding. Gradients are copied into contiguous buffers as they're computed, enabling efficient reduce-scatter operations. The communication can be overlapped with backward computation (`--overlap-grad-reduce`) and with the next forward pass (`--overlap-param-gather`), hiding much of the latency.
+
+```bash
 --use-distributed-optimizer
 --overlap-grad-reduce
 --overlap-param-gather
 ```
 
-__When to Use Megatron-FSDP vs PyTorch FSDP2:__
-
-* **Use Megatron-FSDP** when: You need maximum performance, are using Megatron TP/CP/EP, or require FP8 training
-* **Use PyTorch FSDP2** when: You want pure PyTorch without external dependencies, or need torch.compile support
-
-### Distributed Optimizer: Memory-Efficient Optimization
-
-Megatron's **distributed optimizer** shards optimizer states across data-parallel ranks, similar to ZeRO-1 but with additional optimizations.
-
-__Memory Savings:__
-
-| Configuration | Non-distributed | Distributed |
-|--------------|-----------------|-------------|
-| fp16 params, fp16 grads | 20 bytes/param | 4 + 16/d bytes/param |
-| bf16 params, fp32 grads | 18 bytes/param | 6 + 12/d bytes/param |
-| fp32 params, fp32 grads | 16 bytes/param | 8 + 8/d bytes/param |
-
-Where `d` is the data-parallel size.
-
-__Key Features:__
-
-* Contiguous buffers for parameters and main gradients
-* Immediate gradient copying to main gradients as they're computed
-* Efficient reduce-scatter for gradient synchronization
-* All-gather for parameter updates
-
-__Usage:__
-
-```bash
---use-distributed-optimizer
---overlap-grad-reduce      # Overlap gradient reduction with computation
---overlap-param-gather     # Overlap parameter gathering
-```
-
 ### FP8 Training: Next-Generation Precision
 
-Megatron supports **FP8 mixed precision training**, optimized for NVIDIA Hopper, Ada, and Blackwell GPUs.
+The progression from FP32 to FP16/BF16 brought significant speedups and memory savings. NVIDIA's latest GPUs (Hopper, Ada, Blackwell) take this further with native FP8 support—8-bit floating point that halves memory and doubles throughput compared to FP16.
 
-__Benefits:__
-
-* **Faster Training**: FP8 kernels provide significant speedups
-* **Memory Savings**: Reduced memory footprint for weights and activations
-* **Better Scaling**: Enables training of even larger models
-
-__Configuration:__
+FP8 training isn't as simple as changing a dtype flag. The dynamic range of 8-bit floats is much narrower than 16-bit, so values must be carefully scaled to avoid overflow and underflow. Megatron handles this through Transformer Engine, which tracks the maximum absolute values (amax) of tensors and adjusts scaling factors dynamically. The `--fp8-amax-history-len` parameter controls how many recent amax values to consider when computing scales.
 
 ```bash
-# FP8 training configuration
 --fp8-format hybrid
 --fp8-amax-history-len 1024
 --fp8-amax-compute-algo max
---fp8-param-gather          # Gather parameters in FP8
+--fp8-param-gather          # Gather parameters in FP8 to save communication
 ```
 
-__Requirements:__
+The `hybrid` format uses E4M3 (4 exponent bits, 3 mantissa bits) for forward pass and E5M2 (5 exponent bits, 2 mantissa bits) for backward—a balance between range and precision that works well in practice. The `--fp8-param-gather` flag is particularly useful with distributed optimizer: parameters are gathered in FP8 format, reducing all-gather communication volume by half.
 
-* NVIDIA Hopper (H100), Ada (RTX 4090), or Blackwell GPUs
-* Transformer Engine >= 1.1
-* Megatron Core >= 0.5.0
+FP8 requires hardware support: NVIDIA H100, RTX 4090, or newer GPUs, plus Transformer Engine 1.1 or later. If you have the hardware, the speedup is substantial—often 1.5-2x over BF16 for large matrix multiplications.
 
 ### When Do You Need Megatron?
 
-Megatron becomes necessary when one or more of the following conditions hold:
+After all this discussion of tensor parallelism, pipeline parallelism, context parallelism, and expert parallelism, a natural question is: when do you actually need any of this? The answer depends on your model and hardware.
 
-* Transformer layers with extremely large hidden dimensions (e.g., 16K+)
-* Large MoE expert layers requiring expert parallelism
-* FP8 or other low-precision regimes with massive GEMMs
-* Scaling to hundreds of GPUs where per-layer computation dominates
-* Long-context training (>=8K tokens) requiring context parallelism
-* Models where individual layers exceed single-GPU computation capacity
-* Production training requiring maximum performance and scalability
+If a single Transformer layer fits comfortably on one GPU and computes fast enough, you don't need Megatron. State sharding (FSDP2 or ZeRO) handles memory, and data parallelism handles scaling. Most models under 10B parameters fall into this category on modern GPUs.
 
-If none of these apply, state sharding alone is usually sufficient.
+Megatron becomes necessary when you hit one of these walls. First, layer size: if your hidden dimension is 16K or larger, a single attention layer's weight matrices may not fit on one GPU, or the computation may be too slow. Tensor parallelism solves this. Second, sequence length: if you're training with 8K+ token contexts, activation memory explodes, and context parallelism or sequence parallelism becomes essential. Third, MoE models: expert parallelism is the natural way to distribute hundreds of experts. Fourth, scale: when you're using hundreds of GPUs, the efficiency gains from Megatron's optimized communication patterns compound significantly.
+
+If none of these apply—your layers fit, your sequences are moderate, you're not using MoE, and you're training on a handful of GPUs—state sharding alone is simpler and sufficient.
 
 ### Real-World Training Configurations
 
