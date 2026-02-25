@@ -278,7 +278,7 @@ ZeRO-3 eliminates memory redundancy, but it introduces significant communication
 
 [^zero-pp]: Wang et al., "ZeRO++: Extremely Efficient Collective Communication for Giant Model Training" (2023). https://arxiv.org/abs/2306.10209 Every forward pass requires an all-gather to reconstruct parameters; every backward pass does the same plus a reduce-scatter for gradients. For large models on multi-node clusters, this communication can dominate training time.
 
-ZeRO++ addresses this with three complementary techniques. The first, **quantized weights (qwZ)**, reduces all-gather traffic by transmitting parameters in INT8 instead of FP16, then dequantizing after receipt—a 2× reduction in communication volume with minimal accuracy impact since quantization errors don't accumulate across iterations.
+ZeRO++ addresses this with three complementary techniques (the names follow the paper's notation: "q" for quantized, "hp" for hierarchical partitioning, and "Z" for ZeRO). The first, **quantized weights (qwZ)**, reduces all-gather traffic by transmitting parameters in INT8 instead of FP16, then dequantizing after receipt—a 2× reduction in communication volume with minimal accuracy impact since quantization errors don't accumulate across iterations.
 
 The second technique, **hierarchical partitioning (hpZ)**, exploits the fact that intra-node communication (NVLink, ~600 GB/s) is much faster than inter-node (InfiniBand, ~400 GB/s). Instead of sharding uniformly across all GPUs, hpZ replicates parameters within each node and shards only across nodes. This means intra-node all-gathers use fast NVLink, while inter-node traffic is reduced to one representative per node.
 
