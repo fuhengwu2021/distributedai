@@ -754,13 +754,13 @@ The setup is similar to multi-node DDP. On each node, you need to:
 On the master node (node 0):
 
 ```bash
-torchrun --nnodes=2 --nproc_per_node=8 --node_rank=0 --master_addr=<master_ip> --master_port=29500 train_fsdp2.py
+torchrun --nnodes=2 --nproc_per_node=8 --node_rank=0 --master_addr=<master_ip> --master_port=29500 code/train_fsdp2.py
 ```
 
 On worker node (node 1):
 
 ```bash
-torchrun --nnodes=2 --nproc_per_node=8 --node_rank=1 --master_addr=<master_ip> --master_port=29500 train_fsdp2.py
+torchrun --nnodes=2 --nproc_per_node=8 --node_rank=1 --master_addr=<master_ip> --master_port=29500 code/train_fsdp2.py
 ```
 
 Replace `<master_ip>` with the actual IP address of the master node. You can find it with:
@@ -832,7 +832,7 @@ The sharded approach helps since each rank only writes its shard (smaller files,
 
 ### SLURM Integration
 
-Most HPC clusters use SLURM. Here's a SLURM script for multi-node FSDP:
+Most HPC clusters use SLURM for job scheduling. Below is a minimal example for multi-node FSDP:
 
 ```bash
 #!/bin/bash
@@ -870,17 +870,15 @@ export MASTER_PORT=29500
 srun torchrun --nnodes=$SLURM_NNODES --nproc_per_node=8 --node_rank=$SLURM_NODEID --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT train_fsdp2.py
 ```
 
+We cover SLURM in detail in Chapter~\ref{chap:running-distributed-training-with-slurm}.
+
 ### Scaling Considerations
 
-When scaling to many nodes, consider:
+As you scale to more nodes, communication overhead grows. Make sure your model is large enough that computation still dominates—otherwise you're paying for GPUs that spend most of their time waiting on the network.
 
-1. **Communication overhead**: With more nodes, communication overhead increases. Make sure your model is large enough that computation dominates.
+Checkpointing also gets trickier. With many nodes, you end up with many shard files. A distributed filesystem or object storage that handles small files well (like Lustre or S3) helps here. And with more hardware comes more failures—save checkpoints frequently, and consider elastic training if your cluster supports it.
 
-2. **Checkpoint size**: With many nodes, you'll have many shard files. Use a distributed filesystem or object storage that handles many small files well.
-
-3. **Fault tolerance**: With many nodes, failures are more likely. Save checkpoints frequently and use elastic training if supported.
-
-4. **Network topology**: For best performance, ensure nodes are on the same network segment and use InfiniBand if available.
+Network topology matters too. Nodes on the same network segment with InfiniBand will outperform nodes scattered across racks connected by slower links.
 
 ## Debugging FSDP Issues
 
