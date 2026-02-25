@@ -268,11 +268,9 @@ deepspeed --num_gpus=1 code/zero_offload_example.py \
     --offload_device nvme --nvme_path /home/$USER/nvme_offload
 ```
 
-The example script trains a 354M parameter model (24 layers, hidden size 1024) while offloading optimizer states and parameters.
+Replace `/home/$USER/nvme_offload` with a directory on your NVMe filesystem. The example trains a 354M parameter model by default—adjust `--hidden_size` and `--num_layers` to experiment with larger models. Make sure your chosen path has enough free space (roughly 2-4× the model size for optimizer states and parameter buffers).
 
-Make sure the NVMe path has enough free space—roughly 2-4× the model size for optimizer states and parameter buffers.
-
-Expect 30-50% throughput reduction compared to GPU-only training. ZeRO-Infinity is a feasibility solution for prototyping massive architectures or training on limited hardware—it trades speed for the ability to train models that wouldn't otherwise fit.
+NVMe offloading is slower than CPU offloading (expect 30-50% throughput reduction), which is itself slower than GPU-only training. The value of ZeRO-Infinity isn't performance—it's feasibility. It lets you train models that simply wouldn't fit otherwise.
 
 ## ZeRO++: Communication-Optimized ZeRO
 
