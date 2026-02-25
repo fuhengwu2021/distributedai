@@ -245,7 +245,7 @@ Table: Comparison of single-GPU, FSDP1, and FSDP2 on FLAN-T5-XXL (11B). Example 
 
 **Code Analysis:** The following snippets show how the T5 example implements loading, hierarchical sharding, and mixed precision.
 
-*FSDP1: policies and wrapper.* The script obtains mixed-precision and wrap policies from `get_policies`, then wraps the already-loaded model with the `FSDP` wrapper class. The auto wrap policy determines which submodules become separate FSDP units (here, each `T5Block`), so sharding is hierarchical. (`T5_training_FSDP1.py` and `policies/wrapping.py`):
+*FSDP1: policies and wrapper.* In FSDP1, a **policy** is a configuration object you pass into the wrapper: the **mixed-precision policy** specifies dtypes for parameters and gradients (e.g. bfloat16) to save memory and speed up compute; the **wrap policy** is a callable that tells FSDP which submodules to wrap as separate FSDP units (here, each `T5Block`), so sharding is hierarchical and all-gather/reduce-scatter happen at block boundaries. The script obtains both from `get_policies`, then wraps the already-loaded model with the `FSDP` wrapper class. The code snippet below is from `T5_training_FSDP1.py` and `policies/wrapping.py`.
 
 ```python
 # get_policies (T5_training_FSDP1.py): mixed precision + wrap policy
@@ -275,7 +275,7 @@ model = FSDP(model,
     limit_all_gathers=fsdp_config.limit_all_gathers)
 ```
 
-*FSDP2: mixed precision policy.* FSDP2 uses `MixedPrecisionPolicy` (not the FSDP1 `MixedPrecision` object). The script calls `get_policies(train_config, rank)` to build the policy from config; that policy is then passed into every `fully_shard(...)` call via `fsdp_kwargs["mp_policy"]`. (`T5_training_FSDP2.py`):
+*FSDP2: mixed precision policy.* FSDP2 uses `MixedPrecisionPolicy` (not the FSDP1 `MixedPrecision` object). The script calls `get_policies(train_config, rank)` to build the policy from config; that policy is then passed into every `fully_shard(...)` call via `fsdp_kwargs["mp_policy"]`. The code snippet below is from `T5_training_FSDP2.py`.
 
 ```python
 from torch.distributed.fsdp import fully_shard, MixedPrecisionPolicy
@@ -307,7 +307,7 @@ if mp_policy is not None:
 # ... later: fully_shard(block, **fsdp_kwargs) and fully_shard(model, **fsdp_kwargs)
 ```
 
-*FSDP2: load model, then shard each block and the root.* The model is loaded with `from_pretrained` and moved to the device. There is no auto wrap policy: the script explicitly loops over `model.encoder.block` and `model.decoder.block` (each element is a `T5Block`) and calls `fully_shard(block, **fsdp_kwargs)` so each block becomes a separate sharded unit, then calls `fully_shard(model, **fsdp_kwargs)` to wrap the root. Order matters—children are sharded before the root. (`T5_training_FSDP2.py`):
+*FSDP2: load model, then shard each block and the root.* The model is loaded with `from_pretrained` and moved to the device. There is no auto wrap policy: the script explicitly loops over `model.encoder.block` and `model.decoder.block` (each element is a `T5Block`) and calls `fully_shard(block, **fsdp_kwargs)` so each block becomes a separate sharded unit, then calls `fully_shard(model, **fsdp_kwargs)` to wrap the root. Order matters—children are sharded before the root. The code snippet below is from `T5_training_FSDP2.py`.
 
 ```python
 from torch.distributed.fsdp import fully_shard
