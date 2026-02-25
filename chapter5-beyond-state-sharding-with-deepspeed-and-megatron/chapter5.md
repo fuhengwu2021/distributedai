@@ -329,76 +329,50 @@ Megatron-LM emerged from NVIDIA's Applied Deep Learning Research team in 2019, i
 
 ### State Sharding vs. Computation Sharding
 
-The key distinction can be summarized as follows:
+To understand what Megatron brings to the table, it helps to step back and think about what FSDP and ZeRO actually do. These techniques solve a *storage* problem: they distribute the model's parameters, gradients, and optimizer states across GPUs so that no single device needs to hold everything. When you need to compute a layer, you all-gather its parameters from the other GPUs, perform the forward and backward passes, and then discard the gathered parameters. The key assumption here is that once you have the parameters in hand, the computation itself fits comfortably on one GPU.
 
-* **State sharding (FSDP2 / ZeRO)** answers the question:
-  *"How do we store the model state across GPUs?"*
+This assumption holds remarkably well for models up to tens of billions of parameters. A 7B model's largest layer might have a weight matrix of shape 4096×16384—about 270 million parameters, or roughly 500MB in FP16. That's well within what a modern GPU can handle in a single matrix multiplication.
 
-* **Computation sharding (Megatron)** answers a different question:
-  *"How do we execute a single layer when its computation no longer fits on one GPU?"*
+But what happens when models grow to hundreds of billions of parameters? Consider a hypothetical 175B model where the hidden dimension is 12,288 and the MLP intermediate dimension is 49,152. A single weight matrix in the MLP could be 12,288×49,152—over 600 million parameters, requiring 1.2GB just for that one matrix. The activations scale similarly. At some point, even with perfect state sharding, the computation of a single layer becomes too large: the matrix multiplication itself exceeds what one GPU can efficiently execute, or the intermediate activations overflow GPU memory.
 
-FSDP2 assumes that each Transformer layer—its attention and MLP blocks—can be computed independently on a single GPU once the parameters for that layer are all-gathered. This assumption holds for many models up to tens of billions of parameters. When it breaks, no amount of additional state sharding can help.
-
-Megatron addresses precisely this failure mode by **sharding the computation itself**.
+This is where state sharding reaches its limit. You can shard the storage as finely as you want, but if the computation itself doesn't fit, no amount of clever memory management will help. Megatron addresses precisely this failure mode by taking the next logical step: instead of just sharding where the model *lives*, it shards how the model *computes*.
 
 ### Tensor Parallelism: Sharding the Layer
 
-Megatron's core contribution is **Tensor Parallelism (TP)**. Instead of replicating a layer's computation on every GPU, tensor parallelism splits large matrix operations across multiple GPUs.
+Megatron's core contribution is **Tensor Parallelism (TP)**—a technique that splits individual matrix operations across multiple GPUs. The key insight is elegant: matrix multiplication is inherently parallelizable along certain dimensions, and we can exploit this to distribute both the computation and the memory footprint.
 
-Consider a Transformer MLP layer with a weight matrix $W \in \mathbb{R}^{d \times 4d}$. For modern large language models, $d$ may be 16,384 or larger. The resulting matrix multiplication is both memory-intensive and compute-heavy.
+Consider a simple linear layer $Y = XW$ where $X$ is the input and $W$ is a weight matrix. If $W$ has shape $d \times 4d$ (typical for an MLP's first projection), we can split it column-wise into two halves: $W = [W_0 | W_1]$. Now GPU 0 holds $W_0$ and GPU 1 holds $W_1$. Given the same input $X$ on both GPUs, each computes its portion: $Y_0 = XW_0$ and $Y_1 = XW_1$. The full output is simply $Y = [Y_0 | Y_1]$—no communication needed, just a logical concatenation. This is called **column-parallel linear**.
 
-**How Tensor Parallelism Works:**
+But what about the next layer? It expects a full input, not a split one. Here's where **row-parallel linear** comes in. If the weight matrix of the second layer is split row-wise as $W' = [W'_0; W'_1]$ (stacked vertically), then each GPU can compute a partial result using its local portion of the input: GPU 0 computes $Y'_0 = Y_0 W'_0$ and GPU 1 computes $Y'_1 = Y_1 W'_1$. The final output is $Y' = Y'_0 + Y'_1$—an all-reduce operation that sums the partial results.
 
 ![Tensor parallelism: column-parallel and row-parallel linear.](img/tensor_parallelism.png){#fig:tensor-parallel .block width=90% align=center}
 
-Figure~\ref{fig:tensor-parallel} illustrates the two fundamental operations. In column-parallel linear (top), the weight matrix is split by columns—GPU 0 holds W₀, GPU 1 holds W₁. The input X is replicated, and each GPU computes its portion of the output (Y₀, Y₁). No communication is needed; the output stays split. In row-parallel linear (bottom), the weight matrix is split by rows, and the input is already split from the previous layer. Each GPU computes a partial result, then an all-reduce combines them into the full output Y. A typical MLP uses column-parallel for the first linear, then row-parallel for the second, so communication happens only once per MLP block.
+Figure~\ref{fig:tensor-parallel} illustrates this two-step pattern. The column-parallel linear (top) splits the weight matrix by columns, so each GPU computes a slice of the output with no communication. The row-parallel linear (bottom) splits by rows, and an all-reduce combines the partial results. By pairing these two operations—column-parallel followed by row-parallel—a complete MLP block requires only one all-reduce. This is the key to Megatron's efficiency: communication is minimized to a single synchronization point per layer, rather than at every operation.
 
-**Attention with Tensor Parallelism:**
+The same principle applies to self-attention. The Q, K, V projection matrices are split column-wise across GPUs, so each GPU computes attention for a subset of attention heads. Since attention heads are independent, no communication is needed during the attention computation itself. Only the output projection uses row-parallel linear, requiring one all-reduce to combine results.
 
-For self-attention, Megatron splits Q, K, V projections:
-* Q, K, V are computed in parallel across TP ranks
-* Attention scores are computed locally
-* Output projection uses row-parallel linear
-* All-reduce gathers final attention output
+There's an important subtlety here: tensor parallelism fundamentally changes the communication pattern compared to state sharding. With FSDP or ZeRO, communication happens *between* layers—you all-gather parameters before computing a layer, then move on. With tensor parallelism, communication happens *within* layers—every MLP and attention block requires an all-reduce. This means tensor parallelism is much more sensitive to interconnect bandwidth. In practice, you want TP groups to be within the same node, connected by fast NVLink (~600 GB/s), rather than across nodes over slower InfiniBand (~400 GB/s).
 
-**Sequence Parallelism with TP:**
+Modern implementations overlap this communication with computation using techniques like `--tp-comm-overlap` in Megatron. While one layer's all-reduce is in flight, the next layer's computation can begin, hiding much of the latency.
 
-When TP is enabled, sequence parallelism further reduces activation memory:
-* Splits activations along sequence dimension
-* Reduces activation memory by TP times
-* Essential for long-context training
+When tensor parallelism is enabled, **sequence parallelism** becomes a natural extension. Instead of replicating activations across all TP ranks, sequence parallelism splits activations along the sequence dimension. This reduces activation memory by a factor equal to the TP degree—essential for training with long contexts where activation memory can dominate.
 
-**Configuration:**
+A typical configuration looks like:
 
 ```bash
---tensor-model-parallel-size 4    # 4-way tensor parallelism
---sequence-parallel                # Enable sequence parallelism (recommended)
+--tensor-model-parallel-size 2    # 2-way tensor parallelism
+--sequence-parallel               # Enable sequence parallelism (recommended with TP)
 --tp-comm-overlap                 # Overlap TP communication with computation
 ```
 
-**Benefits:**
-
-* Larger hidden dimensions (16K, 32K+)
-* Better utilization of GPU compute resources
-* Scaling beyond what single-GPU kernels can efficiently handle
-* Reduced activation memory with sequence parallelism
-
-**Trade-offs:**
-
-* **Increased communication**: Communication happens at every layer (all-reduce/all-gather)
-* **Communication overhead**: Must overlap communication with computation for efficiency
-* **Topology sensitivity**: Best performance when TP groups are within NVLink domain
-
-Importantly, **tensor parallelism increases communication frequency**—communication now happens at every layer. This is fundamentally different from state sharding, where communication is amortized across layers. However, with proper overlap (`--tp-comm-overlap`), this overhead can be largely hidden.
-
-To understand tensor parallelism at a lower level, run the pure PyTorch implementation:
+To see tensor parallelism in action at a lower level, you can run the pure PyTorch implementation in the code examples:
 
 ```bash
 # Tensor parallelism demo with 2 GPUs
 torchrun --nproc_per_node=2 code/tensor_parallel_mlp.py
 ```
 
-This example implements column-parallel and row-parallel linear layers from scratch, showing exactly how weight matrices are split and how communication is minimized to a single all-reduce per MLP block.
+This example implements column-parallel and row-parallel linear layers from scratch, showing exactly how weight matrices are split and how the all-reduce combines partial results. Running it helps build intuition for what Megatron does under the hood.
 
 ### Pipeline Parallelism: Sharding the Depth
 
