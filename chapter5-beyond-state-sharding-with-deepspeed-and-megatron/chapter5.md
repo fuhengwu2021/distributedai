@@ -210,110 +210,69 @@ Notice how GPU memory stays low (3.5GB) despite the model size—optimizer state
 
 ## ZeRO-Infinity: NVMe Offload for Massive Models
 
-ZeRO-Infinity extends ZeRO-3 with CPU and NVMe offloading, enabling training of models with **trillions** of parameters.
-
-### Memory Hierarchy
+ZeRO-Offload moves optimizer states to CPU, but CPU RAM has limits too—typically 256-512GB on a workstation. For truly massive models (hundreds of billions of parameters), even CPU memory isn't enough. ZeRO-Infinity takes offloading one step further by using NVMe SSDs as an additional memory tier.
 
 ![ZeRO-Infinity memory hierarchy.](img/memory_hierarchy.png){#fig:memory-hierarchy .block width=80% align=center}
 
-Figure~\ref{fig:memory-hierarchy} shows the three-tier memory hierarchy that ZeRO-Infinity exploits. GPU HBM is fastest but smallest; CPU RAM offers more capacity at lower bandwidth; NVMe provides terabytes of storage but at much lower throughput. The Infinity Engine manages data movement across these tiers, prefetching parameters before they're needed and overlapping transfers with computation.
+Figure~\ref{fig:memory-hierarchy} shows the three-tier hierarchy: GPU HBM (fastest, smallest), CPU RAM (medium), and NVMe (slowest, largest). The Infinity Engine manages data movement across tiers, prefetching parameters from NVMe → CPU → GPU before they're needed and overlapping transfers with computation.
 
-### What Gets Offloaded
+Modern NVMe SSDs offer 5-7 GB/s sequential read speeds (PCIe Gen4), which is slower than CPU memory bandwidth but provides terabytes of capacity at low cost. A typical setup might keep active layer parameters and activations on GPU, optimizer states and parameter buffers on CPU, and cold parameters on NVMe.
 
-**Typical configuration for 1T+ parameter model:**
+The configuration adds NVMe-specific settings:
 
-1. **GPU**: Active layer parameters + gradients + activations
-2. **CPU**: Optimizer states + inactive parameters
-3. **NVMe**: Cold parameters + checkpoints
-
-### Infinity Engine
-
-DeepSpeed's Infinity Engine manages data movement across the hierarchy:
-
-**Key features:**
-
-- **Prefetching**: Loads parameters from NVMe → CPU → GPU before they're needed
-- **Overlap**: Data movement overlaps with computation
-- **Smart caching**: Keeps frequently-used parameters in faster memory
-
-### Example: 1 Trillion Parameter Model
-
-With 16× A100 80GB GPUs:
-
-```
-Traditional ZeRO-3:
-  1T params × 2 bytes = 2 TB / 16 GPUs = 125 GB per GPU
-  + optimizer states = 250 GB per GPU → Doesn't fit!
-
-ZeRO-Infinity:
-  GPU:  20 GB (active params + activations)
-  CPU:  400 GB (optimizer states + param buffer)
-  NVMe: 2 TB (cold parameters)
-  Total: Works!
-```
-
-### Performance Trade-offs
-
-- **Throughput**: 30-50% slower than pure GPU (due to PCIe/NVMe bandwidth)
-- **Memory**: Scales to trillions of parameters
-- **Cost**: Much cheaper than buying 10× more GPUs
-
-### When to Use ZeRO-Infinity
-
-- Models >500B parameters
-- Limited GPU budget
-- Have fast NVMe (PCIe Gen4, 7+ GB/s)
-- Prototyping huge architectures
-- Training is throughput-bound, not latency-critical
-
-### DeepSpeed Config
-
-```json
-{
-  "zero_optimization": {
-    "stage": 3,
-    "offload_optimizer": {
-      "device": "cpu",
-      "pin_memory": true
+```python
+ds_config = {
+    "train_batch_size": 32,
+    "optimizer": {"type": "Adam", "params": {"lr": 1e-4}},
+    "fp16": {"enabled": True},
+    "zero_optimization": {
+        "stage": 3,
+        "offload_optimizer": {"device": "cpu", "pin_memory": True},
+        "offload_param": {
+            "device": "nvme",
+            "nvme_path": "/local_nvme",
+            "buffer_count": 5,
+            "buffer_size": 1e8
+        }
     },
-    "offload_param": {
-      "device": "nvme",
-      "nvme_path": "/local_nvme",
-      "pin_memory": true,
-      "buffer_count": 5,
-      "buffer_size": 1e8,
-      "max_in_cpu": 1e9
-    },
-    "overlap_comm": true,
-    "contiguous_gradients": true,
-    "sub_group_size": 1e9,
-    "stage3_max_live_parameters": 1e9,
-    "stage3_prefetch_bucket_size": 5e8
-  },
-  "aio": {
-    "block_size": 1048576,
-    "queue_depth": 16,
-    "thread_count": 2,
-    "single_submit": false,
-    "overlap_events": true
-  }
+    "aio": {
+        "block_size": 1048576,
+        "queue_depth": 16,
+        "thread_count": 2
+    }
 }
 ```
 
-**Important parameters:**
+The `aio` section configures async I/O for NVMe—`queue_depth` and `thread_count` control parallelism for overlapping reads/writes with computation.
 
-- `nvme_path`: Path to NVMe mount point
-- `buffer_count` × `buffer_size`: Total CPU buffer for NVMe staging
-- `aio` section: Async I/O tuning for NVMe performance
-
-To experiment with NVMe offloading (requires fast NVMe SSD):
+To check if you have an NVMe SSD and find where it's mounted:
 
 ```bash
-# NVMe offloading (ZeRO-Infinity)
-deepspeed --num_gpus=1 code/zero_offload_example.py \
-    --offload_device nvme \
-    --nvme_path /tmp/nvme_offload
+# List NVMe devices and partitions with mount points
+lsblk -o NAME,SIZE,MOUNTPOINT | grep nvme
+# Example output:
+# nvme0n1       1.9T
+# └─nvme0n1p7   1.8T /home
 ```
+
+The `nvme_path` must be a **directory on a mounted filesystem**, not the raw device path (like `/dev/nvme0n1p7`). NVMe offloading also requires the `libaio` library for async I/O:
+
+```bash
+# Install libaio (required for NVMe offloading)
+sudo apt install libaio-dev  # Ubuntu/Debian
+# or: sudo yum install libaio-devel  # CentOS/RHEL
+# Increase open file limit (NVMe offloading opens many file handles)
+ulimit -n 65535
+# Use a directory path, NOT /dev/nvme*
+deepspeed --num_gpus=1 code/zero_offload_example.py \
+    --offload_device nvme --nvme_path /home/$USER/nvme_offload
+```
+
+The example script trains a 354M parameter model (24 layers, hidden size 1024) while offloading optimizer states and parameters.
+
+Make sure the NVMe path has enough free space—roughly 2-4× the model size for optimizer states and parameter buffers.
+
+Expect 30-50% throughput reduction compared to GPU-only training. ZeRO-Infinity is a feasibility solution for prototyping massive architectures or training on limited hardware—it trades speed for the ability to train models that wouldn't otherwise fit.
 
 ## ZeRO++: Communication-Optimized ZeRO
 
