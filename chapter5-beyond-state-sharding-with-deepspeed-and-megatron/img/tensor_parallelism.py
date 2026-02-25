@@ -28,8 +28,8 @@ def draw_matrix(ax, x, y, w, h, color, label="", fontsize=10, alpha=1.0):
                 fontsize=fontsize, fontweight="bold", color="white")
 
 def panel_column_parallel(ax):
-    ax.set_xlim(-0.5, 10)
-    ax.set_ylim(-0.5, 4)
+    ax.set_xlim(0.4, 8.5)
+    ax.set_ylim(2, 4)
     ax.axis("off")
     ax.set_title("Column-Parallel Linear", fontsize=14, fontweight="bold", pad=10)
     
@@ -61,8 +61,8 @@ def panel_column_parallel(ax):
     ax.text(7.5, 3.0, "No comm", fontsize=10, ha="center", color="#27ae60", fontweight="bold")
 
 def panel_row_parallel(ax):
-    ax.set_xlim(-0.5, 10)
-    ax.set_ylim(-0.5, 4)
+    ax.set_xlim(0.4, 8.5)
+    ax.set_ylim(2, 4)
     ax.axis("off")
     ax.set_title("Row-Parallel Linear", fontsize=14, fontweight="bold", pad=10)
     

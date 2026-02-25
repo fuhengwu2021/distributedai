@@ -316,6 +316,7 @@ deepspeed --num_gpus=2 code/zero_pp_example.py --enable_qwz --enable_hpz --enabl
 
 ZeRO++ is most valuable for large-scale multi-node training where inter-node communication is the bottleneck. For single-node training or small clusters, the benefits are modest since intra-node communication is already fast.
 
+
 ## Megatron: Computation Parallelism as the Second Axis
 
 So far, we have focused on **state sharding**—how to distribute parameters, gradients, and optimizer states across GPUs to reduce memory footprint. Techniques such as FSDP2 and DeepSpeed ZeRO fundamentally address a *memory redundancy* problem: eliminating replicated model state so that larger models can fit within the aggregate GPU memory budget.
