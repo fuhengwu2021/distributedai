@@ -166,84 +166,47 @@ ZeRO-3 is the right choice when even replicated parameters don't fit in GPU memo
 
 ## ZeRO-Offload: CPU Memory Extension
 
-ZeRO-Offload extends ZeRO-2 by offloading optimizer states to CPU memory. This is useful when GPU memory is limited but CPU memory is abundant.
+Even with ZeRO-3, you might run out of GPU memory—especially on consumer hardware like an RTX 4090 with 24GB VRAM. ZeRO-Offload addresses this by moving optimizer states (and optionally parameters) to CPU memory, which is typically much larger and cheaper.
 
-### Architecture
+The idea is simple: keep forward and backward passes on the GPU where they're fast, but offload the memory-hungry optimizer states to CPU RAM. After gradients are computed, they're transferred to CPU via PCIe, the optimizer step runs on CPU, and updated parameters are sent back to GPU. DeepSpeed overlaps these transfers with computation—while the GPU processes the next batch's forward pass, the CPU is simultaneously running the optimizer step from the previous batch.
 
-```
-GPU:  [Parameters] [Gradients] 
-       ↓ (gradient updates via PCIe)
-CPU:  [Optimizer States] [Optimizer Computation]
-```
-
-### How It Works
-
-1. **Forward/Backward**: On GPU (fast)
-2. **Gradient Computation**: On GPU (fast)
-3. **Gradient Transfer**: GPU → CPU via PCIe (~32 GB/s)
-4. **Optimizer Step**: On CPU (slower, but frees GPU memory)
-5. **Parameter Update**: CPU → GPU via PCIe
-
-### Performance Considerations
-
-- **PCIe Bandwidth**: Bottleneck is ~32 GB/s (vs ~1.5 TB/s for GPU HBM)
-- **CPU Compute**: Optimizer step is slower on CPU than GPU
-- **Overlap**: Transfer gradients while computing next layer to hide latency
-
-### Speedup Tricks
-
-DeepSpeed overlaps CPU optimizer computation with GPU forward/backward:
+The bottleneck is PCIe bandwidth (~32 GB/s for PCIe 4.0, versus ~2 TB/s for GPU HBM). Expect 20-40% throughput reduction compared to GPU-only training. This isn't a performance optimization—it's a feasibility solution that enables training models that wouldn't otherwise fit.
 
 ```python
-Step N:
-  GPU: Forward/Backward → Produce gradients
-  CPU: (simultaneously) Running optimizer step from step N-1
-
-Step N+1:
-  GPU: Forward/Backward → Produce gradients  
-  CPU: Running optimizer step from step N
-```
-
-### When to Use ZeRO-Offload
-
-- Training on consumer GPUs (e.g., RTX 3090, 4090) with limited VRAM
-- Have plenty of CPU RAM (256GB+)
-- Model size 10B-30B where GPU-only sharding isn't sufficient
-- **Important**: Expect 20-40% throughput reduction compared to GPU-only training due to PCIe bandwidth and CPU compute limitations. This is a "feasibility" solution—it enables training that wouldn't otherwise be possible, but at the cost of slower training speeds.
-- Can tolerate 20-30% slowdown vs full GPU training
-
-### DeepSpeed Config
-
-```json
-{
-  "zero_optimization": {
-    "stage": 2,
-    "offload_optimizer": {
-      "device": "cpu",
-      "pin_memory": true
+ds_config = {
+    "train_batch_size": 32,
+    "optimizer": {"type": "Adam", "params": {"lr": 1e-4}},
+    "fp16": {"enabled": True},
+    "zero_optimization": {
+        "stage": 2,
+        "offload_optimizer": {
+            "device": "cpu",
+            "pin_memory": True
+        }
     }
-  },
-  "optimizer": {
-    "type": "AdamW",
-    "params": {
-      "lr": 1e-4
-    }
-  }
 }
 ```
 
-To experiment with CPU offloading:
+The `pin_memory: True` setting uses pinned (page-locked) memory for faster CPU-GPU transfers. To try CPU offloading:
 
 ```bash
-# CPU offloading with ZeRO-2
 deepspeed --num_gpus=1 code/zero_offload_example.py --offload_device cpu
-
-# Train a larger model that wouldn't fit without offloading
-deepspeed --num_gpus=1 code/zero_offload_example.py \
-    --offload_device cpu \
-    --hidden_size 2048 \
-    --num_layers 36
 ```
+
+You should see output like:
+
+```
+Model: 354.3M parameters (0.71 GB in FP16)
+Offload device: cpu
+...
+Step 0, Loss: 11.0607, GPU Memory: 3.41 GB
+Step 10, Loss: 11.0829, GPU Memory: 3.52 GB
+...
+Training complete with CPU offloading!
+Peak GPU memory: 3.52 GB
+```
+
+Notice how GPU memory stays low (3.5GB) despite the model size—optimizer states live on CPU. ZeRO-Offload is ideal for training on consumer GPUs with limited VRAM but plenty of system RAM.
 
 ## ZeRO-Infinity: NVMe Offload for Massive Models
 
