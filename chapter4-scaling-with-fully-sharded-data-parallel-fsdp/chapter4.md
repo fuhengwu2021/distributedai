@@ -673,21 +673,16 @@ def train_with_profiling(model, dataloader, optimizer, num_iterations=10):
             for i, (data, target) in enumerate(dataloader):
                 if i >= num_iterations:
                     break
-                
                 data = data.cuda(rank, non_blocking=True)
                 target = target.cuda(rank, non_blocking=True)
-                
                 with record_function("forward"):
                     output = model(data)
                     loss = criterion(output, target)
-                
                 with record_function("backward"):
                     loss.backward()
-                
                 with record_function("optimizer"):
                     optimizer.step()
                     optimizer.zero_grad()
-    
     if rank == 0:
         print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=30))
         prof.export_chrome_trace("fsdp_trace.json")
