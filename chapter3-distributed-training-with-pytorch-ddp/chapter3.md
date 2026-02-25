@@ -1704,7 +1704,7 @@ $ torchrun --nproc_per_node=8 code/train_transformer_ddp.py
 
 In the script, the dummy dataset or model can be replaced with real data or a larger architecture. The DDP, AMP, and checkpointing logic remains unchanged. That pattern—a single entrypoint, `torchrun` for launch, and a training loop that loads and saves checkpoints—is what scales to many GPUs and allows recovery from failures, and it carries over directly to production workloads.
 
-## Conclusion
+## Summary
 
 DDP is the foundation of distributed training in PyTorch. Throughout this chapter, we've covered how DDP works internally, how to set it up for single-node and multi-node training, how to debug common issues, how to profile and optimize performance, and how to handle advanced scenarios like checkpointing, asynchronous training, and elastic scaling.
 

@@ -1082,7 +1082,7 @@ For more details, see the PyTorch/XLA SPMD documentation.[^xla-spmd]
 
 [^xla-spmd]: <https://docs.pytorch.org/xla/master/spmd.html>
 
-## Conclusion
+## Summary
 
 FSDP2 is PyTorch's answer to training models that don't fit on a single GPU. By sharding parameters, gradients, and optimizer states across GPUs, it lets you train models 8×, 16×, or larger than what a single GPU can hold.
 
