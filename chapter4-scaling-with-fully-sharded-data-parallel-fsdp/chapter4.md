@@ -46,11 +46,9 @@ So for a 7B model with Adam, parameters, gradients, and optimizer states alone a
 
 Figure~\ref{fig:ddp-fsdp-mem} illustrates the comparison: with DDP, each GPU holds the full 84 GB (parameters, gradients, and optimizer state) and exceeds an 80 GB device; with FSDP, memory per GPU falls as 84/N, and at 8 GPUs the 10.5 GB per GPU leaves room for activations.
 
->NOTES: FSDP shards only parameters, gradients, and optimizer state—not activations. Each GPU still stores activations for its share of the batch during forward and backward, so activation memory remains a per-GPU cost. Techniques like activation checkpointing (recomputing activations in backward instead of storing them) are often used with FSDP to free headroom for the temporarily all-gathered parameters.
+>NOTE: FSDP shards only parameters, gradients, and optimizer state—not activations. Each GPU still stores activations for its share of the batch during forward and backward, so activation memory remains a per-GPU cost. Techniques like activation checkpointing (recomputing activations in backward instead of storing them) are often used with FSDP to free headroom for the temporarily all-gathered parameters.
 
->NOTEE
-
-### How FSDP Works?
+### How FSDP Works
 
 FSDP (both FSDP1 and FSDP2) uses two key collective operations:
 
