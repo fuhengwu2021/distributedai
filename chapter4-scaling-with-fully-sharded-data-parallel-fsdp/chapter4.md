@@ -401,9 +401,9 @@ def save_checkpoint_dcp(model, optimizer, epoch, checkpoint_dir):
 def load_checkpoint_dcp(model, optimizer, checkpoint_dir, epoch):
     """Load checkpoint using DCP API."""
     checkpoint_path = os.path.join(checkpoint_dir, f"epoch_{epoch}")
+    opt = get_optimizer_state_dict(model, optimizers=optimizer, options=StateDictOptions(full_state_dict=False))
     state_dict = {"model": get_model_state_dict(model, options=StateDictOptions(full_state_dict=False)),
-                  "optimizer": get_optimizer_state_dict(model, optimizers=optimizer,
-                                                        options=StateDictOptions(full_state_dict=False)),
+                  "optimizer": opt,
                   "epoch": 0}
     dcp.load(state_dict, checkpoint_id=checkpoint_path)
     set_model_state_dict(model, state_dict["model"], options=StateDictOptions(full_state_dict=False))
@@ -422,49 +422,37 @@ If you need more control, you can manually handle sharded state dicts. Here's ho
 def save_checkpoint_manual(model, optimizer, epoch, checkpoint_dir):
     """Manually save sharded checkpoint."""
     rank = torch.distributed.get_rank()
-    
     # Get sharded state dict
     model_sd = model.state_dict()  # Already sharded
-    
     # Get optimizer state dict (also sharded)
     optim_sd = optimizer.state_dict()
-    
     checkpoint_path = os.path.join(checkpoint_dir, f"epoch_{epoch}")
     os.makedirs(checkpoint_path, exist_ok=True)
-    
     # Each rank saves its shard
     model_path = os.path.join(checkpoint_path, f"model_rank_{rank}.pt")
     optim_path = os.path.join(checkpoint_path, f"optim_rank_{rank}.pt")
-    
     torch.save(model_sd, model_path)
     torch.save(optim_sd, optim_path)
-    
     # Save metadata on rank 0
     if rank == 0:
         metadata = {"epoch": epoch, "world_size": torch.distributed.get_world_size()}
         torch.save(metadata, os.path.join(checkpoint_path, "metadata.pt"))
         print(f"Checkpoint saved to {checkpoint_path}")
 
-
 def load_checkpoint_manual(model, optimizer, checkpoint_dir, epoch):
     """Manually load sharded checkpoint."""
     rank = torch.distributed.get_rank()
     checkpoint_path = os.path.join(checkpoint_dir, f"epoch_{epoch}")
-    
     # Each rank loads its shard
     model_path = os.path.join(checkpoint_path, f"model_rank_{rank}.pt")
     optim_path = os.path.join(checkpoint_path, f"optim_rank_{rank}.pt")
-    
     model_sd = torch.load(model_path, map_location="cpu")
     optim_sd = torch.load(optim_path, map_location="cpu")
-    
     model.load_state_dict(model_sd)
     optimizer.load_state_dict(optim_sd)
-    
     if rank == 0:
         metadata = torch.load(os.path.join(checkpoint_path, "metadata.pt"))
         print(f"Checkpoint loaded from {checkpoint_path}, epoch {metadata['epoch']}")
-    
     return epoch
 ```
 
@@ -478,7 +466,6 @@ Sometimes you need a full (unsharded) state dict, for example to save a final mo
 def save_full_checkpoint(model, optimizer, epoch, checkpoint_path):
     """Save full (unsharded) checkpoint on rank 0."""
     rank = torch.distributed.get_rank()
-    
     # Get full state dict (gathers all shards to rank 0)
     model_state_dict = get_model_state_dict(
         model=model,
@@ -487,7 +474,6 @@ def save_full_checkpoint(model, optimizer, epoch, checkpoint_path):
             cpu_offload=True,
         ),
     )
-    
     optim_state_dict = get_optimizer_state_dict(
         model=model,
         optimizers=optimizer,
@@ -496,7 +482,6 @@ def save_full_checkpoint(model, optimizer, epoch, checkpoint_path):
             cpu_offload=True,
         ),
     )
-    
     # Only rank 0 saves
     if rank == 0:
         checkpoint = {
@@ -506,7 +491,6 @@ def save_full_checkpoint(model, optimizer, epoch, checkpoint_path):
         }
         torch.save(checkpoint, checkpoint_path)
         print(f"Full checkpoint saved to {checkpoint_path}")
-    
     torch.distributed.barrier()
 ```
 
@@ -514,7 +498,9 @@ This gathers all shards to rank 0, which uses more memory but gives you a single
 
 ## Prefetching: Optimizing Communication
 
-FSDP2 supports explicit prefetching to overlap communication with computation. The idea is to prefetch parameters for the next layer while computing the current layer.
+With checkpointing sorted out, the next concern is performance. FSDP adds communication overhead—every forward pass needs an all-gather to reconstruct parameters, and every backward pass needs a reduce-scatter for gradients. Fast interconnects like NVLink reduce this overhead, but they don't eliminate it.
+
+One way to hide it is prefetching: start fetching parameters for the next layer while the current layer is still computing. If computation takes longer than communication, the all-gather finishes before it's needed and you pay no latency penalty.
 
 ### Forward Prefetching
 
@@ -554,19 +540,9 @@ This prefetches parameters for previous layers while computing gradients for the
 
 ### When to Use Prefetching
 
-Prefetching helps when:
+Prefetching works best when your model has many layers (10+) and each layer does enough computation to hide the communication latency. If layers are small or your interconnect is already fast (NVLink, high-bandwidth InfiniBand), the benefit shrinks—you might even add overhead from the extra scheduling logic.
 
-- Your model has many layers (10+)
-- Communication bandwidth is limited
-- Layers are large enough that prefetching can overlap with computation
-
-Prefetching doesn't help much if:
-
-- Your model is small (few layers)
-- Communication is already fast (NVLink, high-bandwidth InfiniBand)
-- Layers are too small (prefetch overhead exceeds benefit)
-
-Start without prefetching, then add it if profiling shows communication is a bottleneck. A good starting point is `num_to_forward_prefetch=2` and `num_to_backward_prefetch=2`.
+The practical advice: start without prefetching. Profile your training loop, and if communication shows up as a bottleneck, try adding prefetching with `num_to_forward_prefetch=2` and `num_to_backward_prefetch=2`. Adjust from there based on what the profiler tells you.
 
 ## Activation Checkpointing and Offloading
 
@@ -657,13 +633,7 @@ fully_shard(
 
 ### When to Use Offloading
 
-Use CPU offloading only if:
-
-- You're still OOM after full-shard and activation checkpointing
-- You can't reduce batch size or sequence length further
-- You're willing to accept 20-50% slowdown
-
-For most cases, full-shard + activation checkpointing is enough. Only add offloading as a last resort.
+CPU offloading should come late in your optimization sequence. If you've already enabled full-shard and activation checkpointing, reduced batch size and sequence length as much as you can, and you're still hitting OOM—then offloading makes sense. Expect a 20-50% slowdown, but at least you can train. For most models, full-shard plus activation checkpointing is enough without touching offloading.
 
 ### NVMe Offloading
 
@@ -677,13 +647,7 @@ fully_shard(
 )
 ```
 
-NVMe offloading is useful when:
-
-- Your model is too large even with CPU offloading
-- You have fast NVMe storage (PCIe 4.0 or better)
-- Training time is less important than being able to train at all
-
-Expect 50-100% slowdown with NVMe offloading, so use it only when necessary.
+NVMe offloading goes one step further—useful when even CPU memory isn't enough. You'll need fast NVMe storage (PCIe 4.0 or better) to keep the slowdown manageable, but expect 50-100% longer training times. The tradeoff is clear: slower, but at least possible.
 
 ## Performance Optimization
 
