@@ -76,3 +76,5 @@ packt/*
 # Generated PDF files
 **/main.pdf
 **/chapter*.pdf
+
+cover/*
