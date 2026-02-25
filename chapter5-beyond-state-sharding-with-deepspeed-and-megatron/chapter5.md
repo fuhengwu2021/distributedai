@@ -97,202 +97,72 @@ With a single GPU, sharding has limited effect (there's only one partition). Wit
 
 ## ZeRO Stage 2: Optimizer State + Gradient Partitioning
 
-ZeRO-2 extends ZeRO-1 by also sharding gradients. This targets models that are larger but still manageable.
+ZeRO-1 shards optimizer states, but gradients remain fully replicated. For a 7B model, that's still 14GB of gradients (FP16) sitting on every GPU. ZeRO-2 takes the next step: shard gradients too.
 
-### How It Works
+The key insight is that gradients, like optimizer states, are only needed for the parameters each GPU is responsible for updating. During the backward pass, instead of using `all_reduce` (which gives every GPU the full averaged gradient), ZeRO-2 uses `reduce_scatter`—each GPU receives only its assigned slice of the averaged gradient. The rest is discarded immediately, freeing memory as computation proceeds.
 
-During backward pass, gradients are reduced and partitioned on-the-fly:
+With 2 GPUs, each now holds: full parameters + half the gradients + half the optimizer states. For our 7B model, gradient memory drops from 14GB to 7GB per GPU.
 
-```
-GPU 0: params[all] + grads[0:44B]   + opt_states[0:44B]
-GPU 1: params[all] + grads[44B:88B] + opt_states[44B:88B]
-GPU 2: params[all] + grads[88B:132B]+ opt_states[88B:132B]
-GPU 3: params[all] + grads[132B:175B]+ opt_states[132B:175B]
-```
-
-### Training Flow
-
-1. **Forward**: All GPUs have full parameters
-2. **Backward**: 
-   - Compute gradients layer-by-layer
-   - As each layer's gradient is computed, immediately `reduce_scatter` it
-   - Each GPU keeps only its assigned partition
-   - Free the temporary full gradient
-3. **Optimizer Step**: Update only the local partition (same as ZeRO-1)
-
-### Reduce-Scatter Operation
-
-Instead of `all_reduce` (which gives everyone the full averaged gradient), we use `reduce_scatter`:
+The configuration adds bucket size parameters to control how gradients are batched before communication:
 
 ```python
-# All-Reduce (DDP): Everyone gets everything
-# Input:  GPU0: [g0], GPU1: [g1], GPU2: [g2], GPU3: [g3]
-# Output: GPU0: [avg(g)], GPU1: [avg(g)], GPU2: [avg(g)], GPU3: [avg(g)]
-
-# Reduce-Scatter (ZeRO-2): Everyone gets their partition
-# Input:  GPU0: [g0], GPU1: [g1], GPU2: [g2], GPU3: [g3]
-# Output: GPU0: [avg(g)[0:N/4]], GPU1: [avg(g)[N/4:N/2]], ...
-```
-
-This is more efficient: same communication volume as all-reduce, but each GPU stores less.
-
-### Gradient Bucketing
-
-To amortize communication overhead, gradients are bucketed:
-
-```python
-# Bad: Reduce-scatter after every layer
-for layer in reversed(layers):
-    grad = compute_grad(layer)
-    reduce_scatter(grad)  # Many small communications
-
-# Good: Accumulate in bucket, then reduce-scatter
-bucket = []
-for layer in reversed(layers):
-    grad = compute_grad(layer)
-    bucket.append(grad)
-    if len(bucket) >= BUCKET_SIZE:
-        reduce_scatter(concat(bucket))
-        bucket = []
-```
-
-Default bucket size is 5e8 elements (500M parameters worth).
-
-### Memory Savings
-
-```
-350 GB (params) + 88 GB (grads/4) + 350 GB (opt/4) = 788 GB
-Savings: 2,100 GB → 788 GB (2.66× reduction)
-```
-
-### When to Use ZeRO-2
-
-- Models in the 10B-50B parameter range
-- Gradient memory is a bottleneck
-- Acceptable communication overhead (reduce-scatter is cheap)
-- Good balance between memory and complexity
-
-### DeepSpeed Config
-
-```json
-{
-  "zero_optimization": {
-    "stage": 2,
-    "allgather_bucket_size": 5e8,
-    "reduce_bucket_size": 5e8
-  }
+ds_config = {
+    "train_batch_size": 32,
+    "optimizer": {"type": "Adam", "params": {"lr": 1e-4}},
+    "fp16": {"enabled": True},
+    "zero_optimization": {
+        "stage": 2,
+        "allgather_bucket_size": 5e8,
+        "reduce_bucket_size": 5e8
+    }
 }
 ```
 
-The key parameters are `allgather_bucket_size` and `reduce_bucket_size`, which control communication batching for gradients. Larger buckets improve communication efficiency but use more memory.
+Larger buckets improve communication efficiency by amortizing the overhead of each collective operation, but use more memory. The default of 500M elements works well for most cases.
+
+To compare ZeRO-1 and ZeRO-2:
+
+```bash
+deepspeed --num_gpus=2 code/zero_minimal.py --zero_stage 1
+deepspeed --num_gpus=2 code/zero_minimal.py --zero_stage 2
+```
+
+ZeRO-2 is a good choice when gradient memory becomes a bottleneck but you still want parameters replicated for fast forward passes.
 
 ## ZeRO Stage 3: Full Sharding (Like FSDP)
 
-ZeRO-3 shards everything: parameters, gradients, and optimizer states. This is equivalent to PyTorch FSDP.
+ZeRO-2 still keeps parameters replicated on every GPU. For a 7B model, that's 14GB (FP16) of parameters duplicated across all ranks. ZeRO-3 eliminates this last redundancy by sharding parameters too—now every component (parameters, gradients, optimizer states) is distributed.
 
-### How It Works
+This is functionally equivalent to PyTorch FSDP. Each GPU holds only 1/N of everything. For a 7B model on 2 GPUs: 7GB parameters + 7GB gradients + 28GB optimizer states = 42GB per GPU, compared to 14GB + 14GB + 56GB = 84GB with DDP.
 
-Each GPU stores only 1/N of all states:
+The trade-off is communication. Since parameters are now sharded, each layer needs an `all_gather` before forward computation to reconstruct the full weights, then the gathered parameters are freed immediately after use. The backward pass does the same, plus a `reduce_scatter` for gradients. This means 3× the model size in communication per iteration (1× forward all-gather, 1× backward all-gather, 1× gradient reduce-scatter).
 
-```
-GPU 0: params[0:44B]   + grads[0:44B]   + opt[0:44B]     = 262 GB
-GPU 1: params[44B:88B] + grads[44B:88B] + opt[44B:88B]   = 262 GB
-GPU 2: params[88B:132B]+ grads[88B:132B]+ opt[88B:132B]  = 262 GB
-GPU 3: params[132B:175B]+grads[132B:175B]+opt[132B:175B] = 262 GB
-```
-
-### Training Flow
-
-**Forward Pass:**
-1. For each layer:
-   - `all_gather` the layer's parameters from all GPUs
-   - Compute forward with full parameters
-   - Free the full parameters (keep only local shard)
-
-**Backward Pass:**
-1. For each layer (in reverse):
-   - `all_gather` the layer's parameters again
-   - Compute gradients
-   - `reduce_scatter` gradients (each GPU keeps its shard)
-   - Free the full parameters
-
-**Optimizer Step:**
-
-- Each GPU updates only its parameter shard (local operation)
-
-### Communication Pattern
-
-```
-Forward:
-  Layer N:   AllGather(params_N) → Compute → Free(params_N)
-  Layer N-1: AllGather(params_N-1) → Compute → Free(params_N-1)
-  ...
-
-Backward:
-  Layer 1:   AllGather(params_1) → Compute grads → ReduceScatter(grads_1) → Free(params_1)
-  Layer 2:   AllGather(params_2) → Compute grads → ReduceScatter(grads_2) → Free(params_2)
-  ...
-```
-
-### Memory Savings
-
-```
-88 GB (params/4) + 88 GB (grads/4) + 350 GB (opt/4) = 526 GB
-Savings: 2,100 GB → 526 GB (4× reduction)
-```
-
-With more GPUs, memory scales linearly: 8 GPUs → 263 GB per GPU, 16 GPUs → 131 GB per GPU.
-
-### Communication Overhead
-
-ZeRO-3 has higher communication than ZeRO-1/2:
-
-- **Communication volume**: 3× the model size per iteration
-  - Forward: 1× (all-gather params)
-  - Backward: 2× (all-gather params + reduce-scatter grads)
-- **Latency-sensitive**: Many small all-gathers can hurt performance
-
-**Optimization: Communication/Computation Overlap**
-
-DeepSpeed overlaps communication with computation:
+DeepSpeed mitigates this overhead by overlapping communication with computation—while one layer computes, the next layer's parameters are being gathered in the background. The `overlap_comm` and `stage3_prefetch_bucket_size` parameters control this behavior:
 
 ```python
-# While computing layer N, prefetch parameters for layer N+1
-with ComputeStream():
-    compute_layer_N()
-
-with CommunicationStream():
-    prefetch_layer_N_plus_1_params()  # Overlapped!
-```
-
-### When to Use ZeRO-3
-
-- Models 50B+ parameters that don't fit in GPU memory
-- Have many GPUs (8+) to amortize communication
-- Fast interconnect (NVLink, InfiniBand)
-- Can tolerate 10-20% slowdown vs ZeRO-2
-
-### DeepSpeed Config
-
-```json
-{
-  "zero_optimization": {
-    "stage": 3,
-    "overlap_comm": true,
-    "contiguous_gradients": true,
-    "stage3_prefetch_bucket_size": 5e8,
-    "stage3_max_live_parameters": 1e9
-  }
+ds_config = {
+    "train_batch_size": 32,
+    "optimizer": {"type": "Adam", "params": {"lr": 1e-4}},
+    "fp16": {"enabled": True},
+    "zero_optimization": {
+        "stage": 3,
+        "overlap_comm": True,
+        "contiguous_gradients": True,
+        "stage3_prefetch_bucket_size": 5e8,
+        "stage3_max_live_parameters": 1e9
+    }
 }
 ```
 
-**Key parameters:**
+To see the full progression from ZeRO-1 to ZeRO-3:
 
-- `overlap_comm`: Overlap communication with computation for better throughput
-- `stage3_prefetch_bucket_size`: Controls prefetching for parameter all-gather (larger = more overlap, more memory)
-- `stage3_max_live_parameters`: Maximum parameters kept unsharded at once (controls memory peak)
+```bash
+deepspeed --num_gpus=2 code/zero_minimal.py --zero_stage 1
+deepspeed --num_gpus=2 code/zero_minimal.py --zero_stage 2
+deepspeed --num_gpus=2 code/zero_minimal.py --zero_stage 3
+```
 
-For most use cases, the default values work well. Tune these only when memory or communication becomes a bottleneck.
+ZeRO-3 is the right choice when even replicated parameters don't fit in GPU memory, or when you want maximum memory efficiency and can tolerate some communication overhead. With fast interconnects like NVLink, the performance gap versus ZeRO-2 is often modest (10-20%).
 
 ## ZeRO-Offload: CPU Memory Extension
 
