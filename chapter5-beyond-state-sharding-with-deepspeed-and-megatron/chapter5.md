@@ -18,45 +18,23 @@
 - `megatron.model.parallel.layers.ColumnParallelLinear`: Column-parallel linear layer for tensor parallelism
 - `megatron.model.parallel.layers.RowParallelLinear`: Row-parallel linear layer for tensor parallelism
 
-## Understanding the Memory Problem
+## Beyond State Sharding
 
-Before diving into ZeRO stages, let's understand what consumes memory during training.
+In the previous chapter, we explored FSDP—PyTorch's approach to sharding parameters, gradients, and optimizer states across GPUs. FSDP2's full sharding is functionally equivalent to DeepSpeed's ZeRO Stage 3: both eliminate memory redundancy by ensuring each GPU holds only 1/N of the training state.
 
-### Memory Breakdown
+State sharding solves the memory problem, but it doesn't change *how* computation happens. Every GPU still executes the same operations on the same model architecture—just with different data batches. For the largest models (100B+ parameters), this becomes limiting: individual layers may be too large for efficient single-GPU execution, or the model may be too deep to fit activations in memory even with checkpointing.
 
-Training a model with the Adam optimizer requires storing:
+This is where **Megatron** comes in. Megatron's tensor parallelism splits large matrix operations across GPUs, and its pipeline parallelism shards the model along the depth dimension. These techniques shard *computation itself*, not just training state. They're essential for training frontier models and remain the backbone of large-scale training infrastructure at NVIDIA, Meta, and elsewhere.
 
-1. **Model Parameters**: The weights themselves (2 bytes per param in fp16)
-2. **Gradients**: Same size as parameters (2 bytes per param in fp16)
-3. **Optimizer States**: For Adam, two states per parameter:
-   - Momentum (first moment): 4 bytes per param (fp32)
-   - Variance (second moment): 4 bytes per param (fp32)
-4. **Activations**: Forward pass activations saved for backward pass
+We'll cover DeepSpeed ZeRO first—it's worth understanding the full ZeRO family (stages 1-3, offloading, ZeRO++) since many codebases still use it. But the real focus of this chapter is Megatron-style parallelism: tensor parallelism, pipeline parallelism, and how they combine with state sharding for multi-dimensional parallelism.
 
-For a 175B parameter model (GPT-3 scale) trained with Adam in mixed precision:
+![ZeRO stages comparison: DDP vs ZeRO-1/2/3.](img/zero_stages_comparison.png){#fig:zero-stages .block width=100% align=center}
 
-```
-Parameters:        175B × 2 bytes  = 350 GB
-Gradients:         175B × 2 bytes  = 350 GB
-Optimizer States:  175B × 8 bytes  = 1,400 GB
------------------------------------------------------------------------------
-Total (per GPU):                     2,100 GB
-```
+Figure~\ref{fig:zero-stages} shows how memory layout changes across ZeRO stages. In DDP (leftmost), every GPU holds full copies of parameters (P), gradients (G), and optimizer states (O). ZeRO-1 shards only optimizer states. ZeRO-2 shards both gradients and optimizer states. ZeRO-3 shards everything—each GPU holds only 1/N of each component (shown as smaller blocks). The progression trades communication overhead for memory savings.
 
-An 80GB A100 GPU can't hold this. Even with 8 GPUs using traditional data parallel (DDP), each GPU still needs the full 2,100 GB because DDP replicates everything.
+![ZeRO stages comparison: DDP vs ZeRO-1/2/3.](img/zero_stages_comparison.png){#fig:zero-stages .block width=100% align=center}
 
-### The Data Parallel Problem
-
-Traditional DDP (DistributedDataParallel) replicates the entire model on every GPU:
-
-```
-GPU 0: [params_full] [grads_full] [optimizer_states_full]  2,100 GB
-GPU 1: [params_full] [grads_full] [optimizer_states_full]  2,100 GB
-GPU 2: [params_full] [grads_full] [optimizer_states_full]  2,100 GB
-GPU 3: [params_full] [grads_full] [optimizer_states_full]  2,100 GB
-```
-
-This is redundant. If we have N GPUs, we're storing N copies of everything. ZeRO eliminates this redundancy.
+Figure~\ref{fig:zero-stages} shows how memory layout changes across ZeRO stages. In DDP (leftmost), every GPU holds full copies of parameters (P), gradients (G), and optimizer states (O). ZeRO-1 shards only optimizer states. ZeRO-2 shards both gradients and optimizer states. ZeRO-3 shards everything—each GPU holds only 1/N of each component (shown as smaller blocks). The progression trades communication overhead for memory savings.
 
 ## ZeRO Stage 1: Optimizer State Partitioning
 
@@ -123,6 +101,17 @@ Savings: 2,100 GB → 1,050 GB (2× reduction)
 ```
 
 The configuration is straightforward—simply set `stage: 1` to enable optimizer state partitioning. Other optimizer and training settings (learning rate, precision, etc.) are configured separately.
+
+To see ZeRO stages in action, run the training script with different stages:
+
+```bash
+# ZeRO Stage 1
+deepspeed --num_gpus=2 code/train_deepspeed_zero.py --zero_stage 1
+
+# Compare memory usage across stages
+deepspeed --num_gpus=2 code/train_deepspeed_zero.py --zero_stage 2
+deepspeed --num_gpus=2 code/train_deepspeed_zero.py --zero_stage 3
+```
 
 ## ZeRO Stage 2: Optimizer State + Gradient Partitioning
 
@@ -391,21 +380,28 @@ Step N+1:
 }
 ```
 
+To experiment with CPU offloading:
+
+```bash
+# CPU offloading with ZeRO-2
+deepspeed --num_gpus=1 code/zero_offload_example.py --offload_device cpu
+
+# Train a larger model that wouldn't fit without offloading
+deepspeed --num_gpus=1 code/zero_offload_example.py \
+    --offload_device cpu \
+    --hidden_size 2048 \
+    --num_layers 36
+```
+
 ## ZeRO-Infinity: NVMe Offload for Massive Models
 
 ZeRO-Infinity extends ZeRO-3 with CPU and NVMe offloading, enabling training of models with **trillions** of parameters.
 
 ### Memory Hierarchy
 
-```
-GPU VRAM:     Fast (1.5 TB/s), Expensive, Small (80 GB)
-     <->
- PCIe Gen4: ~32 GB/s
-CPU RAM:      Medium (100 GB/s), Cheaper, Medium (512 GB)
-     <->
- NVMe: ~7 GB/s
-NVMe SSD:     Slow (7 GB/s), Cheap, Large (4 TB+)
-```
+![ZeRO-Infinity memory hierarchy.](img/memory_hierarchy.png){#fig:memory-hierarchy .block width=80% align=center}
+
+Figure~\ref{fig:memory-hierarchy} shows the three-tier memory hierarchy that ZeRO-Infinity exploits. GPU HBM is fastest but smallest; CPU RAM offers more capacity at lower bandwidth; NVMe provides terabytes of storage but at much lower throughput. The Infinity Engine manages data movement across these tiers, prefetching parameters before they're needed and overlapping transfers with computation.
 
 ### What Gets Offloaded
 
@@ -495,6 +491,15 @@ ZeRO-Infinity:
 - `buffer_count` × `buffer_size`: Total CPU buffer for NVMe staging
 - `aio` section: Async I/O tuning for NVMe performance
 
+To experiment with NVMe offloading (requires fast NVMe SSD):
+
+```bash
+# NVMe offloading (ZeRO-Infinity)
+deepspeed --num_gpus=1 code/zero_offload_example.py \
+    --offload_device nvme \
+    --nvme_path /tmp/nvme_offload
+```
+
 ## ZeRO++: Communication-Optimized ZeRO
 
 ZeRO++ reduces ZeRO-3's communication overhead through three techniques: quantized weights (qwZ), hierarchical partitioning (hpZ), and quantized gradients (qgZ).
@@ -573,6 +578,10 @@ hpZ (HSDP):
 
 **Trade-off**: Uses more memory (2× vs full sharding) but much faster for multi-node.
 
+![hpZ hierarchical partitioning: ZeRO-3 vs hpZ.](img/hpz_hierarchical.png){#fig:hpz .block width=100% align=center}
+
+Figure~\ref{fig:hpz} contrasts ZeRO-3 and hpZ communication patterns. In ZeRO-3 (left), each GPU holds a unique shard (S0–S7), so all-gather requires communication across all 8 GPUs including slow inter-node links. In hpZ (right), GPUs within each node hold the same shard (all of Node 0 has S0, all of Node 1 has S1). Intra-node all-gather uses fast NVLink, and only one representative per node communicates across the slower inter-node network.
+
 ### qgZ: Quantized Gradient Communication
 
 Similar to qwZ but for gradients during reduce-scatter:
@@ -629,6 +638,19 @@ ZeRO++ (all): 175 GB/iter     220%  (qwZ + hpZ + qgZ)
 - `zero_hpz_partition_size`: GPUs per replica group (= GPUs per node for HSDP)
 - `zero_quantized_gradients`: Enable qgZ
 
+To experiment with ZeRO++ communication optimizations:
+
+```bash
+# Quantized weights (reduces all-gather communication)
+deepspeed --num_gpus=4 code/zero_pp_example.py --enable_qwz
+
+# Hierarchical partitioning (reduces inter-node communication)
+deepspeed --num_gpus=4 code/zero_pp_example.py --enable_hpz
+
+# All ZeRO++ optimizations
+deepspeed --num_gpus=4 code/zero_pp_example.py --enable_qwz --enable_hpz --enable_qgz
+```
+
 ## Megatron: Computation Parallelism as the Second Axis
 
 So far, we have focused on **state sharding**—how to distribute parameters, gradients, and optimizer states across GPUs to reduce memory footprint. Techniques such as FSDP2 and DeepSpeed ZeRO fundamentally address a *memory redundancy* problem: eliminating replicated model state so that larger models can fit within the aggregate GPU memory budget.
@@ -657,17 +679,9 @@ Consider a Transformer MLP layer with a weight matrix $W \in \mathbb{R}^{d \time
 
 **How Tensor Parallelism Works:**
 
-1. **Column Parallel Linear**: Splits weight matrix column-wise
-   * Input: Full input tensor (replicated)
-   * Weight: Each GPU holds 1/TP of columns
-   * Output: Partial output (split along last dimension)
-   * Communication: None (output stays split)
+![Tensor parallelism: column-parallel and row-parallel linear.](img/tensor_parallelism.png){#fig:tensor-parallel .block width=90% align=center}
 
-2. **Row Parallel Linear**: Splits weight matrix row-wise
-   * Input: Already split (from column parallel)
-   * Weight: Each GPU holds 1/TP of rows
-   * Output: Partial output that needs gathering
-   * Communication: All-reduce to gather full output
+Figure~\ref{fig:tensor-parallel} illustrates the two fundamental operations. In column-parallel linear (top), the weight matrix is split by columns—GPU 0 holds W₀, GPU 1 holds W₁. The input X is replicated, and each GPU computes its portion of the output (Y₀, Y₁). No communication is needed; the output stays split. In row-parallel linear (bottom), the weight matrix is split by rows, and the input is already split from the previous layer. Each GPU computes a partial result, then an all-reduce combines them into the full output Y. A typical MLP uses column-parallel for the first linear, then row-parallel for the second, so communication happens only once per MLP block.
 
 **Attention with Tensor Parallelism:**
 
@@ -706,6 +720,15 @@ When TP is enabled, sequence parallelism further reduces activation memory:
 * **Topology sensitivity**: Best performance when TP groups are within NVLink domain
 
 Importantly, **tensor parallelism increases communication frequency**—communication now happens at every layer. This is fundamentally different from state sharding, where communication is amortized across layers. However, with proper overlap (`--tp-comm-overlap`), this overhead can be largely hidden.
+
+To understand tensor parallelism at a lower level, run the pure PyTorch implementation:
+
+```bash
+# Tensor parallelism demo with 2 GPUs
+torchrun --nproc_per_node=2 code/tensor_parallel_mlp.py
+```
+
+This example implements column-parallel and row-parallel linear layers from scratch, showing exactly how weight matrices are split and how communication is minimized to a single all-reduce per MLP block.
 
 ### Pipeline Parallelism: Sharding the Depth
 
@@ -756,6 +779,15 @@ Virtual pipeline parallelism reduces pipeline bubbles by splitting each pipeline
 * Tune micro-batch count to maintain pipeline utilization
 
 In practice, pipeline parallelism is almost always combined with tensor parallelism, forming a **2D parallelism scheme**.
+
+To see pipeline parallelism in action with a simplified implementation:
+
+```bash
+# Pipeline parallelism demo with 2 stages
+torchrun --nproc_per_node=2 code/pipeline_parallel_simple.py
+```
+
+This example demonstrates model partitioning, micro-batch scheduling, and forward/backward coordination across pipeline stages.
 
 ### Sequence Parallelism and Long Contexts
 
@@ -900,6 +932,8 @@ pip install --no-build-isolation megatron-core[mlm,dev]
 # Or use Docker (recommended)
 docker run --gpus all -it nvcr.io/nvidia/pytorch:25.04-py3
 ```
+
+For a complete Megatron-LM pretraining example, see `code/megatron_gpt_pretrain.sh`. This script demonstrates a production-ready configuration with tensor parallelism, distributed optimizer, and flash attention.
 
 ### Megatron-FSDP: Optimized State Sharding
 
