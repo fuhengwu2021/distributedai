@@ -376,53 +376,30 @@ This example implements column-parallel and row-parallel linear layers from scra
 
 ### Pipeline Parallelism: Sharding the Depth
 
-In addition to tensor parallelism, Megatron provides **Pipeline Parallelism (PP)**, which shards the model along the layer (depth) dimension.
+Tensor parallelism splits individual layers across GPUs, but there's another dimension we can exploit: the model's depth. A 32-layer Transformer doesn't need all 32 layers on every GPU—we can assign layers 0–15 to one GPU and layers 16–31 to another. This is **Pipeline Parallelism (PP)**.
 
-Pipeline parallelism:
+The idea is intuitive: data flows through the model like water through a pipe. GPU 0 processes the first half of the layers, then passes the intermediate activations to GPU 1, which processes the second half. But here's the catch—if we naively process one batch at a time, GPU 1 sits idle while GPU 0 is working, and vice versa. This "pipeline bubble" can waste up to 50% of compute.
 
-* Assigns contiguous blocks of layers to different GPUs or nodes
-* Executes micro-batches in a pipeline fashion to keep all stages busy
-* Reduces per-device memory footprint by limiting the number of active layers
+The solution is to split the batch into smaller **micro-batches** and pipeline them. While GPU 1 is processing micro-batch 1 through layers 16–31, GPU 0 can start processing micro-batch 2 through layers 0–15. With enough micro-batches in flight, we keep all GPUs busy most of the time.
 
-__Pipeline Schedules:__
+![Pipeline parallelism: naive vs 1F1B schedule.](img/pipeline_parallelism.png){#fig:pipeline-parallelism .block width=100% align=center}
 
-Megatron supports multiple pipeline schedules:
+Figure~\ref{fig:pipeline-parallelism} contrasts the naive approach with the 1F1B schedule. In the naive pipeline (top), a single batch flows through all 4 GPUs sequentially—GPU 0 runs forward (F), passes to GPU 1, and so on until GPU 3 completes forward, then backward (B) propagates back. The white space represents idle time (bubbles). In the 1F1B schedule (bottom), we split the batch into 4 micro-batches (F1–F4, B1–B4). Each GPU processes multiple micro-batches in an interleaved fashion, dramatically reducing idle time.
 
-1. **1F1B (One Forward One Backward)**: Standard pipeline schedule
-2. **Interleaved Pipeline**: Virtual pipeline parallelism that interleaves micro-batches across stages to reduce pipeline bubbles
-3. **Gpipe**: Original pipeline parallelism with forward-only then backward-only phases
+Megatron supports several pipeline schedules. The most common is **1F1B (One Forward One Backward)**: each GPU alternates between forward passes and backward passes, maintaining a steady state where all stages are active. The original **GPipe** schedule runs all forward passes first, then all backward passes—simpler but with larger bubbles. **Interleaved pipelines** (also called Virtual Pipeline Parallelism) go further by assigning multiple non-contiguous chunks of layers to each GPU, reducing bubble size at the cost of more communication.
 
-__Virtual Pipeline Parallelism (VPP):__
+Virtual Pipeline Parallelism deserves special mention. Instead of assigning layers 0–15 to GPU 0 and 16–31 to GPU 1, we might assign layers 0–7 and 16–23 to GPU 0, and layers 8–15 and 24–31 to GPU 1. Each GPU now runs two "virtual stages." This interleaving reduces the pipeline bubble because micro-batches cycle through stages faster. The trade-off is additional point-to-point communication between stages.
 
-Virtual pipeline parallelism reduces pipeline bubbles by splitting each pipeline stage into multiple virtual stages:
-
-* Each physical GPU runs multiple virtual stages
-* Micro-batches are interleaved across virtual stages
-* Reduces idle time and improves GPU utilization
-* Particularly effective when `PP_size >= 2`
-
-__Configuration:__
+A typical configuration looks like:
 
 ```bash
---pipeline-model-parallel-size 8
---num-layers-per-virtual-pipeline-stage 4  # VPP configuration
+--pipeline-model-parallel-size 4          # 4 pipeline stages
+--num-layers-per-virtual-pipeline-stage 2 # VPP: 2 layers per virtual stage
 ```
 
-__When to Use Pipeline Parallelism:__
+Pipeline parallelism shines in a specific scenario: **multi-node training**. Within a node, GPUs are connected by fast NVLink (~600 GB/s). Across nodes, you're limited to InfiniBand (~400 GB/s) or worse. Tensor parallelism requires frequent all-reduce operations within each layer—fine over NVLink, painful over InfiniBand. Pipeline parallelism only requires point-to-point communication of activations between stages, which is much more tolerant of slower interconnects.
 
-* The model depth is very large (many layers)
-* Inter-node scaling is required
-* Tensor parallelism alone does not provide sufficient scalability
-* You need to scale across multiple nodes with slower inter-node interconnects
-
-__Best Practices:__
-
-* Keep TP and EP within NVLink domain (intra-node)
-* Use PP for inter-node scaling
-* Enable virtual pipeline parallelism when PP >= 2
-* Tune micro-batch count to maintain pipeline utilization
-
-In practice, pipeline parallelism is almost always combined with tensor parallelism, forming a **2D parallelism scheme**.
+The practical guideline is: use tensor parallelism within a node (where NVLink keeps communication fast), and pipeline parallelism across nodes (where the communication pattern is more forgiving). This combination—TP within nodes, PP across nodes—is the standard approach for training models at the 100B+ scale.
 
 To see pipeline parallelism in action with a simplified implementation:
 
@@ -677,7 +654,7 @@ If none of these apply, state sharding alone is usually sufficient.
 
 ### Real-World Training Configurations
 
-Here are production-ready configurations based on actual Megatron training scripts:
+Here are production-ready configurations based on actual Megatron training scripts. Note that `pretrain_gpt.py` is part of the Megatron-LM repository—you need to clone it from https://github.com/NVIDIA/Megatron-LM and run these commands from within that repository:
 
 __LLaMA-3 8B with FP8 Training (8 GPUs):__
 
