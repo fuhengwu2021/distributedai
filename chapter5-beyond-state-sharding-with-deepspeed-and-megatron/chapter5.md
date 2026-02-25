@@ -421,10 +421,6 @@ So far we've discussed parallelism strategies that address model size—sharding
 
 Consider a Transformer with hidden dimension 4096 processing a 32K token sequence. Each layer stores activations of shape (batch, 32K, 4096), and with 32 layers, the activation memory can easily reach tens of gigabytes per GPU. This is where **sequence parallelism** and **context parallelism** come in.
 
-![Sequence parallelism and context parallelism (ring attention).](img/sequence_context_parallelism.png){#fig:seq-ctx-parallel .block width=100% align=center}
-
-Figure~\ref{fig:seq-ctx-parallel} illustrates both techniques. Sequence parallelism (left) splits activations along the sequence dimension—each GPU stores only its portion of the sequence for LayerNorm and Dropout operations. Context parallelism (right) uses ring attention: each GPU holds local Q, K, V chunks, and K, V pairs rotate around a ring so every query can attend to all keys without any GPU holding the full sequence.
-
 **Sequence parallelism**[^seqpar] is the simpler of the two. When tensor parallelism is enabled, certain operations like LayerNorm and Dropout don't participate in the TP communication—they operate on the full hidden dimension locally. Sequence parallelism extends the sharding to these operations by splitting activations along the sequence dimension. If you have TP=4, sequence parallelism means each GPU only stores 1/4 of the sequence's activations for these operations. It's typically enabled alongside tensor parallelism with minimal overhead.
 
 [^seqpar]: Korthikanti et al., "Reducing Activation Recomputation in Large Transformer Models," MLSys 2023. https://arxiv.org/abs/2205.05198
@@ -439,6 +435,10 @@ The communication pattern is carefully optimized. Modern implementations overlap
 
 The benefit is substantial. Without CP, training on very long sequences often requires activation checkpointing (recomputing activations during backward pass), which adds ~30% overhead. With CP, you can eliminate this recompute entirely by simply distributing the activation memory across more GPUs. The trade-off is communication, but for long sequences the compute-to-communication ratio remains favorable.
 
+![Sequence parallelism and context parallelism (ring attention).](img/sequence_context_parallelism.png){#fig:seq-ctx-parallel .block width=100% align=center}
+
+Figure~\ref{fig:seq-ctx-parallel} illustrates both techniques. Sequence parallelism (left) splits activations along the sequence dimension—each GPU stores only its portion of the sequence for LayerNorm and Dropout operations. Context parallelism (right) uses ring attention: each GPU holds local Q, K, V chunks, and K, V pairs rotate around a ring so every query can attend to all keys without any GPU holding the full sequence.
+
 A typical configuration for long-context training:
 
 ```bash
@@ -449,20 +449,40 @@ A typical configuration for long-context training:
 
 The rule of thumb: use context parallelism when sequence length exceeds 8K tokens and activation memory is your bottleneck. For shorter sequences, tensor parallelism and sequence parallelism are usually sufficient.
 
-To see how activation memory scales with sequence length and how these techniques help:
+The accompanying `code/sp_demo.py` illustrates these concepts. The `memory` mode calculates activation memory for various sequence lengths—you'll see that a 32K sequence with 32 layers can exceed 40GB, explaining why parallelism is necessary. The `sequence_parallel` mode shows how each GPU holds only a portion of the sequence and applies LayerNorm locally without communication. The `ring_attention` mode demonstrates the core ring attention pattern: each GPU starts with local Q, K, V chunks, then K and V rotate around the ring. After one full rotation, every query has attended to all keys, yet no GPU ever held the full sequence.
 
 ```bash
-# Show memory scaling (single GPU)
-python code/sequence_parallel_demo.py --mode memory
-
-# Demonstrate sequence parallelism (2 GPUs)
-torchrun --nproc_per_node=2 code/sequence_parallel_demo.py --mode sequence_parallel
-
-# Demonstrate ring attention concept (2 GPUs)
-torchrun --nproc_per_node=2 code/sequence_parallel_demo.py --mode ring_attention
+# Show activation memory scaling (single GPU)
+python code/sp_demo.py --mode memory
+# Sequence parallelism: split activations along sequence dim (2 GPUs)
+torchrun --nproc_per_node=2 code/sp_demo.py --mode sequence_parallel
+# Context parallelism via ring attention (2 GPUs)
+torchrun --nproc_per_node=2 code/sp_demo.py --mode ring_attention
 ```
 
-The ring attention demo shows the core idea behind context parallelism: each GPU holds a local chunk of Q, K, V, and KV pairs are passed around in a ring so every query can attend to all keys.
+### DeepSpeed-Ulysses: An Alternative to Ring Attention
+
+Ring attention is not the only way to parallelize attention across long sequences. DeepSpeed introduced **DeepSpeed-Ulysses**[^ulysses], a different approach that trades communication pattern for simplicity.
+
+[^ulysses]: Jacobs et al., "DeepSpeed Ulysses: System Optimizations for Enabling Training of Extreme Long Sequence Transformer Models," arXiv 2023. https://arxiv.org/abs/2309.14509
+
+The key insight behind Ulysses is straightforward: instead of rotating KV chunks around a ring, why not just gather the full sequence before attention and scatter it back afterward? In ring attention, each GPU computes partial attention scores against different KV chunks and accumulates them—this requires careful bookkeeping of softmax normalization across chunks. Ulysses sidesteps this complexity entirely.
+
+Here's how it works. Before the attention computation, each GPU holds a chunk of the sequence with shape (batch, local_seq, num_heads, head_dim). Ulysses performs an **all-to-all** communication that reorganizes the data: instead of each GPU holding all heads for a portion of the sequence, each GPU now holds all sequence positions for a portion of the heads. After this transpose, the shape becomes (batch, full_seq, local_heads, head_dim). Now each GPU can compute standard self-attention on its subset of heads—no partial scores, no accumulation, just regular attention. After attention, another all-to-all reverses the transformation, returning to the original partitioning.
+
+The trade-off is communication volume versus communication pattern. Ring attention sends KV chunks P times around a ring of P GPUs, with each transfer overlapped with computation. Ulysses performs two all-to-all collectives (before and after attention), which involve all GPUs simultaneously. For small parallelism degrees (P ≤ 8), Ulysses often wins because all-to-all on modern interconnects like NVLink is highly optimized. For larger P or when interconnect bandwidth is limited, ring attention's overlapped communication can be more efficient.
+
+In practice, DeepSpeed-Ulysses shines in scenarios where you want sequence parallelism without the complexity of ring attention's partial softmax handling. It integrates cleanly with ZeRO and other DeepSpeed optimizations. The configuration is simple:
+
+```python
+ds_config = {
+    "sequence_parallel_size": 4,  # Split sequence across 4 GPUs
+    "sequence_parallel_type": "ulysses",
+    # ... other DeepSpeed config
+}
+```
+
+When should you choose Ulysses over ring attention? If you're already in the DeepSpeed ecosystem and want straightforward sequence parallelism with moderate parallelism degrees, Ulysses is the easier path. If you're scaling to very long sequences (100K+ tokens) with large parallelism degrees, ring attention's communication overlap may provide better efficiency.
 
 ### Expert Parallelism: Scaling MoE Models
 

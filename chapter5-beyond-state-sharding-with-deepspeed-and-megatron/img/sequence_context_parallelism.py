@@ -39,14 +39,14 @@ def draw_sequence_parallelism(ax):
     ax.text(6, 3.9, "Split along sequence dimension", ha='center', fontsize=13)
     
     # GPU 0 chunk
-    gpu0_box = patches.FancyBboxPatch((1.5, 2.5), 4, 1, boxstyle="round,pad=0.02",
+    gpu0_box = patches.FancyBboxPatch((1.5, 2.35), 4, 1, boxstyle="round,pad=0.02",
                                        facecolor=COLORS['gpu0'], edgecolor='white', linewidth=2, alpha=0.8)
     ax.add_patch(gpu0_box)
     ax.text(3.5, 3.0, "GPU 0: tokens 0-4K", ha='center', va='center', fontsize=13, fontweight='bold', color='white')
     ax.text(3.5, 2.7, "(batch, 4K, hidden)", ha='center', va='center', fontsize=12, color='white')
     
     # GPU 1 chunk
-    gpu1_box = patches.FancyBboxPatch((6.5, 2.5), 4, 1, boxstyle="round,pad=0.02",
+    gpu1_box = patches.FancyBboxPatch((6.5, 2.35), 4, 1, boxstyle="round,pad=0.02",
                                        facecolor=COLORS['gpu1'], edgecolor='white', linewidth=2, alpha=0.8)
     ax.add_patch(gpu1_box)
     ax.text(8.5, 3.0, "GPU 1: tokens 4K-8K", ha='center', va='center', fontsize=13, fontweight='bold', color='white')
@@ -86,7 +86,7 @@ def draw_context_parallelism(ax):
     # Top: GPU 0 -> GPU 1
     ax.annotate("", xy=(9.5, 5.8), xytext=(4.5, 5.8),
                 arrowprops=dict(arrowstyle="->", color=COLORS['kv_transfer'], lw=2.5,
-                               connectionstyle="arc3,rad=0.1"))
+                               connectionstyle="arc3,rad=-0.1"))
     ax.text(7, 6.3, "pass K,V →", ha='center', fontsize=12, color=COLORS['kv_transfer'])
     
     # Right: GPU 1 -> GPU 2
@@ -97,7 +97,7 @@ def draw_context_parallelism(ax):
     # Bottom: GPU 2 -> GPU 3
     ax.annotate("", xy=(4.5, 1.7), xytext=(9.5, 1.7),
                 arrowprops=dict(arrowstyle="->", color=COLORS['kv_transfer'], lw=2.5,
-                               connectionstyle="arc3,rad=0.1"))
+                               connectionstyle="arc3,rad=-0.1"))
     ax.text(7, 1.2, "← pass K,V", ha='center', fontsize=12, color=COLORS['kv_transfer'])
     
     # Left: GPU 3 -> GPU 0
