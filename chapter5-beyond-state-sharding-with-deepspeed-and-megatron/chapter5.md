@@ -745,129 +745,7 @@ torchrun --nproc_per_node=8 --nnodes=8 pretrain_gpt.py \
 
 ### Complete Training Example with Megatron
 
-Here's a complete example training a large model with Megatron Tensor Parallelism using Megatron Core:
-
-```python
-# code/train_megatron_mcore.py
-import os
-import torch
-from torch.optim import Adam
-from megatron.core import parallel_state
-from megatron.core.pipeline_parallel.schedules import get_forward_backward_func
-from megatron.core.tensor_parallel.random import model_parallel_cuda_manual_seed
-from megatron.core.transformer.transformer_config import TransformerConfig
-from megatron.core.models.gpt.gpt_model import GPTModel
-from megatron.core.models.gpt.gpt_layer_specs import get_gpt_layer_local_spec
-from megatron.core.distributed import DistributedDataParallel
-from megatron.core.distributed import DistributedDataParallelConfig
-from megatron.core.distributed.finalize_model_grads import finalize_model_grads
-
-def initialize_distributed(tensor_model_parallel_size=4, pipeline_model_parallel_size=1):
-    """Initialize torch.distributed and Megatron-Core model parallel groups."""
-    parallel_state.destroy_model_parallel()
-    
-    rank = int(os.environ["RANK"])
-    world_size = int(os.environ["WORLD_SIZE"])
-    local_rank = int(os.environ["LOCAL_RANK"])
-    
-    torch.cuda.set_device(local_rank)
-    torch.distributed.init_process_group(backend="nccl", rank=rank, world_size=world_size)
-    
-    # Initialize Megatron model parallelism
-    parallel_state.initialize_model_parallel(
-        tensor_model_parallel_size, pipeline_model_parallel_size
-    )
-
-def model_provider():
-    """Build and return a GPT model using Megatron Core."""
-    transformer_config = TransformerConfig(
-        num_layers=32,
-        hidden_size=4096,
-        num_attention_heads=32,
-        use_cpu_initialization=True,
-        pipeline_dtype=torch.bfloat16,
-    )
-    
-    gpt_model = GPTModel(
-        config=transformer_config,
-        transformer_layer_spec=get_gpt_layer_local_spec(),
-        vocab_size=50257,
-        max_sequence_length=2048,
-    )
-    
-    return gpt_model
-
-def forward_step_func(data_iterator, model):
-    """Forward step function for training."""
-    def loss_func(loss_mask, output_tensor):
-        losses = output_tensor.float()
-        loss_mask = loss_mask.view(-1).float()
-        loss = torch.sum(losses.view(-1) * loss_mask) / loss_mask.sum()
-        return loss, {"lm loss": loss}
-    
-    data = next(data_iterator)
-    tokens = data["tokens"].cuda()
-    attention_mask = data["attention_mask"].cuda()
-    position_ids = data["position_ids"].cuda()
-    labels = data["labels"].cuda()
-    loss_mask = data["loss_mask"].cuda()
-    
-    output_tensor = model(tokens, position_ids, attention_mask, labels=labels)
-    
-    return output_tensor, lambda: loss_func(loss_mask, output_tensor)
-
-if __name__ == "__main__":
-    # Initialize distributed training
-    initialize_distributed(tensor_model_parallel_size=4, pipeline_model_parallel_size=1)
-    model_parallel_cuda_manual_seed(123)
-    
-    # Create model
-    gpt_model = model_provider()
-    gpt_model.cuda()
-    
-    # Wrap with DistributedDataParallel
-    config = gpt_model.config
-    ddp_config = DistributedDataParallelConfig(
-        grad_reduce_in_fp32=False,
-        overlap_grad_reduce=True,
-        use_distributed_optimizer=True,
-    )
-    gpt_model = DistributedDataParallel(
-        config=config,
-        ddp_config=ddp_config,
-        module=gpt_model,
-    )
-    
-    # Optimizer
-    optim = Adam(gpt_model.parameters(), lr=1e-4)
-    
-    # Get forward/backward function
-    forward_backward_func = get_forward_backward_func()
-    
-    # Training loop
-    for iteration in range(100):
-        optim.zero_grad()
-        
-        # Forward and backward pass
-        losses_reduced = forward_backward_func(
-            forward_step_func=forward_step_func,
-            data_iterator=train_iterator,
-            model=gpt_model,
-            num_microbatches=1,
-            seq_length=2048,
-            micro_batch_size=8,
-            decoder_seq_length=2048,
-            forward_only=False,
-        )
-        
-        # Finalize gradients
-        finalize_model_grads([gpt_model])
-        
-        optim.step()
-        
-        if iteration % 10 == 0 and parallel_state.get_tensor_model_parallel_rank() == 0:
-            print(f"Iteration {iteration}: Losses: {losses_reduced}")
-```
+The code examples include a complete Megatron Core training script (`code/train_megatron_mcore.py`) that demonstrates how to set up tensor parallelism, create a GPT model, and run a training loop. The script handles distributed initialization, model creation with `TransformerConfig`, and gradient synchronization with Megatron's `DistributedDataParallel`.
 
 **Running the Megatron training script:**
 
@@ -1299,459 +1177,55 @@ iftop -i ib0  # InfiniBand interface
 
 ## Complete Training Examples: ZeRO and Megatron
 
-This section provides complete, production-ready training examples for both ZeRO and Megatron, based on real-world configurations used in large-scale model training.
+This section provides complete, production-ready training examples for both ZeRO and Megatron, based on real-world configurations used in large-scale model training. The full code is available in the `code/` directory.
 
 ### Example 1: Training with DeepSpeed ZeRO-3
 
-Here's a complete example training a large model with ZeRO-3:
-
-### Model Code
-
-```python
-# code/train_zero3.py
-import torch
-import torch.nn as nn
-import deepspeed
-from torch.utils.data import Dataset, DataLoader
-
-class LargeTransformer(nn.Module):
-    def __init__(self, vocab_size=50257, dim=4096, n_layers=32, n_heads=32):
-        super().__init__()
-        self.embed = nn.Embedding(vocab_size, dim)
-        self.layers = nn.ModuleList([
-            nn.TransformerEncoderLayer(d_model=dim, nhead=n_heads, dim_feedforward=dim*4)
-            for _ in range(n_layers)
-        ])
-        self.ln_final = nn.LayerNorm(dim)
-        self.head = nn.Linear(dim, vocab_size)
-    
-    def forward(self, x):
-        x = self.embed(x)
-        for layer in self.layers:
-            x = layer(x)
-        x = self.ln_final(x)
-        return self.head(x)
-
-class DummyDataset(Dataset):
-    def __init__(self, size=10000, seq_len=512, vocab_size=50257):
-        self.size = size
-        self.seq_len = seq_len
-        self.vocab_size = vocab_size
-    
-    def __len__(self):
-        return self.size
-    
-    def __getitem__(self, idx):
-        x = torch.randint(0, self.vocab_size, (self.seq_len,))
-        return x, x  # Use same for input and target in this demo
-
-def train():
-    # Initialize DeepSpeed
-    import argparse
-    parser = argparse.ArgumentParser()
-    parser = deepspeed.add_config_arguments(parser)
-    args = parser.parse_args()
-    
-    # Model
-    model = LargeTransformer(
-        vocab_size=50257,
-        dim=4096,
-        n_layers=32,
-        n_heads=32
-    )
-    
-    # Dataset
-    dataset = DummyDataset(size=10000, seq_len=512)
-    
-    # Initialize DeepSpeed engine
-    model_engine, optimizer, train_loader, _ = deepspeed.initialize(
-        args=args,
-        model=model,
-        model_parameters=model.parameters(),
-        training_data=dataset
-    )
-    
-    # Training loop
-    for epoch in range(3):
-        for step, (inputs, targets) in enumerate(train_loader):
-            inputs = inputs.to(model_engine.device)
-            targets = targets.to(model_engine.device)
-            
-            # Forward
-            outputs = model_engine(inputs)
-            loss = nn.CrossEntropyLoss()(
-                outputs.view(-1, outputs.size(-1)),
-                targets.view(-1)
-            )
-            
-            # Backward
-            model_engine.backward(loss)
-            
-            # Optimizer step
-            model_engine.step()
-            
-            if step % 10 == 0 and model_engine.local_rank == 0:
-                print(f"Epoch {epoch}, Step {step}, Loss: {loss.item():.4f}")
-        
-        # Save checkpoint
-        if model_engine.local_rank == 0:
-            model_engine.save_checkpoint(f"./checkpoints", tag=f"epoch_{epoch}")
-
-if __name__ == "__main__":
-    train()
-```
-
-### DeepSpeed Config
-
-```json
-{
-  "train_batch_size": 128,
-  "train_micro_batch_size_per_gpu": 2,
-  "gradient_accumulation_steps": 16,
-  "steps_per_print": 10,
-  "zero_optimization": {
-    "stage": 3,
-    "offload_optimizer": {
-      "device": "cpu",
-      "pin_memory": true
-    },
-    "offload_param": {
-      "device": "cpu",
-      "pin_memory": true
-    },
-    "overlap_comm": true,
-    "contiguous_gradients": true,
-    "sub_group_size": 1e9,
-    "reduce_bucket_size": 5e8,
-    "stage3_prefetch_bucket_size": 5e8,
-    "stage3_param_persistence_threshold": 1e6,
-    "stage3_max_live_parameters": 1e9,
-    "stage3_max_reuse_distance": 1e9,
-    "stage3_gather_16bit_weights_on_model_save": true
-  },
-  "optimizer": {
-    "type": "AdamW",
-    "params": {
-      "lr": 1e-4,
-      "betas": [0.9, 0.999],
-      "eps": 1e-8,
-      "weight_decay": 0.01
-    }
-  },
-  "scheduler": {
-    "type": "WarmupDecayLR",
-    "params": {
-      "warmup_min_lr": 0,
-      "warmup_max_lr": 1e-4,
-      "warmup_num_steps": 1000,
-      "total_num_steps": 100000
-    }
-  },
-  "fp16": {
-    "enabled": true,
-    "loss_scale": 0,
-    "loss_scale_window": 1000,
-    "initial_scale_power": 16,
-    "hysteresis": 2,
-    "min_loss_scale": 1
-  },
-  "activation_checkpointing": {
-    "partition_activations": true,
-    "cpu_checkpointing": false,
-    "contiguous_memory_optimization": true,
-    "number_checkpoints": 4
-  },
-  "wall_clock_breakdown": true
-}
-```
-
-### Launch Script
+The `code/train_zero3.py` script demonstrates training a large Transformer model (~7B parameters) using DeepSpeed ZeRO-3 with CPU offloading. The accompanying `code/ds_config_zero3.json` configuration file enables ZeRO Stage 3 with optimizer and parameter offloading to CPU, gradient accumulation, FP16 training, and activation checkpointing.
 
 ```bash
-#!/bin/bash
-# Single node (8 GPUs)
-deepspeed --num_gpus=8 code/train_zero3.py \
-  --deepspeed \
-  --deepspeed_config code/ds_config_zero3.json
+# Single node, 2 GPUs
+deepspeed --num_gpus=2 code/train_zero3.py \
+    --deepspeed --deepspeed_config code/ds_config_zero3.json
 
 # Multi-node (2 nodes, 8 GPUs each)
-deepspeed --num_gpus=8 \
-  --num_nodes=2 \
-  --master_addr=node0 \
-  --master_port=29500 \
-  code/train_zero3.py \
-  --deepspeed \
-  --deepspeed_config code/ds_config_zero3.json
+deepspeed --num_gpus=8 --num_nodes=2 \
+    --master_addr=node0 --master_port=29500 \
+    code/train_zero3.py \
+    --deepspeed --deepspeed_config code/ds_config_zero3.json
 ```
 
-### Example 2: Training with Megatron Core (Production Configuration)
+### Example 2: Training with Megatron Core (LLaMA-3 8B)
 
-Here's a production-ready example using Megatron Core to train a large model with tensor parallelism, based on actual Megatron-LM training scripts:
-
-**Training Script (`code/train_megatron_llama3_8b.sh`):**
+The `code/train_megatron_llama3_8b.sh` script provides a production-ready configuration for training LLaMA-3 8B with Megatron Core. Key features include context parallelism (CP=2) for 8K sequences, FP8 mixed precision for Hopper/Ada GPUs, distributed optimizer, and communication overlap.
 
 ```bash
-#!/bin/bash
+# Single node training with mock data
+./code/train_megatron_llama3_8b.sh
 
-# LLaMA-3 8B training with Megatron Core
-# Configuration: 8 GPUs, FP8 precision, context parallelism for long sequences
-
-export CUDA_DEVICE_MAX_CONNECTIONS=1
-
-GPUS_PER_NODE=8
-NUM_NODES=1
-MASTER_ADDR=${MASTER_ADDR:-localhost}
-MASTER_PORT=${MASTER_PORT:-6000}
-NODE_RANK=${NODE_RANK:-0}
-
-CHECKPOINT_PATH=${1:-"checkpoints/llama3_8b_fp8"}
-TENSORBOARD_LOGS_PATH=${2:-"tensorboard_logs/llama3_8b_fp8"}
-TOKENIZER_ARG=${3:-"MOCK"}
-DATA_ARG=${4:-"MOCK"}
-
-# Model parallelism configuration
-TP_SIZE=1      # Tensor parallelism (1 = no TP, use CP instead)
-CP_SIZE=2      # Context parallelism for 8K sequence
-PP_SIZE=1      # Pipeline parallelism
-MICRO_BATCH_SIZE=1
-GLOBAL_BATCH_SIZE=128
-
-# Model architecture (LLaMA-3 8B)
-MODEL_ARGS=(
-    --use-mcore-models
-    --num-layers 32
-    --hidden-size 4096
-    --ffn-hidden-size 14336
-    --num-attention-heads 32
-    --group-query-attention
-    --num-query-groups 8
-    --seq-length 8192
-    --max-position-embeddings 8192
-    --position-embedding-type rope
-    --rotary-base 1000000
-    --swiglu
-    --untie-embeddings-and-output-weights
-    --disable-bias-linear
-    --attention-backend fused
-)
-
-# Training hyperparameters
-TRAINING_ARGS=(
-    --micro-batch-size $MICRO_BATCH_SIZE
-    --global-batch-size $GLOBAL_BATCH_SIZE
-    --lr 0.00015
-    --min-lr 0.00001
-    --lr-decay-style cosine
-    --weight-decay 0.1
-    --adam-beta1 0.9
-    --adam-beta2 0.95
-    --clip-grad 1.0
-    --bf16
-    --grad-reduce-in-bf16
-    --cross-entropy-loss-fusion
-    --calculate-per-token-loss
-)
-
-# FP8 configuration (for Hopper/Ada/Blackwell GPUs)
-FP8_ARGS=(
-    --fp8-format hybrid
-    --fp8-amax-history-len 1024
-    --fp8-amax-compute-algo max
-    --fp8-param-gather
-)
-
-# Parallelism configuration
-PARALLEL_ARGS=(
-    --tensor-model-parallel-size $TP_SIZE
-    --context-parallel-size $CP_SIZE
-    --sequence-parallel
-    --use-distributed-optimizer
-    --overlap-grad-reduce
-    --overlap-param-gather
-)
-
-# Data configuration
-if [[ "$TOKENIZER_ARG" == "MOCK" ]]; then
-    DATA_ARGS=(
-        --mock-data
-        --tokenizer-type NullTokenizer
-        --vocab-size 128256
-    )
-else
-    DATA_ARGS=(
-        --data-path $DATA_ARG
-        --tokenizer-type HuggingFaceTokenizer
-        --tokenizer-model $TOKENIZER_ARG
-        --vocab-size 128256
-    )
-fi
-
-# Logging and checkpointing
-LOGGING_ARGS=(
-    --log-interval 1
-    --save-interval 1000
-    --eval-interval 100
-    --eval-iters 32
-    --save $CHECKPOINT_PATH
-    --load $CHECKPOINT_PATH
-    --tensorboard-dir $TENSORBOARD_LOGS_PATH
-    --ckpt-format torch_dist
-)
-
-# Run training
-torchrun --nproc_per_node=$GPUS_PER_NODE \
-    --nnodes=$NUM_NODES \
-    --node_rank=$NODE_RANK \
-    --master_addr=$MASTER_ADDR \
-    --master_port=$MASTER_PORT \
-    pretrain_gpt.py \
-    ${MODEL_ARGS[@]} \
-    ${TRAINING_ARGS[@]} \
-    ${FP8_ARGS[@]} \
-    ${PARALLEL_ARGS[@]} \
-    ${DATA_ARGS[@]} \
-    ${LOGGING_ARGS[@]}
-```
-
-**Key Features of This Configuration:**
-
-1. **Context Parallelism**: Uses CP=2 to handle 8K sequence length efficiently
-2. **FP8 Training**: Enables FP8 mixed precision for Hopper/Ada/Blackwell GPUs
-3. **Distributed Optimizer**: Shards optimizer states across data-parallel ranks
-4. **Communication Overlap**: Enables gradient reduction and parameter gathering overlap
-5. **Production-Ready**: Based on actual Megatron-LM training scripts
-
-**Running the Script:**
-
-```bash
-# Single node training
+# With real data
 ./code/train_megatron_llama3_8b.sh \
     checkpoints/llama3_8b \
     tensorboard_logs/llama3_8b \
     /path/to/tokenizer.model \
     /path/to/data_prefix
 
-# Multi-node training (2 nodes, 8 GPUs each)
-# On node 0:
+# Multi-node (on each node, set NODE_RANK appropriately)
 MASTER_ADDR=node0 NODE_RANK=0 ./code/train_megatron_llama3_8b.sh ...
-
-# On node 1:
-MASTER_ADDR=node0 NODE_RANK=1 ./code/train_megatron_llama3_8b.sh ...
 ```
 
 ### Example 3: Megatron MoE Training (Mixtral 8x7B)
 
-Here's a complete example for training a Mixture-of-Experts model using Megatron:
-
-**Training Script (`code/train_megatron_mixtral.sh`):**
+The `code/train_megatron_mixtral.sh` script demonstrates training a Mixture-of-Experts model with Megatron's expert parallelism. This configuration requires 64 GPUs (8 nodes × 8 GPUs) and features 8-way expert parallelism, 4-stage pipeline parallelism, all-to-all token routing, and auxiliary loss for load balancing.
 
 ```bash
-#!/bin/bash
-
-# Mixtral 8x7B MoE training with Megatron
-# Configuration: 64 GPUs (8 nodes × 8 GPUs), Expert Parallelism
-
-export CUDA_DEVICE_MAX_CONNECTIONS=1
-
-GPUS_PER_NODE=8
-NNODES=8
-MASTER_ADDR=${MASTER_ADDR:-"node0"}
-MASTER_PORT=${MASTER_PORT:-"6000"}
-NODE_RANK=${NODE_RANK:-"0"}
-
-CHECKPOINT_PATH=$1
-TOKENIZER_MODEL=$2
-DATA_PATH=$3
-
-# Model architecture (Mixtral 8x7B)
-MODEL_ARGS=(
-    --use-mcore-models
-    --num-layers 32
-    --hidden-size 4096
-    --ffn-hidden-size 14336
-    --num-attention-heads 32
-    --seq-length 4096
-    --max-position-embeddings 32768
-    --normalization RMSNorm
-    --position-embedding-type rope
-    --swiglu
-    --group-query-attention
-    --num-query-groups 8
-)
-
-# MoE configuration
-MOE_ARGS=(
-    --num-experts 8
-    --expert-model-parallel-size 8
-    --moe-router-topk 2
-    --moe-router-load-balancing-type aux_loss
-    --moe-aux-loss-coeff 1e-2
-    --moe-grouped-gemm
-    --moe-permute-fusion
-    --moe-token-dispatcher-type alltoall
-)
-
-# Parallelism configuration
-PARALLEL_ARGS=(
-    --tensor-model-parallel-size 1
-    --pipeline-model-parallel-size 4
-    --expert-model-parallel-size 8
-    --sequence-parallel
-    --use-distributed-optimizer
-    --overlap-grad-reduce
-    --overlap-param-gather
-)
-
-# Training configuration
-TRAINING_ARGS=(
-    --micro-batch-size 1
-    --global-batch-size 256
-    --lr 1e-4
-    --weight-decay 0.1
-    --clip-grad 1.0
-    --bf16
-)
-
-# Data configuration
-DATA_ARGS=(
-    --tokenizer-type Llama2Tokenizer
-    --tokenizer-model ${TOKENIZER_MODEL}
-    --data-path $DATA_PATH
-    --split 99990,8,2
-)
-
-# Logging
-LOGGING_ARGS=(
-    --log-interval 1
-    --save-interval 10000
-    --eval-interval 1000
-    --save $CHECKPOINT_PATH
-    --load $CHECKPOINT_PATH
-    --tensorboard-dir "${CHECKPOINT_PATH}/tensorboard"
-    --ckpt-format torch_dist
-)
-
-torchrun --nproc_per_node=$GPUS_PER_NODE \
-    --nnodes=$NNODES \
-    --node_rank=$NODE_RANK \
-    --master_addr=$MASTER_ADDR \
-    --master_port=$MASTER_PORT \
-    pretrain_gpt.py \
-    ${MODEL_ARGS[@]} \
-    ${MOE_ARGS[@]} \
-    ${PARALLEL_ARGS[@]} \
-    ${TRAINING_ARGS[@]} \
-    ${DATA_ARGS[@]} \
-    ${LOGGING_ARGS[@]}
+# Requires 64 GPUs across 8 nodes
+# On each node (set NODE_RANK=0..7):
+MASTER_ADDR=node0 NODE_RANK=0 ./code/train_megatron_mixtral.sh \
+    checkpoints/mixtral \
+    /path/to/tokenizer.model \
+    /path/to/data_prefix
 ```
-
-**Key Features:**
-
-* **Expert Parallelism**: 8-way EP distributes 8 experts across GPUs
-* **Pipeline Parallelism**: 4 pipeline stages for inter-node scaling
-* **Token Routing**: All-to-all communication for efficient expert routing
-* **Load Balancing**: Auxiliary loss for balanced token distribution
-* **Performance**: Achieves 468 TFLOPS for Mixtral 8X7B training
 
 ## ZeRO vs FSDP vs Megatron: When to Use Which?
 
