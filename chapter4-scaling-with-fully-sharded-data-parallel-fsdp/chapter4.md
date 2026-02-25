@@ -73,6 +73,7 @@ To summarize, the difference between FSDP1 and FSDP2 is not the collectives (bot
 
 Figure~\ref{fig:fsdp1-vs-fsdp2-layout} illustrates the difference: FSDP1 concatenates parameters into a single flat tensor before sharding, while FSDP2 shards each parameter independently on dimension 0.
 
+
 ### Original FSDP (FSDP1)
 
 The **original FSDP** (often called FSDP1) is the wrapper class `FullyShardedDataParallel` in `torch.distributed.fsdp`. It flattens the parameters of each wrapped module into a single `FlatParameter` object (one instance of the class) and shards that across ranks; the same all-gather and reduce-scatter ideas apply. Usage is similar to DDP: you wrap the model (or submodules via `wrap()`), then train as usual.
