@@ -274,154 +274,45 @@ NVMe offloading is slower than CPU offloading (expect 30-50% throughput reductio
 
 ## ZeRO++: Communication-Optimized ZeRO
 
-ZeRO++ reduces ZeRO-3's communication overhead through three techniques: quantized weights (qwZ), hierarchical partitioning (hpZ), and quantized gradients (qgZ).
+ZeRO-3 eliminates memory redundancy, but it introduces significant communication overhead[^zero-pp].
 
-### The Communication Problem in ZeRO-3
+[^zero-pp]: Wang et al., "ZeRO++: Extremely Efficient Collective Communication for Giant Model Training" (2023). https://arxiv.org/abs/2306.10209 Every forward pass requires an all-gather to reconstruct parameters; every backward pass does the same plus a reduce-scatter for gradients. For large models on multi-node clusters, this communication can dominate training time.
 
-For a 175B parameter model with 4 GPUs, each iteration:
+ZeRO++ addresses this with three complementary techniques. The first, **quantized weights (qwZ)**, reduces all-gather traffic by transmitting parameters in INT8 instead of FP16, then dequantizing after receipt—a 2× reduction in communication volume with minimal accuracy impact since quantization errors don't accumulate across iterations.
 
-```
-Forward:  AllGather 175B params → 175 GB × 2 bytes = 350 GB total traffic
-Backward: AllGather 175B params → 350 GB
-          ReduceScatter 175B grads → 350 GB
--------------------------------------------------------------------------------
-Total: 1,050 GB per iteration
-
-At 400 GB/s InfiniBand → 2.6 seconds just for communication!
-```
-
-### qwZ: Quantized Weight Communication
-
-**Idea**: All-gather parameters in low precision (int8 or fp8), convert to fp16/bf16 after receiving.
-
-```python
-# Without qwZ
-GPU 0: send params[shard_0] as fp16 → 88 GB
-GPU 1: send params[shard_1] as fp16 → 88 GB
-...
-
-# With qwZ  
-GPU 0: quantize to int8 → send → dequantize to fp16 → 22 GB (4× reduction)
-GPU 1: quantize to int8 → send → dequantize to fp16 → 22 GB
-...
-```
-
-**Communication savings**: 4× for all-gather (fp16 → int8 reduces by half per direction)
-
-**Accuracy**: Surprisingly minimal impact! Quantization error is small and doesn't accumulate (parameters are re-quantized each time).
-
-### hpZ: Hierarchical Partitioning (HSDP)
-
-**Problem**: Inter-node communication (InfiniBand) is much slower than intra-node (NVLink).
-
-```
-NVLink (intra-node):   600 GB/s
-InfiniBand (inter-node): 400 GB/s  
-
-Multi-node ZeRO-3: Treats all GPUs equally → lots of slow inter-node traffic
-```
-
-**Solution**: Hybrid sharding
-- **Intra-node**: Replicate (everyone in the node has same shard)
-- **Inter-node**: Shard (different nodes have different shards)
-
-```
-Example: 2 nodes, 4 GPUs per node, 175B param model
-
-Traditional ZeRO-3:
-  Node 0: GPU0[0:22B], GPU1[22:44B], GPU2[44:66B], GPU3[66:88B]
-  Node 1: GPU4[88:110B], GPU5[110:132B], GPU6[132:154B], GPU7[154:175B]
-  
-  Forward: Each GPU all-gathers from all 8 GPUs (lots of inter-node!)
-
-hpZ (HSDP):
-  Node 0: GPU0,1,2,3 all have [0:88B]  (replicated within node)
-  Node 1: GPU4,5,6,7 all have [88:175B]
-  
-  Forward: 
-    - Intra-node: AllGather [0:88B] via NVLink (fast!)
-    - Inter-node: Only 1 GPU per node exchanges via InfiniBand
-    - Much less inter-node traffic!
-```
-
-**Communication savings**: 
-- Intra-node: Uses fast NVLink (no change)
-- Inter-node: Reduces from N×GPUs to N×nodes (typically 4-8× reduction)
-
-**Trade-off**: Uses more memory (2× vs full sharding) but much faster for multi-node.
+The second technique, **hierarchical partitioning (hpZ)**, exploits the fact that intra-node communication (NVLink, ~600 GB/s) is much faster than inter-node (InfiniBand, ~400 GB/s). Instead of sharding uniformly across all GPUs, hpZ replicates parameters within each node and shards only across nodes. This means intra-node all-gathers use fast NVLink, while inter-node traffic is reduced to one representative per node.
 
 ![hpZ hierarchical partitioning: ZeRO-3 vs hpZ.](img/hpz_hierarchical.png){#fig:hpz .block width=100% align=center}
 
-Figure~\ref{fig:hpz} contrasts ZeRO-3 and hpZ communication patterns. In ZeRO-3 (left), each GPU holds a unique shard (S0–S7), so all-gather requires communication across all 8 GPUs including slow inter-node links. In hpZ (right), GPUs within each node hold the same shard (all of Node 0 has S0, all of Node 1 has S1). Intra-node all-gather uses fast NVLink, and only one representative per node communicates across the slower inter-node network.
+Figure~\ref{fig:hpz} contrasts ZeRO-3 and hpZ communication patterns. In ZeRO-3 (left), each GPU holds a unique shard, so all-gather requires communication across all GPUs including slow inter-node links. In hpZ (right), GPUs within each node share the same shard. Intra-node all-gather uses fast NVLink, and only one representative per node communicates across the slower inter-node network.
 
-### qgZ: Quantized Gradient Communication
+The third technique, **quantized gradients (qgZ)**, applies the same INT8 quantization to gradients during reduce-scatter.
 
-Similar to qwZ but for gradients during reduce-scatter:
+The configuration enables these optimizations selectively:
 
 ```python
-# Reduce-scatter with quantization
-gradients_fp16 → quantize to int8 → reduce_scatter → dequantize → fp16
-```
-
-**Key difference from qwZ**: 
-- Quantization happens *before* reduction
-- Needs careful handling with gradient clipping
-
-### ZeRO++ Performance
-
-For 175B model on 64 GPUs (8 nodes × 8 GPUs):
-
-```
-              Communication    Throughput
-ZeRO-3:       1,050 GB/iter   100%
-ZeRO++ (qwZ): 525 GB/iter     140%  (quantized weights)
-ZeRO++ (hpZ): 350 GB/iter     180%  (hierarchical partition)
-ZeRO++ (all): 175 GB/iter     220%  (qwZ + hpZ + qgZ)
-```
-
-### When to Use ZeRO++
-
-- **Large-scale multi-node training** (8+ nodes) where inter-node communication becomes a bottleneck
-- **Heterogeneous network environments** where intra-node (NVLink) is much faster than inter-node (InfiniBand)
-- Large models (50B+) where communication overhead dominates training time
-- Have sufficient memory for 2× replication within nodes (hpZ trade-off)
-- **Note**: Modern NCCL and PyTorch DDP/FSDP already provide significant communication optimizations. ZeRO++ is most valuable in extreme-scale, multi-node scenarios where these optimizations are insufficient.
-
-### DeepSpeed Config
-
-```json
-{
-  "zero_optimization": {
-    "stage": 3,
-    "zero_quantized_weights": true,
-    "zero_hpz_partition_size": 8,
-    "zero_quantized_gradients": true
-  },
-  "communication_data_type": "fp16",
-  "fp16": {
-    "enabled": true
-  }
+ds_config = {
+    "train_batch_size": 32,
+    "optimizer": {"type": "Adam", "params": {"lr": 1e-4}},
+    "fp16": {"enabled": True},
+    "zero_optimization": {
+        "stage": 3,
+        "zero_quantized_weights": True,      # qwZ
+        "zero_hpz_partition_size": 8,        # hpZ (GPUs per node)
+        "zero_quantized_gradients": True     # qgZ
+    }
 }
 ```
 
-**Parameters:**
-
-- `zero_quantized_weights`: Enable qwZ
-- `zero_hpz_partition_size`: GPUs per replica group (= GPUs per node for HSDP)
-- `zero_quantized_gradients`: Enable qgZ
-
-To experiment with ZeRO++ communication optimizations:
+The `zero_hpz_partition_size` should match the number of GPUs per node in your cluster. To experiment with these optimizations:
 
 ```bash
-# Quantized weights (reduces all-gather communication)
 deepspeed --num_gpus=2 code/zero_pp_example.py --enable_qwz
-
-# Hierarchical partitioning (reduces inter-node communication)
 deepspeed --num_gpus=2 code/zero_pp_example.py --enable_hpz
-
-# All ZeRO++ optimizations
 deepspeed --num_gpus=2 code/zero_pp_example.py --enable_qwz --enable_hpz --enable_qgz
 ```
+
+ZeRO++ is most valuable for large-scale multi-node training where inter-node communication is the bottleneck. For single-node training or small clusters, the benefits are modest since intra-node communication is already fast.
 
 ## Megatron: Computation Parallelism as the Second Axis
 
