@@ -2,8 +2,8 @@
 
 *Serving large language models at scale with high throughput and low latency*
 
-> Inference presents a fundamentally different set of challenges: while training processes batches of data in a controlled environment, inference must handle unpredictable request patterns, maintain low latency for interactive applications, and efficiently manage memory for variable-length sequences.
-- Adapted from Chapter 6
+> Inference is the new web app.
+- Clayton Coleman, Distinguished Engineer at Google
 
 **Code Summary**
 

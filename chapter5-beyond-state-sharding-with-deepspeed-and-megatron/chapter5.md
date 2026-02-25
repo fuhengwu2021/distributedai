@@ -3,7 +3,7 @@
 *Extending memory capacity and sharding computation for very large models*
 
 > The future is already here. It's just unevenly distributed.
-- William Gibson
+- William Gibson, Writer
 
 **Code Summary**
 
