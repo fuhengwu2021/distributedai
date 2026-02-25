@@ -966,7 +966,7 @@ ib_write_bw  # On one node
 ib_write_bw <other_node_ip>  # On another node
 ```
 
-## Profiling DDP Performance
+## Profiling DDP Performance {#sec:ddp-profiling}
 
 Before optimizing DDP, you need to understand where time is spent. PyTorch's profiler provides detailed insights into DDP's computation-communication overlap, gradient synchronization overhead, and data loading bottlenecks.
 

@@ -655,44 +655,37 @@ Once you have FSDP working, you'll want to optimize performance. The main bottle
 
 ### Profiling FSDP Training
 
-Use PyTorch's profiler to understand where time is spent:
+Use PyTorch's profiler to understand where time is spent. A complete runnable example is in `code/fsdp2_profile.py`:
+
+```bash
+torchrun --nproc_per_node=2 code/fsdp2_profile.py
+```
+
+The key pattern is wrapping your training loop with `profile()` and using `record_function()` to label different phases:
 
 ```python
 from torch.profiler import profile, record_function, ProfilerActivity
 
-def train_with_profiling(model, dataloader, optimizer, num_iterations=10):
-    rank = torch.distributed.get_rank()
-    
-    with profile(
-        activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
-        record_shapes=True,
-        profile_memory=True,
-        with_stack=True,
-    ) as prof:
-        with record_function("training_loop"):
-            for i, (data, target) in enumerate(dataloader):
-                if i >= num_iterations:
-                    break
-                data = data.cuda(rank, non_blocking=True)
-                target = target.cuda(rank, non_blocking=True)
-                with record_function("forward"):
-                    output = model(data)
-                    loss = criterion(output, target)
-                with record_function("backward"):
-                    loss.backward()
-                with record_function("optimizer"):
-                    optimizer.step()
-                    optimizer.zero_grad()
-    if rank == 0:
-        print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=30))
-        prof.export_chrome_trace("fsdp_trace.json")
+with profile(
+    activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+    record_shapes=True,
+    profile_memory=True,
+) as prof:
+    for i in range(num_iterations):
+        with record_function("forward"):
+            output = model(data)
+            loss = criterion(output, target)
+        with record_function("backward"):
+            loss.backward()
+        with record_function("optimizer"):
+            optimizer.step()
+            optimizer.zero_grad()
+
+print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=30))
+prof.export_chrome_trace("fsdp_trace.json")
 ```
 
-Look for:
-
-- **All-gather operations**: Should overlap with computation. If they don't, prefetching might help.
-- **Reduce-scatter operations**: Should overlap with gradient computation.
-- **Activation memory**: Use `profile_memory=True` to see peak memory usage.
+The trace file is in Chrome trace format. See Section~\ref{sec:ddp-profiling} in Chapter 3 for how to open and interpret these traces. The short version: open `chrome://tracing` in Chrome, click "Load", and select the `.json` file. In the timeline, look for all-gather and reduce-scatter operations—ideally they overlap with computation. If you see them blocking, prefetching might help. Also check peak memory usage (`profile_memory=True` enables this) to see if activations are eating more than expected.
 
 ### Optimizing Communication
 
