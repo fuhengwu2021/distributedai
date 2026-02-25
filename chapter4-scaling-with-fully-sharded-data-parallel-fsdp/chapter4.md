@@ -94,11 +94,21 @@ model = FSDP(
 )
 ```
 
-You can use `FSDP.set_state_dict_type()` and `StateDictConfig` / `OptimStateDictConfig` for checkpointing; mixed precision is configured via `MixedPrecision`. FSDP1 is stable and still used in many codebases. For instance, **Wan2.2** (open large-scale video generative models) runs multi-GPU inference with PyTorch FSDP and DeepSpeed Ulysses (sequence parallelism).[^wan22] For new PyTorch projects, FSDP2 is recommended; when you work with or extend projects that already use FSDP1, the wrapper style and flat-parameter behavior are what you will see.
+You can use `FSDP.set_state_dict_type()` and `StateDictConfig` / `OptimStateDictConfig` for checkpointing; mixed precision is configured via `MixedPrecision`.
+
+Although FSDP2 is the recommended API for new projects, FSDP1 remains relevant for technical reasons beyond simple legacy inertia. Consider **Wan2.2**, a cutting-edge 2025 video generative model that still uses FSDP1.[^wan22] Several factors drive this choice.
+
+First, Wan2.2 relies on DeepSpeed Ulysses for sequence parallelism to handle high-resolution video frames. Ulysses uses specific all-to-all patterns for attention head distribution that were hardened against FSDP1's interface. While FSDP2's `DeviceMesh` is designed for multi-dimensional parallelism, hybrid FSDP + Ulysses setups often find FSDP1's hooks into `distributed_c10d` group calls more stable and predictable.
+
+Second, the Mixture-of-Experts architecture (27B total / 14B active parameters) requires precise control over non-uniform sharding. FSDP1's manual wrapping strategy via `ModuleWrapPolicy` gives developers granular control when experts are swapped or offloaded dynamically across timesteps—often easier to debug than FSDP2's `fully_shard` annotations for this use case.
+
+Third, the model uses UMT5-XXL for text encoding, a massive frozen parameter block. Many optimized T5 wrappers in the Hugging Face ecosystem are built for FSDP1's `ShardedGradScaler` and auto-wrap policies. Moving the entire pipeline (encoder + DiT + VAE) to FSDP2 would require rewriting the T5 integration to avoid mixed-version distributed errors.
+
+When you encounter or extend such projects, understanding the wrapper-class style and flat-parameter behavior of FSDP1 becomes essential.
 
 ## FSDP2: The Per-Parameter-Sharding API
 
-The new API uses `fully_shard()` as a function that modifies modules in place. No wrapper class needed—it's more functional and composable. This is a significant departure from the original FSDP, which used a wrapper class similar to DDP.
+For new projects, FSDP2 offers a cleaner design. Instead of wrapping modules in a class, FSDP2 uses `fully_shard()` as a function that modifies modules in place—more functional and composable. This is a significant departure from the original FSDP, which used a wrapper class similar to DDP.
 
 Here's what the API looks like. A complete runnable example is in `code/train_fsdp2.py`:
 
