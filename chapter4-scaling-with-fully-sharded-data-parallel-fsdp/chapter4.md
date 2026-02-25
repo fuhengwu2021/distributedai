@@ -179,6 +179,8 @@ mp_policy = MixedPrecisionPolicy(
 )
 ```
 
+Because FSDP2 shards per-parameter rather than flattening into a single buffer, you can mix dtypes freely—some layers in fp8, others in bf16. The original FSDP required all parameters in a group to share the same dtype.
+
 **`offload_policy`**: CPU/NVMe offloading configuration. This moves optimizer states or parameters to CPU/NVMe to save GPU memory:
 
 ```python
@@ -359,25 +361,11 @@ fully_shard(model, **fsdp_kwargs)
 
 For models that do not fit in memory even for loading, see Section~\ref{sec:fsdp-initialization-best-practices} (meta device, `to_empty`, and `reset_parameters`).
 
-## Key Features of FSDP2
-
-The per-parameter-sharding design enables several things that the original FSDP couldn't do easily:
-
-**Flexible fp8 all-gather**: You can mix fp8 weights and non-fp8 parameters in the same all-gather. This is useful for models that use fp8 for some layers but not others. The original FSDP required all parameters in a group to have the same dtype, which was limiting.
-
-**Frozen parameters**: You can have frozen and trainable parameters in the same communication group without extra memory overhead. This is handy for fine-tuning where you freeze some layers. With the original FSDP, you'd need separate groups, which added complexity.
-
-**Simpler checkpointing**: Sharded state dicts match the training representation, so saving and loading is straightforward. Each rank saves its shard, and loading is just reading the shards back. No need to gather all parameters to rank 0, save, then shard again on load.
-
-**Better compiler integration**: The per-parameter design works better with `torch.compile` and other graph compilers that want to optimize communication patterns. The compiler can see individual parameters and optimize all-gather/reduce-scatter operations more effectively.
-
-**Communication-free state dicts**: When saving checkpoints, you can save sharded state dicts directly without gathering. This is faster and uses less memory. When loading, you can load sharded state dicts directly without broadcasting.
-
 ## Checkpointing with FSDP2
 
-Checkpointing is crucial for long training runs, and FSDP2 makes it straightforward. The key insight is that you can save sharded state dicts directly—each rank saves its shard, and you can load them back without gathering.
+Once your model is sharded and training, you'll want to save checkpoints. Long runs can fail—hardware errors, preemptions, bugs—and losing days of progress is painful. With FSDP2, checkpointing is simpler than before: because sharded state dicts match the training representation, each rank just saves its shard directly. No gathering to rank 0, no resharding on load. Saving and loading happen locally, which is faster and uses less memory.
 
-There are two approaches: using the Distributed Checkpoint (DCP) API, or manually handling sharded state dicts. Let's look at both.
+There are two approaches: using the Distributed Checkpoint (DCP) API, or manually handling sharded state dicts.
 
 ### Using the DCP API (Recommended)
 
@@ -1399,7 +1387,7 @@ fully_shard(model, mesh=mesh)
 model = torch.compile(model)  # Compile after FSDP
 ```
 
-The compiler can optimize all-gather and reduce-scatter operations, potentially improving performance.
+The per-parameter design helps here. Because the compiler can see individual parameters rather than a flattened buffer, it can optimize all-gather and reduce-scatter patterns more effectively—fusing operations, reordering communication, and so on.
 
 ### Custom Communication Hooks
 
