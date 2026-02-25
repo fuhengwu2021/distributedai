@@ -284,7 +284,9 @@ The second technique, **hierarchical partitioning (hpZ)**, exploits the fact tha
 
 ![hpZ hierarchical partitioning: ZeRO-3 vs hpZ.](img/hpz_hierarchical.png){#fig:hpz .block width=100% align=center}
 
-Figure~\ref{fig:hpz} contrasts ZeRO-3 and hpZ communication patterns. In ZeRO-3 (left), each GPU holds a unique shard, so all-gather requires communication across all GPUs including slow inter-node links. In hpZ (right), GPUs within each node share the same shard. Intra-node all-gather uses fast NVLink, and only one representative per node communicates across the slower inter-node network.
+Figure~\ref{fig:hpz} contrasts ZeRO-3 and hpZ for a setup with 2 nodes, 2 GPUs per node (4 GPUs total). In ZeRO-3 (left), each GPU holds a unique shard (S0–S3), so reconstructing full parameters requires all-gather across all 4 GPUs. The red arrows show that every GPU must communicate with every other GPU across the node boundary—S0 and S1 in Node 0 each need to fetch S2 and S3 from Node 1, and vice versa. This cross-node traffic uses the slower InfiniBand interconnect.
+
+In hpZ (right), both GPUs within Node 0 hold the same shard (S0), and both GPUs within Node 1 hold shard S1. The single green arrow represents the simplified communication pattern: only one exchange between nodes is needed to share S0 and S1. Within each node, GPUs already have identical data, so no intra-node communication is required for the replicated portion. This dramatically reduces the amount of slow inter-node traffic.
 
 The third technique, **quantized gradients (qgZ)**, applies the same INT8 quantization to gradients during reduce-scatter.
 
@@ -298,13 +300,13 @@ ds_config = {
     "zero_optimization": {
         "stage": 3,
         "zero_quantized_weights": True,      # qwZ
-        "zero_hpz_partition_size": 8,        # hpZ (GPUs per node)
+        "zero_hpz_partition_size": 2,        # hpZ (GPUs per node)
         "zero_quantized_gradients": True     # qgZ
     }
 }
 ```
 
-The `zero_hpz_partition_size` should match the number of GPUs per node in your cluster. To experiment with these optimizations:
+The `zero_hpz_partition_size` should match the number of GPUs per node in your cluster (2 in our example). To experiment with these optimizations:
 
 ```bash
 deepspeed --num_gpus=2 code/zero_pp_example.py --enable_qwz
