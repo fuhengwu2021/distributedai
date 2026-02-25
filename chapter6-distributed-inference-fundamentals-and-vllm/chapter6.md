@@ -53,7 +53,7 @@ vLLM supports three main types of models. Base models like `facebook/opt-125m` a
 
 The vLLM server exposes an OpenAI-compatible API with endpoints for completions, chat completions, embeddings, and more. For a complete list of endpoints with detailed descriptions and usage examples, see the **OpenAI-Compatible API Endpoints** section in the Appendix.
 
-**Pull the Latest Image**
+__Pull the Latest Image__
 
 Pull the latest Docker image. The image requires approximately 8GB of disk space.
 
@@ -61,7 +61,7 @@ Pull the latest Docker image. The image requires approximately 8GB of disk space
 docker pull vllm/vllm-openai:latest
 ```
 
-**Run the Docker Container**
+__Run the Docker Container__
 
 The Docker image runs an OpenAI-compatible server. To serve a base model like `facebook/opt-125m`, run:
 
@@ -102,7 +102,7 @@ The `--ipc=host` flag allows the container to access the host's shared memory, w
 
 The model name is specified as a positional argument after the image tag. You can append additional vLLM engine arguments after the model name.
 
-**Verify the Setup**
+__Verify the Setup__
 
 Once the container is running, verify it's working correctly. First, check that the server is responding:
 
@@ -166,7 +166,7 @@ curl http://localhost:8000/v1/embeddings \
 
 #### Install and Run from Package Manager (uv, conda, pip)
 
-**Method 1: Using uv (Recommended)**
+__Method 1: Using uv (Recommended)__
 
 ```bash
 # Install uv (if not already installed)
@@ -188,7 +188,7 @@ Alternatively, use `uv run` to execute vLLM commands without creating a permanen
 uv run --with vllm vllm --help
 ```
 
-**Method 2: Using conda**
+__Method 2: Using conda__
 
 ```bash
 # Create a conda environment
@@ -202,7 +202,7 @@ pip install --upgrade uv
 uv pip install vllm --torch-backend=auto
 ```
 
-**Method 3: Using pip directly**
+__Method 3: Using pip directly__
 
 ```bash
 # Create a virtual environment
@@ -215,7 +215,7 @@ pip install vllm
 
 **Note**: When using pip directly, ensure you have the correct PyTorch version installed for your CUDA version.
 
-**Verifying Installation**
+__Verifying Installation__
 
 After installation, verify that vLLM is correctly installed:
 
@@ -311,6 +311,8 @@ curl http://localhost:8000/v1/completions \
 
 ### Decoder-Only Transformer Architecture
 
+![Decoder-only Transformer.](img/decoder_only.png){#fig:decoder-only .wrap width=30% align=top-right}
+
 Modern large language models like GPT, LLaMA, and their variants use decoder-only transformer architectures. Decoder-only transformer is proved to be highly effective for autoregressive language modeling and text generation tasks. These models consist of a stack of identical decoder layers, each containing a self-attention sublayer with causal masking, a feed-forward network (MLP), and residual connections with layer normalization.
 
 The self-attention mechanism uses three learned linear projections: **Query (Q)**, **Key (K)**, and **Value (V)**. For each token at position $i$, the model computes:
@@ -325,13 +327,9 @@ $$\text{Attention}(Q, K, V) = \text{softmax}\left(\frac{Q \times K^T}{\sqrt{d_k}
 
 where $d_k$ is the dimension of the key vectors. The causal mask ensures that tokens only attend to previous positions (set to $-\infty$ before softmax), preventing the model from "seeing" future tokens.
 
-A typical architecutre is as follows:
+Figure~\ref{fig:decoder-only} shows a typical decoder-only architecture. Each layer consists of two sub-layers: a masked multi-head self-attention mechanism and a position-wise feed-forward network (FFN). The masked attention ensures that position $i$ can only attend to positions $\leq i$, enforcing the autoregressive property. The FFN typically expands the hidden dimension by 4x (or uses SwiGLU with ~2.7x expansion in modern architectures like LLaMA), applies a non-linearity, and projects back. Residual connections and layer normalization stabilize training. Note that this diagram follows the original Transformer's "Add & Norm" order; modern LLMs like GPT and LLaMA use "Pre-Norm" (normalize before attention/FFN) for better training stability.
 
-![Decoder-only Transformer](img/decoder_only.png)
-
-Note: This decoder is from the original Transformer papaer, so the `Add&Norm` should be `Norm&Add` for today's LLM.
-
-**Notation**
+__Notation__
 
 We use the following notation throughout this section:
 
@@ -346,23 +344,34 @@ We use the following notation throughout this section:
 
 ### Text Generation Process: Prefill and Decode
 
-When serving generation requests, we typically batch multiple prompts for higher throughput. The input has shape $B \times L_2 \times D$, where $L_2$ is the prompt length.
+![Input shape.](img/input.png){#fig:transformer-input .block width=40% align=top-left}
 
-![Input shape](img/input.png)
+Figure~\ref{fig:transformer-input} illustrates the input tensor structure. When serving generation requests, we typically batch multiple prompts for higher throughput. The input has shape $B \times L_2 \times D$, where $B$ is the batch size, $L_2$ is the prompt length (number of tokens), and $D$ is the hidden dimension (e.g., 4096 for LLaMA-7B). Each token is represented as a $D$-dimensional embedding vector, and the entire prompt becomes a matrix that flows through the transformer layers.
 
-Text generation occurs in two distinct phases. The first phase, called **prefill**, processes the entire prompt sequence in parallel to initialize the model's internal state. During prefill, the model processes all prompt tokens simultaneously:
+Text generation occurs in two distinct phases, each with fundamentally different computational characteristics. Understanding these phases is essential for optimizing inference performance.
 
-![Prefill Stage](img/prefill.png)
+__Prefill Phase__
 
-The input $X_0$ (the prompt) after transformer blocks generates $Y_0$, which is the first output token. This token then becomes part of the input for the next generation step.
+The first phase, called **prefill** (also known as the "prompt processing" or "context encoding" phase), processes the entire prompt sequence in parallel. This is where the model "reads" and "understands" the input before generating any output. During prefill, all $L_2$ prompt tokens are processed simultaneously through every transformer layer.
 
-### The Inefficiency Problem
+Figure~\ref{fig:prefill} shows the prefill stage in detail. The input $X_0$ (the embedded prompt tokens with shape $B \times L_2 \times D$) passes through all transformer layers. At each layer, the self-attention mechanism allows every token to attend to all other tokens in the prompt, building up contextual representations. The model produces logits for every position—a tensor of shape $B \times L_2 \times V$ where $V$ is the vocabulary size (e.g., 32,000 for LLaMA). However, we only care about the logits at the last position ($B \times 1 \times V$), as these give us the probability distribution over the vocabulary for the first generated token $Y_0$.
 
-The second phase is called **Decode**. During the decode phase, the model generates tokens one at a time. Consider generating the first new token after the prompt. The input to the query layer is $X_1 = Y_0$ (the newly generated token), but the input to the Key and Value layers must be a concatenation of the previous prompt $X_0$ and the new token $X_1$, resulting in shape $B \times (L_2 + 1) \times D$.
+Crucially, during prefill we also compute and store the Key and Value projections for all prompt tokens at every layer. For a model with $N$ layers, we cache $2N$ tensors (one K and one V per layer), each of shape $B \times L_2 \times D_k$ where $D_k$ is the per-head dimension times the number of heads. This **KV cache** will be reused in subsequent decoding steps, avoiding redundant computation of these projections. The prefill stage is compute-bound: we process $L_2$ tokens in parallel, performing $O(L_2^2)$ attention operations per layer (each token attends to all $L_2$ tokens).
 
-![Decode without KV Cache](img/decode_without_kvcache.png)
+The prefill stage has high arithmetic intensity—the ratio of compute operations to memory accesses is favorable because we're doing dense matrix multiplications over many tokens. For a batch of long prompts, the GPU's tensor cores are kept busy with large matrix operations, achieving high utilization. This is similar to the forward pass during training, where we also process sequences in parallel.
 
-This is necessary because the query needs to attend to the entire context so far. For example, if our prompt $X_0$ is "Time flies" and $Y_0$ is "like", we use "like" to query the context "Time flies like" and predict the next token, probably "an". Then we use "an" to query "Time flies like an" and get "arrow". This process continues: each newly generated token must attend to all previous tokens (both the original prompt and all previously generated tokens) to maintain context and generate coherent text. However, at each step, we need to recompute the Key and Value vectors for the entire sequence history, even though most of these computations were already performed in previous steps.
+![Prefill stage.](img/prefill.png){#fig:prefill .block width=100% align=center}
+
+
+### The Decode Phase and Its Inefficiency
+
+After prefill completes, the model enters the **decode** phase. Here, tokens are generated one at a time in an autoregressive loop: generate token $Y_0$, feed it back as input, generate $Y_1$, and so on until an end-of-sequence token or maximum length is reached.
+
+Consider generating the first new token after the prompt. The input to the query projection is $X_1 = Y_0$ (the newly generated token), but for attention to work correctly, the Key and Value projections need the full context—the original prompt $X_0$ concatenated with the new token $X_1$, resulting in shape $B \times (L_2 + 1) \times D$.
+
+![Decode without KV cache.](img/decode_without_kvcache.png){#fig:decode-no-cache .block width=90% align=center}
+
+Figure~\ref{fig:decode-no-cache} illustrates this naive approach. The query needs to attend to the entire context so far. For example, if our prompt $X_0$ is "Time flies" and $Y_0$ is "like", we use "like" to query the context "Time flies like" and predict the next token, probably "an". Then we use "an" to query "Time flies like an" and get "arrow". This process continues: each newly generated token must attend to all previous tokens (both the original prompt and all previously generated tokens) to maintain context and generate coherent text. However, at each step, we need to recompute the Key and Value vectors for the entire sequence history, even though most of these computations were already performed in previous steps.
 
 From above figure, we can easily see the inefficiency arises because we need to construct $\hat{X} = [X_0, X_1]$ and multiply it with $W_K$ and $W_V$, even though __the $X_0$ part has already been multiplied with these weight matrices during the prefill phase__. This duplication occurs at every generation step, requiring recomputation of $Key$ and $Value$ vectors for all previous tokens through the entire transformer stack.
 
@@ -372,13 +381,13 @@ Without caching, this naive approach has time complexity $O(L_{\text{total}}^2)$
 
 KV cache solves this inefficiency by storing precomputed Key and Value vectors for all previously processed tokens. Instead of concatenating and recomputing, we can simply use $X_1$ as input for $K$ and $V$ calculation, as long as we cache the previous results. Take $Key$ vector as an example, we only calucate $K_{new}$ which has shape of $B1D_k$ and the time complexity reduced dramatically.
 
-![Key Cache Grows](img/cache_grow.png)
+![KV cache grows with each decode step.](img/cache_grow.png){#fig:cache-grow .block width=85% align=center}
 
-With KV cache, the decoding stage becomes much more efficient.
+Figure~\ref{fig:cache-grow} shows how the KV cache grows with each generated token. With KV cache, the decoding stage becomes much more efficient.
 
 The input shape is $B \times 1 \times D$ and output shape is also $B \times 1 \times D$. The key insight is that only the new token needs attention computation, while all previous tokens reuse their cached $K$ and $V$ vectors.
 
-**Time Complexity Analysis:**
+__Time Complexity Analysis:__
 
 With KV cache, the computational complexity changes dramatically:
 
@@ -391,9 +400,11 @@ With KV cache, the computational complexity changes dramatically:
 
 The key improvement is reducing the quadratic dependency on sequence length in the decode phase to linear, making long-sequence generation feasible. However, this comes at the cost of memory: KV cache requires $O(L_{\text{total}} \cdot D)$ memory to store all cached Key and Value vectors.
 
-![Decode with KV Cache](img/decode_with_kvcache.png)
+![Decode with KV cache.](img/decode_with_kvcache.png){#fig:decode-with-cache .block width=90% align=center}
 
-**Summary of Inference Stages**
+Figure~\ref{fig:decode-with-cache} shows the decode phase with KV cache enabled. The decode phase has a fundamentally different compute profile than prefill. With only one token being processed, the matrix multiplications are essentially matrix-vector operations. The arithmetic intensity is low—we're memory-bound, spending most of the time loading model weights from GPU memory rather than computing. This is why batching multiple decode requests together (continuous batching, covered later) is crucial for efficiency.
+
+__Summary of Inference Stages__
 
 The following table summarizes the tensor shapes and operations during prefill and decoding phases:
 
