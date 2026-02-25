@@ -347,7 +347,9 @@ if mp_policy is not None:
 # ... later: fully_shard(block, **fsdp_kwargs) and fully_shard(model, **fsdp_kwargs)
 ```
 
-*FSDP2: load model, then shard each block and the root.* The model is loaded with `from_pretrained` and moved to the device. There is no auto wrap policy: the script explicitly loops over `model.encoder.block` and `model.decoder.block` (each element is a `T5Block`) and calls `fully_shard(block, **fsdp_kwargs)` so each block becomes a separate sharded unit, then calls `fully_shard(model, **fsdp_kwargs)` to wrap the root. Order matters—children are sharded before the root. The code snippet below is from `T5_training_FSDP2.py`.
+*FSDP2: load model, then shard each block and the root.* The model is loaded with `from_pretrained` and moved to the device. There is no auto wrap policy: the script explicitly loops over `model.encoder.block` and `model.decoder.block` (each element is a `T5Block`) and calls `fully_shard(block, **fsdp_kwargs)` so each block becomes a separate sharded unit, then calls `fully_shard(model, **fsdp_kwargs)` to wrap the root. Order matters—children are sharded before the root.
+
+Note that this example omits the `mesh` parameter. When running with a single process group (the common case), `fully_shard()` infers the default mesh from the world size. For multi-dimensional parallelism (e.g., HSDP), you would explicitly pass `mesh` as shown in earlier sections. The code snippet below is from `T5_training_FSDP2.py`.
 
 ```python
 from torch.distributed.fsdp import fully_shard
