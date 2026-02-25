@@ -19,13 +19,15 @@
 
 **Fully Sharded Data Parallel (FSDP)** is a training strategy that shards model parameters, gradients, and optimizer state across multiple devices so that each device holds only a fraction of the full model. In Chapter~\ref{chap:distributed-training-with-pytorch-ddp}, we used DDP, which replicates the entire model on every GPU—effective when the model fits in a single GPU's memory. When the model (plus gradients and optimizer state) exceeds that memory, DDP is no longer viable. FSDP addresses this by distributing the model and its training state across GPUs, so you can train models that are larger than the memory of any one device.
 
-PyTorch provides three main FSDP implementations:
+PyTorch provides two main FSDP APIs for GPU training, plus a separate implementation for TPU:
 
-1. **Original FSDP** (`FullyShardedDataParallel`): The wrapper class using a flat-parameter approach, primarily for CUDA/GPUs.
-2. **FSDP2** (`fully_shard()`): The newer per-parameter-sharding design for CUDA/GPUs, accessed via `fully_shard()`. This is simpler, more flexible, and is the direction PyTorch is moving for GPU training.
-3. **FSDP via SPMD** (`SpmdFullyShardedDataParallel`): An implementation for XLA/TPU devices that uses GSPMD (Generalized Single-Program Multiple-Data) for automatic parallelization.
+- **FSDP1** (`FullyShardedDataParallel`): The original wrapper class using a flat-parameter approach.
+- **FSDP2** (`fully_shard()`): The newer per-parameter-sharding design, accessed via `fully_shard()`. Simpler, more flexible, and the direction PyTorch is moving.
+- **FSDP via SPMD** (`SpmdFullyShardedDataParallel`): For XLA/TPU devices, using GSPMD for automatic parallelization.
 
-This chapter focuses on FSDP2 for GPU training—it's the recommended approach for new projects on CUDA devices. The original FSDP (FSDP1) still works and remains in use in production codebases; for example, Wan2.2 uses PyTorch FSDP together with DeepSpeed Ulysses for multi-GPU inference.[^wan22] We summarize FSDP1 below and then concentrate on FSDP2. For TPU training, see Section~\ref{sec:fsdp-spmd}.
+Throughout this chapter, we use **FSDP** (without a number) when discussing the general technique—sharding parameters, all-gather, reduce-scatter—that applies to both APIs. When the distinction matters, we say **FSDP1** or **FSDP2** explicitly.
+
+This chapter focuses on FSDP2 for GPU training—it's the recommended approach for new projects on CUDA devices. FSDP1 still works and remains in use in production codebases; for example, Wan2.2 uses PyTorch FSDP together with DeepSpeed Ulysses for multi-GPU inference.[^wan22] We summarize FSDP1 below and then concentrate on FSDP2. For TPU training, see Section~\ref{sec:fsdp-spmd}.
 
 [^wan22]: <https://github.com/Wan-Video/Wan2.2>
 [^fsdp2-rfc]: <https://github.com/pytorch/pytorch/issues/114299>
@@ -882,129 +884,52 @@ Network topology matters too. Nodes on the same network segment with InfiniBand 
 
 ## Debugging FSDP Issues
 
-FSDP adds complexity, and debugging can be challenging. Here are common issues and how to debug them.
+FSDP adds complexity, and when things go wrong, the error messages aren't always helpful. Here's how to approach common problems.
 
-### Issue: Out of Memory (OOM)
+### Out of Memory (OOM)
 
-OOM errors are common with FSDP, especially when first setting it up. Here's how to debug:
-
-1. **Check if FSDP is actually sharding**: Print parameter shapes to verify sharding:
+OOM errors are common when first setting up FSDP. Start by checking whether FSDP is actually sharding your model—print parameter shapes and verify they're smaller than the full model:
 
 ```python
 for name, param in model.named_parameters():
     print(f"{name}: shape={param.shape}, device={param.device}")
-    # Sharded parameters should have smaller shapes
 ```
 
-2. **Check activation memory**: Use memory profiler to see if activations are the issue:
+If parameters look right but you're still OOM, activations are likely the culprit. Use the memory profiling approach from earlier to confirm, then reduce batch size, sequence length, or enable activation checkpointing. Also watch for memory leaks—tensors accumulating across iterations because you forgot to detach or delete them.
+
+### Hanging or Deadlock
+
+FSDP hangs when processes get out of sync. The most common cause is conditional logic that only some ranks execute:
 
 ```python
-print_memory_usage("After forward")
-```
-
-3. **Reduce batch size or sequence length**: If activations are the issue, reduce them.
-
-4. **Enable activation checkpointing**: If you haven't already, enable it.
-
-5. **Check for memory leaks**: Make sure you're not accumulating tensors across iterations.
-
-### Issue: Hanging or Deadlock
-
-FSDP can hang if processes get out of sync. Common causes:
-
-1. **Different code paths**: Make sure all ranks execute the same code. Conditional logic based on rank can cause hangs:
-
-```python
-# BAD: Different code paths
+# BAD: only rank 0 runs this collective-triggering code
 if rank == 0:
-    model.some_operation()  # Only rank 0 executes
+    model.some_operation()
 
-# GOOD: All ranks execute
+# GOOD: all ranks execute the same code
 model.some_operation()
 ```
 
-2. **Unbalanced data**: If one rank runs out of data before others, it can cause hangs. Make sure all ranks have the same number of batches.
+Other causes: unbalanced data (one rank runs out of batches before others), checkpoint loading failures on some ranks, or NCCL issues. For NCCL problems, enable debug logging with `export NCCL_DEBUG=INFO` and look for errors in the output.
 
-3. **Checkpoint loading issues**: If loading checkpoints, make sure all ranks load successfully.
+### Slow Training
 
-4. **NCCL issues**: Check NCCL logs for errors:
+If training is slower than expected, profile first—guessing wastes time. Check whether communication overlaps with computation; if not, try prefetching. For multi-node, verify InfiniBand is being used (`NCCL_DEBUG=INFO` shows this). Activation checkpointing adds ~30% overhead, so make sure the memory savings justify it. And confirm mixed precision is actually enabled if your hardware supports it.
 
-```bash
-export NCCL_DEBUG=INFO
-```
+### Incorrect Results
 
-### Issue: Slow Training
-
-If training is slower than expected:
-
-1. **Profile to find bottlenecks**: Use profiler to see where time is spent.
-
-2. **Check communication overlap**: Verify all-gather/reduce-scatter overlap with computation. If not, try prefetching.
-
-3. **Check network**: For multi-node, verify InfiniBand is being used and bandwidth is good.
-
-4. **Check activation checkpointing overhead**: If using checkpointing, it adds ~30% overhead. Make sure the memory savings are worth it.
-
-5. **Verify mixed precision**: Make sure mixed precision is enabled if your hardware supports it.
-
-### Issue: Incorrect Results
-
-If you're getting incorrect results:
-
-1. **Check random seed**: Make sure all ranks use the same seed for reproducibility:
+Incorrect results usually come from one of a few places. First, check that all ranks use the same random seed:
 
 ```python
 torch.manual_seed(42)
-if torch.cuda.is_available():
-    torch.cuda.manual_seed_all(42)
+torch.cuda.manual_seed_all(42)
 ```
 
-2. **Verify data sharding**: Make sure `DistributedSampler` is used correctly:
-
-```python
-sampler = DistributedSampler(dataset, num_replicas=world_size, rank=rank)
-sampler.set_epoch(epoch)  # Important: call this each epoch
-```
-
-3. **Check gradient synchronization**: Verify gradients are being synchronized. You can print gradients to check:
-
-```python
-if rank == 0:
-    for name, param in model.named_parameters():
-        if param.grad is not None:
-            print(f"{name}: grad_norm={param.grad.norm()}")
-```
-
-4. **Compare with single-GPU**: Run the same model on a single GPU to verify correctness, then scale up.
+Second, verify `DistributedSampler` is set up correctly and you're calling `sampler.set_epoch(epoch)` each epoch—forgetting this means all epochs see the same shuffle. Third, check that gradients are being synchronized by printing gradient norms across ranks. If all else fails, run the same model on a single GPU to establish a baseline, then scale up and compare.
 
 ### Debugging Tools
 
-Use these tools to debug FSDP:
-
-1. **NCCL debug**: Enable detailed NCCL logging:
-
-```bash
-export NCCL_DEBUG=INFO && export NCCL_DEBUG_SUBSYS=ALL
-```
-
-2. **PyTorch profiler**: Profile to see communication patterns:
-
-```python
-with torch.profiler.profile(...) as prof:
-    # Training code
-```
-
-3. **Memory profiler**: Track memory usage:
-
-```python
-print(torch.cuda.memory_summary())
-```
-
-4. **Distributed debugger**: Use `torch.distributed` debugging utilities:
-
-```python
-torch.distributed.set_debug_level(torch.distributed.DebugLevel.DETAIL)
-```
+A few tools help with FSDP debugging. For NCCL issues, `export NCCL_DEBUG=INFO` (or `NCCL_DEBUG_SUBSYS=ALL` for more detail) shows what's happening at the communication layer. The PyTorch profiler (covered earlier) reveals communication patterns and bottlenecks. For memory issues, `torch.cuda.memory_summary()` gives a detailed breakdown. And for distributed-specific problems, `torch.distributed.set_debug_level(torch.distributed.DebugLevel.DETAIL)` enables verbose logging from the distributed runtime.
 
 ## Comparing FSDP2 with ZeRO and DDP
 
