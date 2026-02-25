@@ -67,6 +67,10 @@ Figure~\ref{fig:fsdp-allgather-reducescatter} illustrates the two steps (same fo
 
 To summarize, the difference between FSDP1 and FSDP2 is not the collectives (both use All-Gather and Reduce-Scatter) but how parameters are laid out: FSDP1 flattens many parameters into a single `FlatParameter` object (one instance of the `FlatParameter` class) per wrap unit and shards that; FSDP2 shards each parameter tensor individually on dimension 0, with no flattening.
 
+![FSDP1 vs FSDP2 parameter layout.](img/fsdp1_vs_fsdp2_layout.png){#fig:fsdp1-vs-fsdp2-layout .block width=100% align=center}
+
+Figure~\ref{fig:fsdp1-vs-fsdp2-layout} illustrates the difference: FSDP1 concatenates parameters into a single flat tensor before sharding, while FSDP2 shards each parameter independently on dimension 0.
+
 ### Original FSDP (FSDP1)
 
 The **original FSDP** (often called FSDP1) is the wrapper class `FullyShardedDataParallel` in `torch.distributed.fsdp`. It flattens the parameters of each wrapped module into a single `FlatParameter` object (one instance of the class) and shards that across ranks; the same all-gather and reduce-scatter ideas apply. Usage is similar to DDP: you wrap the model (or submodules via `wrap()`), then train as usual.
@@ -130,6 +134,10 @@ mesh = init_device_mesh("cuda", (4, 8))
 
 This arranges GPUs in a 2D grid, which is useful for very large scale training where you want to shard within a node but replicate across nodes.
 
+![Device Mesh: 1D (FSDP) vs 2D (HSDP).](img/device_mesh.png){#fig:device-mesh .block width=100% align=center}
+
+Figure~\ref{fig:device-mesh} shows the two mesh configurations. With a 1D mesh, parameters are sharded across all GPUs. With a 2D mesh (HSDP), parameters are sharded within each node (dim 1) but replicated across nodes (dim 0), reducing inter-node communication.
+
 ### Key Parameters
 
 **`mesh`**: The `DeviceMesh` over which to shard. For normal FSDP, this is a 1D mesh. For HSDP (hybrid sharding), it can be 2D.
@@ -141,6 +149,10 @@ This arranges GPUs in a 2D grid, which is useful for very large scale training w
 - `int`: Reshards to an intermediate size. For example, `reshard_after_forward=2` means parameters are sharded across 2 GPUs instead of all GPUs. This is like ZeRO++ hpZ (hybrid parameter zero).
 
 The default (`True`) is usually the right choice unless you have memory headroom and want to reduce communication. If you're memory-constrained, stick with `True`. If you have extra memory and communication is your bottleneck, try `False`.
+
+![reshard_after_forward: True vs False.](img/reshard_after_forward.png){#fig:reshard-after-forward .block width=100% align=center}
+
+Figure~\ref{fig:reshard-after-forward} compares the two modes. With `reshard_after_forward=True`, parameters are freed after each layer's forward pass and must be all-gathered again in backward—lower memory but more communication. With `False`, parameters stay in memory after forward, eliminating the backward all-gather at the cost of higher peak memory.
 
 **`mp_policy`**: Mixed precision settings. You can specify:
 
@@ -183,6 +195,10 @@ for layer in model.transformer.layers:
 ```
 
 This gives you fine-grained control over what gets sharded. Small layers (like embeddings) might not benefit from sharding and can add communication overhead, so you can leave them unsharded.
+
+![Hierarchical vs flat sharding.](img/fsdp_hierarchical_sharding.png){#fig:fsdp-hierarchical-sharding .block width=100% align=center}
+
+Figure~\ref{fig:fsdp-hierarchical-sharding} contrasts the two approaches. With hierarchical sharding (left), each transformer block is a separate FSDP unit, so all-gather and reduce-scatter happen at block boundaries—this enables prefetching and fine-grained memory management. With flat sharding (right), the entire model is one FSDP unit, which is simpler but requires gathering all parameters at once.
 
 ## A Complete Working Example: T5 Summarization with FSDP
 
