@@ -203,7 +203,7 @@ fully_shard(
 )
 ```
 
-Offloading introduces a performance cost (typically 20-50% slowdown due to PCIe transfers), so treat it as a last resort after exhausting other memory optimizations.
+Offloading introduces a performance cost, so treat it as a last resort after exhausting other memory optimizations. The slowdown varies widely depending on PCIe generation, CPU memory bandwidth, and optimizer state size—rough empirical ranges are 20-50% for CPU offloading.
 
 ### Hierarchical Sharding
 
@@ -512,7 +512,11 @@ This gathers all shards to rank 0, which uses more memory but gives you a single
 
 With checkpointing sorted out, the next concern is performance. FSDP adds communication overhead—every forward pass needs an all-gather to reconstruct parameters, and every backward pass needs a reduce-scatter for gradients. Fast interconnects like NVLink reduce this overhead, but they don't eliminate it.
 
-One way to hide it is prefetching: start fetching parameters for the next layer while the current layer is still computing. If computation takes longer than communication, the all-gather finishes before it's needed and you pay no latency penalty.
+One way to hide this latency is prefetching: start fetching parameters for the next layer while the current layer is still computing. The key insight is that modern GPUs can execute computation and communication concurrently on different hardware units (CUDA streams for compute, NVLink/PCIe for transfers). If computation takes longer than communication, the all-gather finishes before it's needed and you pay no latency penalty.
+
+![Prefetching timeline: without vs with.](img/fsdp_prefetch_timeline.png){#fig:fsdp-prefetch-timeline .block width=100% align=center}
+
+Figure~\ref{fig:fsdp-prefetch-timeline} illustrates the difference. Without prefetching (top), each layer must wait for its all-gather (AG) to complete before computing—the operations are sequential. With prefetching (bottom), while layer L₀ computes, the all-gather for L₁ runs in parallel on a separate stream. By the time L₀ finishes, L₁'s parameters are already available. The total time shrinks because communication is hidden behind computation.
 
 ### Forward Prefetching
 
@@ -564,7 +568,15 @@ Activation checkpointing is almost always used with FSDP. Instead of storing all
 
 With FSDP, you're already sharding parameters, gradients, and optimizer states. Activations can still be a memory bottleneck, especially for large batch sizes or long sequences. Activation checkpointing trades computation for memory: you recompute activations during backward instead of storing them.
 
-For a transformer with sequence length 2048 and batch size 8, activations can easily be 50-100 GB. With checkpointing, you might reduce this to 10-20 GB, at the cost of recomputing activations (roughly 30% slower forward pass, but backward is similar since you'd compute gradients anyway).
+Activation memory scales with model architecture and batch size. A rough estimate for a transformer is:
+
+$$\text{Activation Memory} \approx L \times B \times S \times H \times \text{bytes per element} \times k$$
+
+where $L$ is the number of layers, $B$ is batch size, $S$ is sequence length, $H$ is hidden dimension, and $k$ is a factor (typically 10–20) accounting for intermediate tensors in attention and MLP blocks. For a 7B model ($L=32$, $H=4096$) with sequence length 2048 and batch size 8 in fp16:
+
+$$32 \times 8 \times 2048 \times 4096 \times 2 \times 12 \approx 52\text{ GB}$$
+
+With activation checkpointing, you store only the inputs to each checkpointed block rather than all intermediate tensors, reducing memory by 50–80%. The tradeoff is recomputing activations during backward (roughly 30% slower forward pass, but backward is similar since you'd compute gradients anyway).
 
 ### Using Activation Checkpointing
 
@@ -630,7 +642,7 @@ fully_shard(
 )
 ```
 
-This offloads optimizer states to CPU. When the optimizer needs to update parameters, it transfers them from CPU to GPU, updates, then transfers back. This adds significant overhead (20-50% slowdown) but can be necessary for very large models.
+This offloads optimizer states to CPU. When the optimizer needs to update parameters, it transfers them from CPU to GPU, updates, then transfers back. This adds significant overhead but can be necessary for very large models. The actual slowdown depends on PCIe generation (3.0 vs 4.0 vs 5.0), CPU memory bandwidth, NUMA topology, and optimizer state size—empirically 20-50% is common, but your mileage will vary.
 
 You can also offload parameters (not just optimizer states), but this is even slower and rarely needed:
 
@@ -645,7 +657,7 @@ fully_shard(
 
 ### When to Use Offloading
 
-CPU offloading should come late in your optimization sequence. If you've already enabled full-shard and activation checkpointing, reduced batch size and sequence length as much as you can, and you're still hitting OOM—then offloading makes sense. Expect a 20-50% slowdown, but at least you can train. For most models, full-shard plus activation checkpointing is enough without touching offloading.
+CPU offloading should come late in your optimization sequence. If you've already enabled full-shard and activation checkpointing, reduced batch size and sequence length as much as you can, and you're still hitting OOM—then offloading makes sense. For most models, full-shard plus activation checkpointing is enough without touching offloading.
 
 ### NVMe Offloading
 
@@ -659,7 +671,7 @@ fully_shard(
 )
 ```
 
-NVMe offloading goes one step further—useful when even CPU memory isn't enough. You'll need fast NVMe storage (PCIe 4.0 or better) to keep the slowdown manageable, but expect 50-100% longer training times. The tradeoff is clear: slower, but at least possible.
+NVMe offloading goes one step further—useful when even CPU memory isn't enough. The slowdown depends heavily on NVMe bandwidth (PCIe 3.0 vs 4.0 vs 5.0), sequential vs random access patterns, and how much data is being transferred. Empirically, expect 50-100% longer training times with fast NVMe (PCIe 4.0+), but slower drives or suboptimal access patterns can be worse. The tradeoff is clear: slower, but at least possible.
 
 ## Performance Optimization
 
@@ -1073,6 +1085,12 @@ For more details, see the PyTorch/XLA SPMD documentation.[^xla-spmd]
 ## Conclusion
 
 FSDP2 is PyTorch's answer to training models that don't fit on a single GPU. By sharding parameters, gradients, and optimizer states across GPUs, it lets you train models 8×, 16×, or larger than what a single GPU can hold.
+
+It's worth stepping back to understand what FSDP changes—and what it doesn't. FSDP transforms the memory ceiling from a single-GPU constraint to a cluster-wide constraint. A model that requires 160 GB of memory (parameters + gradients + optimizer states) can run on 8 GPUs with 24 GB each, because each GPU holds only 1/8 of the total. This is a fundamental shift: you're no longer limited by the largest GPU you can buy, but by how many GPUs you can connect.
+
+However, FSDP is still data parallelism at its core. Each GPU processes different data batches, and the model computation itself isn't split across devices—every GPU executes the same operations, just on different shards that get all-gathered when needed. This distinguishes FSDP from model parallelism (tensor parallelism, pipeline parallelism), where different GPUs compute different parts of the model simultaneously. FSDP scales memory, not compute per sample. For compute scaling, you still rely on larger batch sizes across more GPUs, just like DDP.
+
+This architectural distinction matters when choosing your parallelism strategy. FSDP alone can take you surprisingly far—models up to hundreds of billions of parameters on large clusters. But for the largest models (trillion+ parameters) or when you need to reduce per-sample latency, you'll combine FSDP with tensor or pipeline parallelism. We cover these combinations in later chapters.
 
 The practical advice is simple: if DDP works, use DDP—it's faster and simpler. When your model outgrows a single GPU, try optimization first (mixed precision, activation checkpointing, gradient accumulation). If you're still OOM, switch to FSDP2. Start with full sharding and the DCP API for checkpointing, profile to find bottlenecks, and test on 2-4 GPUs before scaling to many nodes. Don't optimize blindly—let the profiler guide you.
 
