@@ -951,15 +951,15 @@ If your model fits on a single GPU, use DDP—it's simpler and faster. If it doe
 
 ## Practical Tips
 
-A few lessons from real-world FSDP usage.
+A few lessons from real-world FSDP usage are worth highlighting.
 
-**State dicts**: With FSDP2, sharded state dicts match the training representation, so each rank just saves its shard. Use the DCP API (covered earlier) unless you need a full checkpoint for inference—gathering all shards to rank 0 is slow and memory-intensive.
+When saving checkpoints with FSDP2, the sharded state dict matches the training representation—each rank saves only its shard. The DCP API (covered earlier) handles this efficiently. Avoid gathering all shards to rank 0 for a full checkpoint unless you specifically need it for inference; the gather is slow and can OOM on large models.
 
-**Shared parameters**: If the same tensor is used in multiple places, those uses need to be in the same FSDP group. There's no way to preserve sharedness after parameter swapping, so structure your model to keep shared parameters in the same module hierarchy, or avoid sharing.
+Shared parameters require some care. If the same tensor appears in multiple places in your model (e.g., tied embeddings), those uses must live in the same FSDP group. FSDP's parameter swapping doesn't preserve sharedness across groups, so structure your model to keep shared parameters in the same module hierarchy, or avoid sharing altogether.
 
-**Memory profiling**: Sometimes the bottleneck isn't what you think. Use `torch.profiler` or `nvidia-smi` to check. Common culprits: activations (use checkpointing), temporary tensors accumulating across iterations (detach or delete them), or DataLoader with `pin_memory=True` on a memory-constrained system.
+Memory profiling often reveals surprises. The bottleneck isn't always where you expect. Use `torch.profiler` or `nvidia-smi` to investigate. Common culprits include activations (address with checkpointing), temporary tensors that accumulate across iterations (detach or explicitly delete them), and DataLoader with `pin_memory=True` on memory-constrained systems.
 
-**reshard_after_forward**: The default (`True`) saves memory by resharding after forward, but requires all-gather again in backward. If you have memory headroom and communication is your bottleneck, try `False` to keep parameters unsharded.
+Finally, remember that `reshard_after_forward` defaults to `True`, which saves memory by resharding after forward but requires an additional all-gather in backward. If you have memory headroom and communication is your bottleneck, try setting it to `False` to keep parameters unsharded between passes.
 
 ### Initialization Best Practices {#sec:fsdp-initialization-best-practices}
 
