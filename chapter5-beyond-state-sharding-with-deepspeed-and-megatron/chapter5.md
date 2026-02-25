@@ -20,11 +20,15 @@
 
 ## Beyond State Sharding
 
-In the previous chapter, we explored FSDP—PyTorch's approach to sharding parameters, gradients, and optimizer states across GPUs. FSDP2's full sharding is functionally equivalent to DeepSpeed's ZeRO Stage 3: both eliminate memory redundancy by ensuring each GPU holds only 1/N of the training state.
+In the previous chapter, we explored FSDP—PyTorch's approach to sharding parameters, gradients, and optimizer states across GPUs. FSDP2's full sharding is functionally equivalent to DeepSpeed's ZeRO Stage 3[^zero-paper]: both eliminate memory redundancy by ensuring each GPU holds only 1/N of the training state.
+
+[^zero-paper]: Rajbhandari et al., "ZeRO: Memory Optimizations Toward Training Trillion Parameter Models" (2020). https://arxiv.org/abs/1910.02054
 
 State sharding solves the memory problem, but it doesn't change *how* computation happens. Every GPU still executes the same operations on the same model architecture—just with different data batches. For the largest models (100B+ parameters), this becomes limiting: individual layers may be too large for efficient single-GPU execution, or the model may be too deep to fit activations in memory even with checkpointing.
 
-This is where **Megatron** comes in. Megatron's tensor parallelism splits large matrix operations across GPUs, and its pipeline parallelism shards the model along the depth dimension. These techniques shard *computation itself*, not just training state. They're essential for training frontier models and remain the backbone of large-scale training infrastructure at NVIDIA, Meta, and elsewhere.
+This is where **Megatron** comes in[^megatron-paper]. Megatron's tensor parallelism splits large matrix operations across GPUs, and its pipeline parallelism shards the model along the depth dimension. These techniques shard *computation itself*, not just training state. They're essential for training frontier models and remain the backbone of large-scale training infrastructure at NVIDIA, Meta, and elsewhere.
+
+[^megatron-paper]: Shoeybi et al., "Megatron-LM: Training Multi-Billion Parameter Language Models Using Model Parallelism" (2019). https://arxiv.org/abs/1909.08053
 
 We'll cover DeepSpeed ZeRO first—it's worth understanding the full ZeRO family (stages 1-3, offloading, ZeRO++) since many codebases still use it. But the real focus of this chapter is Megatron-style parallelism: tensor parallelism, pipeline parallelism, and how they combine with state sharding for multi-dimensional parallelism.
 
@@ -34,80 +38,62 @@ Figure~\ref{fig:zero-stages} illustrates the memory layout across four ranks (R0
 
 ## ZeRO Stage 1: Optimizer State Partitioning
 
-ZeRO-1 shards optimizer states across GPUs. This is the low-hanging fruit because optimizer states dominate memory usage.
+Recall the memory breakdown from the previous chapter: for models using Adam, optimizer states dominate memory usage—each parameter requires storing momentum and variance as two FP32 copies, totaling 8 bytes per parameter. A 175B parameter model needs 1.4TB just for optimizer states. In DDP, every GPU holds a complete copy of these states, which is a massive waste.
 
-### How It Works
+ZeRO-1's insight is straightforward: since each GPU ultimately updates only its assigned portion of parameters, why store the full optimizer states? With 4 GPUs, each stores only 1/4 of the optimizer states. Forward and backward passes proceed normally, and after gradient synchronization, each GPU uses only its local optimizer states to update the corresponding parameter shard. The 1.4TB of optimizer states gets distributed across 4 GPUs, reducing each GPU's burden to 350GB.
 
-Each GPU stores only 1/N of the optimizer states:
+Unlike PyTorch's native DDP which requires minimal setup, DeepSpeed uses a configuration dictionary (or JSON file) to control all training settings—optimizer, precision, ZeRO stage, and more. You pass this config to `deepspeed.initialize()`, which returns a wrapped model engine that handles distributed training automatically:
 
-```
-Before (DDP):
-GPU 0: optimizer_states[all 175B params] = 1,400 GB
-GPU 1: optimizer_states[all 175B params] = 1,400 GB
-GPU 2: optimizer_states[all 175B params] = 1,400 GB
-GPU 3: optimizer_states[all 175B params] = 1,400 GB
+```python
+import deepspeed
 
-After (ZeRO-1):
-GPU 0: optimizer_states[0:44B]   = 350 GB
-GPU 1: optimizer_states[44B:88B] = 350 GB
-GPU 2: optimizer_states[88B:132B]= 350 GB
-GPU 3: optimizer_states[132B:175B]= 350 GB
-```
-
-Each GPU still holds full parameters and gradients, but optimizer states are partitioned.
-
-### Training Flow
-
-1. **Forward/Backward**: Normal DDP behavior - all GPUs have full parameters
-2. **Gradient All-Reduce**: Standard DDP all-reduce to synchronize gradients
-3. **Optimizer Step**: 
-   - Each GPU updates only its partition of parameters
-   - No extra communication needed
-   - Parameters are implicitly partitioned during update
-
-### Memory Savings
-
-For a model with Adam optimizer:
-
-- Parameters: No change (still replicated)
-- Gradients: No change (still replicated)  
-- Optimizer States: **Reduced by N×**
-
-Total memory per GPU:
-```
-350 GB (params) + 350 GB (grads) + 350 GB (opt/4 GPUs) = 1,050 GB
-Savings: 2,100 GB → 1,050 GB (2× reduction)
-```
-
-### When to Use ZeRO-1
-
-- Model fits in GPU memory but optimizer states don't
-- Want minimal changes to DDP training loop
-- Training models up to ~10B parameters
-- Debugging is easier (closest to standard DDP)
-
-### DeepSpeed Config
-
-```json
-{
-  "zero_optimization": {
-    "stage": 1
-  }
+ds_config = {
+    "train_batch_size": 32,
+    "optimizer": {"type": "Adam", "params": {"lr": 1e-4}},
+    "fp16": {"enabled": True},
+    "zero_optimization": {"stage": 1}  # Enable ZeRO-1
 }
+
+model_engine, optimizer, _, _ = deepspeed.initialize(
+    model=model,
+    model_parameters=model.parameters(),
+    config=ds_config
+)
+
+# Training loop uses model_engine instead of model
+for batch in dataloader:
+    loss = model_engine(batch)
+    model_engine.backward(loss)
+    model_engine.step()
 ```
 
-The configuration is straightforward—simply set `stage: 1` to enable optimizer state partitioning. Other optimizer and training settings (learning rate, precision, etc.) are configured separately.
+The key difference from DDP: DeepSpeed manages the optimizer internally based on your config, so you don't create it yourself. The `model_engine` wraps your model and provides `backward()` and `step()` methods.
 
-To see ZeRO stages in action, run the training script with different stages:
+ZeRO-1 fits scenarios where the model itself fits in GPU memory, but adding optimizer states pushes it over the limit. It requires minimal changes to the training loop and is the easiest to debug, making it a natural first step when migrating from DDP to ZeRO.
+
+To experience the DeepSpeed API, run this minimal example on a single GPU:
 
 ```bash
-# ZeRO Stage 1
-deepspeed --num_gpus=2 code/train_deepspeed_zero.py --zero_stage 1
-
-# Compare memory usage across stages
-deepspeed --num_gpus=2 code/train_deepspeed_zero.py --zero_stage 2
-deepspeed --num_gpus=2 code/train_deepspeed_zero.py --zero_stage 3
+pip install deepspeed
+deepspeed --num_gpus=1 code/zero_minimal.py --zero_stage 1
 ```
+
+You should see output like:
+
+```
+=================
+ZeRO Stage 1 Demo
+=================
+Model: 5,248,000 parameters
+...
+Step 1/10, Loss: 1.0342, Peak Memory: 1.06 GB
+Step 2/10, Loss: 0.9927, Peak Memory: 1.06 GB
+...
+ZeRO Stage 1 training complete!
+Final peak memory: 1.10 GB
+```
+
+With a single GPU, sharding has limited effect (there's only one partition), but this example familiarizes you with the API and prepares you for multi-GPU experiments.
 
 ## ZeRO Stage 2: Optimizer State + Gradient Partitioning
 
