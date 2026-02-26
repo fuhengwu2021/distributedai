@@ -325,7 +325,7 @@ Let's start by examining the architecture that makes KV caching both necessary a
 
 ### Decoder-Only Transformer Architecture
 
-![Decoder-only Transformer.](img/decoder_only.png){#fig:decoder-only .wrap width=30% align=top-right}
+![Decoder-only Transformer](img/decoder_only.png){#fig:decoder-only .wrap width=30% align=top-right}
 
 Before diving into KV cache, let's establish a clear picture of the architecture we're working with. Modern large language models—GPT, LLaMA, Qwen, and their variants—all share a common design: the decoder-only transformer. This architecture has proven remarkably effective for autoregressive language modeling, where the goal is to predict the next token given all previous tokens.
 
@@ -360,7 +360,7 @@ We use the following notation throughout this section:
 
 ### Text Generation Process: Prefill and Decode
 
-![Input shape.](img/input.png){#fig:transformer-input .block width=40% align=top-left}
+![Input shape](img/input.png){#fig:transformer-input .block width=40% align=top-left}
 
 Figure~\ref{fig:transformer-input} illustrates the input tensor structure. When serving generation requests, we typically batch multiple prompts for higher throughput. The input has shape $B \times L_2 \times D$, where $B$ is the batch size, $L_2$ is the prompt length (number of tokens), and $D$ is the hidden dimension (e.g., 4096 for LLaMA-7B). Each token is represented as a $D$-dimensional embedding vector, and the entire prompt becomes a matrix that flows through the transformer layers.
 
@@ -376,7 +376,7 @@ Crucially, during prefill we also compute and store the Key and Value projection
 
 The prefill stage has high arithmetic intensity—the ratio of compute operations to memory accesses is favorable because we're doing dense matrix multiplications over many tokens. For a batch of long prompts, the GPU's tensor cores are kept busy with large matrix operations, achieving high utilization. This is similar to the forward pass during training, where we also process sequences in parallel.
 
-![Prefill stage.](img/prefill.png){#fig:prefill .block width=100% align=center}
+![Prefill stage](img/prefill.png){#fig:prefill .block width=100% align=center}
 
 
 ### The Decode Phase and Its Inefficiency
@@ -385,7 +385,7 @@ After prefill completes, the model enters the **decode** phase. Here, tokens are
 
 Consider generating the first new token after the prompt. The input to the query projection is $X_1 = Y_0$ (the newly generated token), but for attention to work correctly, the Key and Value projections need the full context—the original prompt $X_0$ concatenated with the new token $X_1$, resulting in shape $B \times (L_2 + 1) \times D$.
 
-![Decode without KV cache.](img/decode_without_kvcache.png){#fig:decode-no-cache .block width=100% align=center}
+![Decode without KV cache](img/decode_without_kvcache.png){#fig:decode-no-cache .block width=100% align=center}
 
 Figure~\ref{fig:decode-no-cache} illustrates this naive approach. The query needs to attend to the entire context so far. For example, if our prompt $X_0$ is "Time flies" and $Y_0$ is "like", we use "like" to query the context "Time flies like" and predict the next token, probably "an". Then we use "an" to query "Time flies like an" and get "arrow". This process continues: each newly generated token must attend to all previous tokens (both the original prompt and all previously generated tokens) to maintain context and generate coherent text. However, at each step, we need to recompute the Key and Value vectors for the entire sequence history, even though most of these computations were already performed in previous steps.
 
@@ -397,7 +397,7 @@ Without caching, this naive approach has time complexity $O(L_{\text{total}}^2)$
 
 KV cache solves this inefficiency by storing precomputed Key and Value vectors for all previously processed tokens. Instead of concatenating and recomputing, we can simply use $X_1$ as input for $K$ and $V$ calculation, as long as we cache the previous results. Take $Key$ vector as an example, we only calucate $K_{new}$ which has shape of $B1D_k$ and the time complexity reduced dramatically.
 
-![KV cache grows with each decode step.](img/cache_grow.png){#fig:cache-grow .block width=100% align=center}
+![KV cache grows with each decode step](img/cache_grow.png){#fig:cache-grow .block width=100% align=center}
 
 Figure~\ref{fig:cache-grow} shows how the KV cache grows with each generated token. With KV cache, the decoding stage becomes much more efficient.
 
@@ -416,7 +416,7 @@ With KV cache, the computational complexity changes dramatically:
 
 The key improvement is reducing the quadratic dependency on sequence length in the decode phase to linear, making long-sequence generation feasible. However, this comes at the cost of memory: KV cache requires $O(L_{\text{total}} \cdot D)$ memory to store all cached Key and Value vectors.
 
-![Decode with KV cache.](img/decode_with_kvcache.png){#fig:decode-with-cache .block width=100% align=center}
+![Decode with KV cache](img/decode_with_kvcache.png){#fig:decode-with-cache .block width=100% align=center}
 
 Figure~\ref{fig:decode-with-cache} shows the decode phase with KV cache enabled. The decode phase has a fundamentally different compute profile than prefill. With only one token being processed, the matrix multiplications are essentially matrix-vector operations. The arithmetic intensity is low—we're memory-bound, spending most of the time loading model weights from GPU memory rather than computing. This is why batching multiple decode requests together (continuous batching, covered later) is crucial for efficiency.
 
@@ -451,16 +451,13 @@ vLLM's breakthrough innovation is **PagedAttention**, a memory management algori
 
 In production environments, serving systems must handle multiple concurrent requests simultaneously. Each request maintains its own KV cache that grows dynamically as tokens are generated during autoregressive decoding. Different prompts and generation lengths result in different cache sizes, creating a fundamental allocation challenge.
 
-Traditional systems allocate contiguous memory blocks per request. When sequences finish or have different lengths, this approach leads to wasted space that cannot be efficiently reused. Consider a scenario where Request 1 finishes after 8 tokens, Request 2 is active with 4 tokens, and Request 3 is active with 10 tokens. The memory allocated for Request 1 sits unused but cannot be easily reclaimed for the other requests, leading to fragmentation.
+Traditional systems allocate contiguous memory blocks per request. When sequences finish or have different lengths, this approach leads to wasted space that cannot be efficiently reused.
 
-```
-Request 1: [========]  (8 tokens, finished)
-Request 2: [====]      (4 tokens, active)
-Request 3: [==========] (10 tokens, active)
-           ↑ Memory fragmentation - can't reuse Request 1's space efficiently
-```
+![KV Cache memory fragmentation](img/kv_cache_fragmentation.png){#fig:kv-cache-fragmentation .block width=85% align=center}
 
-Additionally, traditional batching introduces a less obvious but equally critical inefficiency: padding-induced attention computation waste. In batched decoding, different requests typically have different effective context lengths. Let the batch size be $B$, and let the cached context length for request $i$ be $(L_2^{(i)} + t^{(i)})$. To batch these requests together, conventional attention implementations must pad all sequences to a common maximum length:
+Figure~\ref{fig:kv-cache-fragmentation} illustrates this problem. Request 1 has finished after generating 8 tokens, while Request 2 (4 tokens) and Request 3 (10 tokens) are still active. The memory originally allocated for Request 1 now sits idle, but because it was allocated as a contiguous block, it cannot be easily reclaimed or subdivided for the other requests. Meanwhile, Request 2 and Request 3 each have "reserved" space pre-allocated for future token generation—space that may never be fully utilized if the requests finish early. This combination of unreclaimable finished-request memory and over-provisioned active-request memory leads to severe fragmentation, often wasting 60-80% of GPU memory in high-concurrency scenarios.
+
+Beyond memory waste, traditional batching introduces a less obvious but equally critical inefficiency: padding-induced attention computation waste. In batched decoding, different requests typically have different effective context lengths. Let the batch size be $B$, and let the cached context length for request $i$ be $(L_2^{(i)} + t^{(i)})$. To batch these requests together, conventional attention implementations must pad all sequences to a common maximum length:
 
 $$(L_2 + t)_{\max} = \max_i (L_2^{(i)} + t^{(i)})$$
 
@@ -525,7 +522,7 @@ The more scalable solution is to **distribute the model across multiple GPUs**. 
 
 vLLM's architecture centers around a **scheduler-executor-worker** pattern, as shown in Figure~\ref{fig:vllm-arch}. This layered design cleanly separates concerns: request management, distributed coordination, and actual computation.
 
-![vLLM scheduler-executor-worker architecture.](img/vllm_architecture.png){#fig:vllm-arch .block width=70% align=center}
+![vLLM scheduler-executor-worker architecture](img/vllm_architecture.png){#fig:vllm-arch .block width=70% align=center}
 
 The **Scheduler** sits at the top of the hierarchy. It receives incoming requests, groups them into batches based on available memory and scheduling policy, and decides which requests to process in each iteration. The scheduler implements continuous batching—it doesn't wait for an entire batch to complete before admitting new requests. Instead, it dynamically adds new requests as slots become available, maximizing GPU utilization.
 
@@ -537,7 +534,7 @@ This architecture enables vLLM to scale from a single GPU to hundreds of GPUs ac
 
 ## Overview of Parallelism Strategies in vLLM
 
-![Parallelism strategies in vLLM.](img/parallelism_strategies_overview.png){#fig:vllm-parallelism .block width=90% align=center}
+![Parallelism strategies in vLLM](img/parallelism_strategies_overview.png){#fig:vllm-parallelism .block width=90% align=center}
 
 vLLM provides three fundamental parallelism strategies for distributing computation and memory across multiple GPUs. **Tensor Parallelism (TP)** shards individual layers across multiple GPUs within a node, with each GPU processing a portion of each layer and results synchronized through collective communication. **Data Parallelism (DP)** creates multiple complete replicas of the model, each processing different requests independently to increase throughput. **Pipeline Parallelism (PP)** splits the model's layers across multiple GPUs or nodes, with data flowing through stages sequentially like an assembly line.
 
@@ -661,7 +658,7 @@ The communication pattern is fundamentally different from TP. In tensor parallel
 
 The sequential nature of pipeline parallelism creates an efficiency challenge. When GPU 0 is processing a batch, GPUs 1 and 2 sit idle waiting for input. When GPU 2 is processing, GPUs 0 and 1 are idle waiting for the next batch. In a naive implementation, each GPU is active only a fraction of the time—a massive waste of expensive hardware.
 
-![Pipeline bubble: GPUs sit idle waiting for data from previous stages.](img/pipeline_bubble.png){#fig:pipeline-bubble .block width=85% align=center}
+![Pipeline bubble](img/pipeline_bubble.png){#fig:pipeline-bubble .block width=85% align=center}
 
 vLLM addresses this with **request groups** (also called virtual engines). Instead of processing one batch at a time, the system maintains multiple independent request streams. While GPU 2 is processing Group 1, GPU 1 can be processing Group 2, and GPU 0 can be processing Group 3. The pipeline stays full, and all GPUs stay busy.
 
@@ -687,7 +684,7 @@ To understand why EP matters, we need to first understand how MoE models work. L
 
 In a standard transformer, the feed-forward network (FFN) after attention is a simple two-layer MLP. In an MoE model, this FFN is replaced with multiple expert networks—each expert is itself a complete MLP—plus a routing mechanism that decides which experts process each token. Figure~\ref{fig:moe-arch} illustrates this architecture.
 
-![MoE architecture.](img/moe_arch.png){#fig:moe-arch .block width=85% align=center}
+![MoE architecture](img/moe_arch.png){#fig:moe-arch .block width=85% align=center}
 
 #### Decoder Layer Structure
 
