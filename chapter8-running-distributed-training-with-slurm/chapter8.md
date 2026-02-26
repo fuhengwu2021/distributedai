@@ -18,7 +18,7 @@
 - `SLURM_PROCID`: SLURM environment variable for process ID
 - `SLURM_NTASKS`: SLURM environment variable for number of tasks
 
-## 1. Introduction to Slurm for Distributed Training
+## Introduction to Slurm for Distributed Training
 
 Slurm (Simple Linux Utility for Resource Management) is a widely-used open-source job scheduler and resource manager for HPC and AI clusters. It excels at:
 
@@ -35,9 +35,9 @@ Slurm (Simple Linux Utility for Resource Management) is a widely-used open-sourc
 - **Fair scheduling**: Prevents resource hoarding and enables fair-share scheduling
 - **Checkpointing support**: Built-in mechanisms for job preemption and resumption
 
-## 2. Setting Up Slurm for Multi-GPU Training
+## Setting Up Slurm for Multi-GPU Training
 
-### 2.1 Single-Node Multi-GPU Setup
+### Single-Node Multi-GPU Setup
 
 For development and testing, you can run multiple Slurm compute nodes (slurmd daemons) on a single physical machine. This allows you to simulate a multi-node cluster for testing distributed training code.
 
@@ -60,7 +60,7 @@ NodeName=node6 Name=gpu File=/dev/nvidia6
 NodeName=node7 Name=gpu File=/dev/nvidia7
 ```
 
-### 2.2 Quick Setup
+### Quick Setup
 
 Use the provided setup script:
 
@@ -75,7 +75,7 @@ This script:
 3. Starts slurmctld (controller)
 4. Starts slurmd daemons for each virtual node
 
-### 2.3 Verifying the Setup
+### Verifying the Setup
 
 ```bash
 # Set PATH to use compiled Slurm
@@ -97,9 +97,9 @@ srun -N 1 hostname
 srun -N 2 hostname
 ```
 
-## 3. Submitting Distributed Training Jobs
+## Submitting Distributed Training Jobs
 
-### 3.1 Basic Job Submission with `srun`
+### Basic Job Submission with `srun`
 
 The simplest way to run a distributed training job:
 
@@ -108,7 +108,7 @@ The simplest way to run a distributed training job:
 srun -N 2 --gres=gpu:1 --cpus-per-task=4 python train.py
 ```
 
-### 3.2 Batch Jobs with `sbatch`
+### Batch Jobs with `sbatch`
 
 For longer-running jobs, use batch submission:
 
@@ -154,7 +154,7 @@ squeue -u $USER          # List your jobs
 scontrol show job <job_id>  # Detailed job info
 ```
 
-### 3.3 Environment Variables
+### Environment Variables
 
 Slurm automatically sets these environment variables for distributed training:
 
@@ -165,11 +165,11 @@ Slurm automatically sets these environment variables for distributed training:
 - `SLURM_LOCALID`: Local rank on the node (0 to tasks-per-node-1)
 - `SLURM_NODEID`: Node index (0 to NUM_NODES-1)
 
-## 4. PyTorch Distributed Training with Slurm
+## PyTorch Distributed Training with Slurm
 
 This section provides an overview of different distributed training frameworks and their integration with SLURM. For hands-on examples with complete code, see [Section 9: Hands-on: Complete Distributed Training Workflow](#9-hands-on-complete-distributed-training-workflow).
 
-### 4.1 PyTorch DDP (Distributed Data Parallel)
+### PyTorch DDP (Distributed Data Parallel)
 
 PyTorch DDP replicates the model across multiple GPUs and synchronizes gradients during backward pass. It's the simplest distributed training approach.
 
@@ -181,7 +181,7 @@ PyTorch DDP replicates the model across multiple GPUs and synchronizes gradients
 
 For complete code examples and SLURM scripts, see [Section 9.1: PyTorch DDP](#91-pytorch-ddp-distributed-data-parallel).
 
-### 4.2 PyTorch FSDP (Fully Sharded Data Parallel)
+### PyTorch FSDP (Fully Sharded Data Parallel)
 
 FSDP shards model parameters, gradients, and optimizer states across GPUs, enabling training of larger models.
 
@@ -193,7 +193,7 @@ FSDP shards model parameters, gradients, and optimizer states across GPUs, enabl
 
 For complete code examples and SLURM scripts, see [Section 9.2: PyTorch FSDP](#92-pytorch-fsdp-fully-sharded-data-parallel).
 
-### 4.3 DeepSpeed ZeRO-3 with CPU Offload
+### DeepSpeed ZeRO-3 with CPU Offload
 
 DeepSpeed ZeRO-3 provides advanced memory optimization with optional CPU offloading for training very large models.
 
@@ -205,7 +205,7 @@ DeepSpeed ZeRO-3 provides advanced memory optimization with optional CPU offload
 
 For complete code examples, configuration files, and SLURM scripts, see [Section 9.3: DeepSpeed ZeRO-3](#93-deepspeed-zero-3-with-cpu-offload).
 
-### 4.4 Megatron-LM Training with SLURM
+### Megatron-LM Training with SLURM
 
 Megatron-LM is NVIDIA's framework for training large language models with advanced parallelism strategies.
 
@@ -217,7 +217,7 @@ Megatron-LM is NVIDIA's framework for training large language models with advanc
 
 For complete code examples, installation instructions, and SLURM scripts, see [Section 9.4: Megatron-LM](#94-megatron-lm-training-with-slurm).
 
-### 4.5 Using Slurm's Built-in MPI Support
+### Using Slurm's Built-in MPI Support
 
 Slurm can automatically set up the process group via MPI:
 
@@ -244,9 +244,9 @@ dist.init_process_group(
 )
 ```
 
-## 5. Advanced Slurm Features for Training
+## Advanced Slurm Features for Training
 
-### 5.1 Job Arrays for Hyperparameter Tuning
+### Job Arrays for Hyperparameter Tuning
 
 Run multiple training jobs with different hyperparameters:
 
@@ -269,7 +269,7 @@ Submit:
 sbatch train_array.sh
 ```
 
-### 5.2 Interactive Jobs with `salloc`
+### Interactive Jobs with `salloc`
 
 Allocate resources interactively for debugging:
 
@@ -286,7 +286,7 @@ srun python train.py
 exit
 ```
 
-### 5.3 Job Dependencies
+### Job Dependencies
 
 Chain jobs so one starts after another completes:
 
@@ -298,7 +298,7 @@ JOB1=$(sbatch --parsable train_stage1.sh)
 sbatch --dependency=afterok:$JOB1 train_stage2.sh
 ```
 
-### 5.4 Checkpointing and Job Resumption
+### Checkpointing and Job Resumption
 
 Slurm supports job preemption and resumption:
 
@@ -315,9 +315,9 @@ trap 'echo "Checkpointing..."; python checkpoint.py' SIGUSR1
 python train.py --resume --checkpoint_dir=/path/to/checkpoints
 ```
 
-## 6. Monitoring and Debugging
+## Monitoring and Debugging
 
-### 6.1 Job Monitoring
+### Job Monitoring
 
 ```bash
 # Watch job queue
@@ -333,7 +333,7 @@ tail -f slurm-<job_id>.out
 srun -N 2 nvidia-smi
 ```
 
-### 6.2 Logging and Output
+### Logging and Output
 
 Slurm captures stdout and stderr:
 
@@ -355,7 +355,7 @@ logging.basicConfig(
 )
 ```
 
-### 6.3 Profiling Distributed Training
+### Profiling Distributed Training
 
 Use PyTorch profiler with Slurm:
 
@@ -375,9 +375,9 @@ if dist.get_rank() == 0:
     prof.export_chrome_trace("trace.json")
 ```
 
-## 7. Best Practices
+## Best Practices
 
-### 7.1 Resource Allocation
+### Resource Allocation
 
 - **Always specify resources explicitly**: Don't rely on defaults
 - **Use `--exclusive` for full node**: When you need all resources on a node
@@ -387,7 +387,7 @@ if dist.get_rank() == 0:
 srun -N 2 --gres=gpu:1 --mem=200G --cpus-per-task=28 python train.py
 ```
 
-### 7.2 Multi-Node Communication
+### Multi-Node Communication
 
 - **Use high-speed interconnects**: InfiniBand or high-speed Ethernet for multi-node
 - **Set appropriate NCCL environment variables**:
@@ -398,21 +398,21 @@ export NCCL_SOCKET_IFNAME=eth0  # Specify network interface
 export NCCL_DEBUG=INFO  # For debugging
 ```
 
-### 7.3 Checkpointing Strategy
+### Checkpointing Strategy
 
 - **Frequent checkpoints**: Save every N steps, not just at epoch boundaries
 - **Distributed checkpointing**: Use `torch.distributed.checkpoint` for FSDP
 - **Resume capability**: Always implement `--resume` flag in training scripts
 
-### 7.4 Error Handling
+### Error Handling
 
 - **Handle node failures**: Implement retry logic for transient failures
 - **Validate data loading**: Ensure data is accessible from all nodes
 - **Monitor for deadlocks**: Use timeouts and health checks
 
-## 8. Troubleshooting Common Issues
+## Troubleshooting Common Issues
 
-### 8.1 Nodes Not Available
+### Nodes Not Available
 
 ```bash
 # Check node status
@@ -425,7 +425,7 @@ scontrol update NodeName=node[6-7] State=RESUME
 scontrol update NodeName=node6 State=DRAIN Reason="maintenance"
 ```
 
-### 8.2 GPU Allocation Issues
+### GPU Allocation Issues
 
 ```bash
 # Check GPU availability
@@ -439,23 +439,23 @@ cat $SLURM_PREFIX/etc/gres.conf
 srun -N 1 --gres=gpu:1 nvidia-smi -L
 ```
 
-### 8.3 Communication Errors
+### Communication Errors
 
 - **Check network connectivity**: `srun -N 2 ping -c 3 <other_node>`
 - **Verify NCCL setup**: Set `NCCL_DEBUG=INFO` for detailed logs
 - **Check firewall**: Ensure required ports are open
 
-### 8.4 Job Hanging
+### Job Hanging
 
 - **Check for deadlocks**: Look for processes waiting on barriers
 - **Verify data loading**: Ensure all ranks can access data
 - **Check logs**: Review both stdout and stderr from all ranks
 
-## 9. Hands-on: Complete Distributed Training Workflow
+## Hands-on: Complete Distributed Training Workflow
 
 This section provides hands-on examples for running distributed training with different frameworks on SLURM clusters. All code examples are available in the `code/` directory.
 
-### 9.1 PyTorch DDP (Distributed Data Parallel)
+### PyTorch DDP Example
 
 **Method 1: Using `torch.distributed.launch`**
 
@@ -525,7 +525,7 @@ srun torchrun \
     train_ddp.py
 ```
 
-### 9.2 PyTorch FSDP (Fully Sharded Data Parallel)
+### PyTorch FSDP Example
 
 FSDP shards model parameters, gradients, and optimizer states across GPUs:
 
@@ -581,7 +581,7 @@ srun torchrun \
     train_fsdp.py
 ```
 
-### 9.3 DeepSpeed ZeRO-3 with CPU Offload
+### DeepSpeed ZeRO-3 Example
 
 DeepSpeed ZeRO-3 enables training models larger than GPU memory by sharding parameters, gradients, and optimizer states across GPUs, with optional CPU offloading for even larger models.
 
@@ -752,7 +752,7 @@ tail -f logs/train_*.out
 - IPv6 resolution: Set `NCCL_SOCKET_IFNAME` and `GLOO_SOCKET_IFNAME` to avoid IPv6 issues
 - Conda activation: Ensure conda environment is activated on each compute node via `srun`
 
-### 9.4 Megatron-LM Training with SLURM
+### Megatron-LM Example
 
 Megatron-LM is NVIDIA's framework for training large language models with advanced parallelism strategies including tensor parallelism (TP), pipeline parallelism (PP), context parallelism (CP), and data parallelism (DP).
 
