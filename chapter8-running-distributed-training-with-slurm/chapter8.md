@@ -52,13 +52,15 @@ Fourth, SLURM scales efficiently. The same commands and scripts work whether you
 
 The integration between SLURM and PyTorch's distributed training is remarkably smooth once you understand the mapping. Your training code doesn't need to know whether it's running on a laptop with 2 GPUs or a cluster with 256—the abstraction handles the details. A job script specifies resource requirements (`--nodes=4 --gres=gpu:8`), SLURM allocates those resources and sets up the environment, and your training script initializes distributed communication using the environment variables SLURM provides.
 
-## Setting Up Slurm for Multi-GPU Training
+## Setting Up SLURM for Multi-GPU Training
 
-### Single-Node Multi-GPU Setup
+Most users won't need to install SLURM themselves—cluster administrators handle that. But understanding the configuration helps debug issues when jobs don't behave as expected, and setting up a local test environment is invaluable for developing and debugging distributed training scripts before submitting to a production cluster.
 
-For development and testing, you can run multiple Slurm compute nodes (slurmd daemons) on a single physical machine. This allows you to simulate a multi-node cluster for testing distributed training code.
+### Simulating a Multi-Node Cluster
 
-**Key configuration** (see `code/config/slurm.conf`):
+For development and testing, you can simulate a multi-node cluster on a single physical machine by running multiple SLURM compute daemons (slurmd), each mapped to a different GPU. This lets you test multi-node distributed training code without access to an actual cluster.
+
+The key insight is that SLURM's architecture separates the concept of a "node" from a physical machine. Each slurmd daemon represents one node, and by running multiple daemons on different ports, you can create virtual nodes that SLURM treats as independent machines. The configuration in `slurm.conf` defines these virtual nodes:
 
 ```bash
 # Enable multiple slurmd support
@@ -70,49 +72,48 @@ NodeName=node7 NodeHostname=$HOSTNAME Port=17017 \
     CPUs=112 RealMemory=240000 Gres=gpu:1 State=UNKNOWN
 ```
 
-**GPU mapping** (see `code/config/gres.conf`):
+Each virtual node listens on a different port (17016, 17017) but shares the same hostname. The `Gres=gpu:1` declaration tells SLURM that each node has one GPU available. The corresponding `gres.conf` file maps these virtual GPUs to physical devices:
 
 ```bash
 NodeName=node6 Name=gpu File=/dev/nvidia6
 NodeName=node7 Name=gpu File=/dev/nvidia7
 ```
 
-### Quick Setup
+This mapping ensures that when a job requests `--gres=gpu:1` on node6, SLURM sets `CUDA_VISIBLE_DEVICES` to expose only `/dev/nvidia6` to that job. On a real cluster, each physical node would have its own `gres.conf` entry mapping to its local GPUs.
 
-Use the provided setup script:
+### Quick Setup and Verification
+
+The provided setup script automates the configuration process—creating directories, generating configuration files, and starting the SLURM daemons:
 
 ```bash
 cd code/chapter8
 bash slurm_setup.sh
 ```
 
-This script:
-1. Creates required directories
-2. Generates configuration files
-3. Starts slurmctld (controller)
-4. Starts slurmd daemons for each virtual node
-
-### Verifying the Setup
+Once the daemons are running, verify the cluster is working correctly. First, add SLURM to your PATH (replace `$SLURM_PREFIX` with your installation prefix, typically `/opt/slurm` or `$HOME/slurm`):
 
 ```bash
-# Set PATH to use compiled Slurm
-# Replace $SLURM_PREFIX with your Slurm installation prefix (e.g., /opt/slurm or $HOME/slurm)
 export PATH=$SLURM_PREFIX/bin:$PATH
+```
 
-# Check cluster status
+The `sinfo` command shows the cluster's partition and node status:
+
+```bash
 sinfo
 
 # Expected output:
 # PARTITION AVAIL  TIMELIMIT  NODES  STATE NODELIST
 # gpu*         up   infinite      2   idle node[6-7]
+```
 
-# Check node details
-scontrol show nodes
+The output shows a partition named "gpu" (the asterisk indicates it's the default) with 2 idle nodes. For more detailed node information, use `scontrol show nodes`. To verify that jobs can actually run, submit a simple test:
 
-# Test simple job
+```bash
 srun -N 1 hostname
 srun -N 2 hostname
 ```
+
+The first command runs `hostname` on one node; the second runs it on both nodes simultaneously. If both commands complete successfully and print the expected node names, your SLURM setup is ready for distributed training experiments.
 
 ## Submitting Distributed Training Jobs
 
