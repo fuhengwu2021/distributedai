@@ -1,4 +1,4 @@
-# Chapter 6: Distributed Inference Fundamentals and vLLM {-}
+# Chapter 6: Distributed Inference and vLLM {-}
 
 *Serving large language models at scale with high throughput and low latency*
 
@@ -314,6 +314,14 @@ curl http://localhost:8000/v1/completions \
 ```
 
 ## KV Cache
+
+In the previous section, we saw how vLLM provides a high-level interface for running inference. But what makes LLM inference fundamentally different from other deep learning workloads? The answer lies in the autoregressive nature of text generation and a critical optimization called the **KV cache**.
+
+When a language model generates text, it doesn't produce the entire output at once. Instead, it generates one token at a time, with each new token depending on all the tokens that came before it. This sequential dependency creates a unique computational challenge: without careful optimization, the model would need to reprocess the entire sequence history for every single token it generates. The KV cache is the solution to this problem—it stores intermediate computations so they can be reused rather than recomputed.
+
+Understanding the KV cache is essential for anyone working with LLM inference at scale. It explains why memory, not compute, often becomes the bottleneck during generation. It's the reason why techniques like PagedAttention (which we'll cover later) can dramatically improve throughput. And it's the foundation for understanding how distributed inference strategies like tensor parallelism affect memory requirements.
+
+Let's start by examining the architecture that makes KV caching both necessary and possible.
 
 ### Decoder-Only Transformer Architecture
 
