@@ -666,7 +666,7 @@ vLLM addresses this with **request groups** (also called virtual engines). Inste
 
 The trade-off is that KV cache must be split among request groups. With 4 pipeline stages, each group gets roughly 1/4 of the total KV cache capacity. This limits the maximum batch size per group, which can reduce efficiency for memory-bound decode operations that benefit from larger batches.
 
-### Chunked Prefill for Smoother Pipelines
+### Chunked Prefill for Smoother Pipelines {#sec:chunked-prefill}
 
 Another source of pipeline bubbles is the mismatch between prefill and decode. Prefill processes many tokens in parallel and is compute-intensive; decode processes one token at a time and is memory-bound. A long prefill can take 10x longer than a decode step, creating bubbles as faster decode operations wait for slower prefills.
 

@@ -690,120 +690,23 @@ python -m sglang.launch_server \
 
 DP Attention is most beneficial for large batch sizes where memory efficiency matters. For low-latency, small-batch scenarios, the all-gather overhead may outweigh the benefits.
 
-## Scheduler Evolution
-
-SGLang's scheduler has evolved through several generations, each reducing GPU idle time further.
-
-The initial serial scheduler executed steps sequentially: CPU schedules, GPU computes, CPU processes results, repeat. The GPU sat idle during CPU work, and scheduler overhead could consume 50% or more of total time.
-
-The current zero-overhead scheduler (discussed earlier in this chapter) overlaps CPU and GPU work completely. While the GPU processes batch N, the CPU prepares batch N+1 and processes results from batch N-1. The GPU never waits for the CPU.
-
-The latest implementation uses multiple CUDA streams and a FutureMap for async result handling. The result is up to 2x throughput improvement over the serial scheduler, with lower end-to-end latency because the GPU is always busy.
-
-## Continuous Batching
-
-Like vLLM, SGLang implements continuous batching (also called dynamic batching) to handle variable-length sequences efficiently. Instead of waiting for all requests in a batch to complete before starting new ones, continuous batching adds new requests as they arrive and removes completed requests immediately.
-
-The difference from vLLM is how continuous batching interacts with the router-based architecture. In SGLang, the router's cache-aware policy considers both load balancing and which workers have relevant prefixes cached. Requests are batched at each worker, with the routing decision already optimized for cache locality. This combination—intelligent routing plus continuous batching—achieves both high throughput and low latency.
-
-SGLang's scheduler prioritizes prefill requests over decode. When a new request arrives, it can interrupt ongoing decode batches to start prefill immediately. This reduces time-to-first-token (TTFT) at the cost of slightly higher inter-token latency for in-progress requests—usually a good trade-off for interactive applications.
-
 ## Production Deployment Patterns
 
-Different model sizes and workload characteristics call for different deployment patterns. Here's a guide to choosing the right approach.
+The right deployment pattern depends primarily on model size. For models under 10B parameters that fit on a single GPU, router-based data parallelism is almost always the best choice—each node runs a complete model, and the router distributes requests with cache-aware routing and session affinity. This configuration typically achieves 50-100ms TTFT, 1000+ QPS, and 60-80% cache hit rates for conversational workloads.
 
-### Small Models (<10B): Router-Based DP
+For models between 10B and 100B parameters requiring 2-8 GPUs, use tensor parallelism within each node and router-based distribution across nodes. Each node runs a TP group, and the router treats each TP group as a single worker. For models over 100B parameters, you'll need TP+PP across nodes, similar to vLLM's approach—the model is too large for router-based replication.
 
-For models that fit on a single GPU, router-based deployment with data parallelism is almost always the best choice. Each node runs a complete model, and the router distributes requests with cache-aware routing and session affinity.
+MoE models combine expert parallelism with tensor parallelism. Enable DP Attention if the model has few KV heads, and use TBO/SBO for communication overlap. When prefill and decode have very different characteristics (long prompts with short generations, or vice versa), PD disaggregation lets you scale each phase independently.
 
-```bash
-# Workers on each node
-python -m sglang.launch_server \
-    --model-path Qwen/Qwen2.5-0.5B-Instruct \
-    --port 30000
+A few practical optimizations apply across deployment patterns. For communication, keep tensor parallelism within NVLink domains and configure NCCL appropriately for your network (`NCCL_IB_DISABLE=0`, `NCCL_IB_GID_INDEX=3`, `NCCL_SOCKET_IFNAME=ib0`). For memory efficiency, enable chunked prefill (`--chunked-prefill-size`) for long-context workloads—this breaks long prompts into smaller chunks that interleave with decode operations, avoiding memory spikes and pipeline bubbles (see Section~\ref{sec:chunked-prefill} in Chapter~\ref{chap:distributed-inference-fundamentals-and-vllm}). Quantization with FP8 or INT4/AWQ reduces memory footprint and can improve throughput. For latency-sensitive workloads, use cache-aware routing and speculative decoding; for throughput-sensitive workloads, scale data parallelism and enable all overlap options (`--tp-comm-overlap`, `--enable-two-batch-overlap`).
 
-# Router
-python -m sglang_router.launch_router \
-    --worker-urls http://node1:30000 http://node2:30000 http://node3:30000 \
-    --policy cache_aware \
-    --port 8080
-```
+## Hands-on Examples {#sec:sglang-hands-on}
 
-Expect 50-100ms TTFT, 1000+ QPS, and 60-80% cache hit rates for conversational workloads.
+With the architectural concepts and optimization strategies in place, let's walk through complete deployment configurations for common scenarios.
 
-### Medium Models (10B-100B): TP Within Nodes + Router
+### Basic Multi-Node Deployment {#sec:sglang-basic-deployment}
 
-For models requiring 2-8 GPUs, use tensor parallelism within each node and router-based distribution across nodes. Each node runs a TP group, and the router treats each TP group as a single worker.
-
-```bash
-# Each node runs TP=8
-python -m sglang.launch_server \
-    --model-path meta-llama/Llama-3.1-70B-Instruct \
-    --tp 8 \
-    --port 30000
-
-# Router across nodes
-python -m sglang_router.launch_router \
-    --worker-urls http://node1:30000 http://node2:30000 \
-    --policy cache_aware
-```
-
-### Large Models (100B+): TP+PP Across Nodes
-
-For very large models, use tensor parallelism within nodes and pipeline parallelism across nodes. This is similar to vLLM's approach—the model is too large for router-based replication.
-
-### MoE Models: EP+TP Hybrid
-
-For MoE models, combine expert parallelism with tensor parallelism. Enable DP Attention if the model has few KV heads, and use TBO/SBO for communication overlap.
-
-```bash
-python -m sglang.launch_server \
-    --model-path microsoft/Phi-tiny-MoE-instruct \
-    --tp 8 --ep 16 \
-    --moe-a2a-backend deepep \
-    --enable-dp-attention \
-    --enable-two-batch-overlap
-```
-
-### PD Disaggregation for Mixed Workloads
-
-When prefill and decode have very different characteristics (long prompts with short generations, or vice versa), PD disaggregation lets you scale each phase independently.
-
-## Performance Optimization Guide
-
-### Choosing a Parallelism Strategy
-
-The right parallelism strategy depends primarily on model size. For models under 10B parameters that fit on a single GPU, router-based data parallelism gives the best throughput and latency. For models between 10B and 100B, use tensor parallelism within nodes (TP=4-8) and router-based distribution across nodes. For models over 100B, you'll need TP+PP across nodes, similar to vLLM. MoE models add expert parallelism to the mix.
-
-Model architecture also matters. Dense models use TP+PP. MoE models benefit from EP+TP, and models with few KV heads (like MLA architectures) should enable DP Attention. Long-context workloads benefit from chunked prefill.
-
-### Communication Optimization
-
-Keep tensor parallelism within NVLink domains to minimize communication overhead. Use pipeline parallelism for inter-node communication. Set NCCL environment variables appropriately for your network topology:
-
-```bash
-export NCCL_IB_DISABLE=0
-export NCCL_IB_GID_INDEX=3
-export NCCL_SOCKET_IFNAME=ib0
-```
-
-Enable communication overlap wherever possible: `--tp-comm-overlap` for tensor parallelism, `--enable-two-batch-overlap` for expert parallelism. These flags hide communication latency behind computation.
-
-### Memory Optimization
-
-RadixAttention is enabled by default and provides significant memory savings through prefix sharing. For long-context workloads, enable chunked prefill to avoid memory spikes during prefill. Quantization (FP8 or INT4/AWQ) reduces memory footprint and can improve throughput.
-
-### Latency vs Throughput
-
-For latency-sensitive workloads, use cache-aware routing to maximize prefix hits, enable speculative decoding for faster generation, and co-locate the router with workers to minimize network hops.
-
-For throughput-sensitive workloads, tune batch sizes (larger batches amortize overhead but increase latency), scale data parallelism by adding more workers, and enable all overlap options to maximize GPU utilization.
-
-## Hands-on Examples
-
-### Basic Multi-Node Deployment
-
-The simplest SGLang deployment runs workers on multiple nodes with a router for load balancing:
+The simplest SGLang deployment runs workers on multiple nodes with a router for load balancing. This pattern implements the router-based data parallelism architecture described in the Router-Based Distributed Architecture section, where each worker holds a complete model and processes requests independently.
 
 ```bash
 # Start workers on each node
@@ -820,22 +723,26 @@ python -m sglang_router.launch_router \
     --port 8080
 ```
 
-### PD Disaggregation with Mooncake
+The `--policy cache_aware` flag enables the router's intelligent request distribution based on prefix cache locality. When a request arrives, the router examines its prefix and routes it to the worker most likely to have relevant KV cache entries—this is how RadixAttention's cross-request optimization extends to distributed deployments. Without this flag, the router falls back to round-robin distribution, which still provides load balancing but loses the cache locality benefits.
 
-For workloads with distinct prefill and decode characteristics, PD disaggregation separates these phases:
+For production deployments, you'll want to add health checks (`--health-check-interval`), connection timeouts, and potentially TLS termination at the router level. The router exposes Prometheus metrics at `/metrics` for monitoring request latency, cache hit rates, and per-worker load distribution.
+
+### PD Disaggregation with Mooncake {#sec:sglang-pd-example}
+
+For workloads with distinct prefill and decode characteristics—such as long prompts with short generations, or RAG applications where context is large but responses are brief—PD disaggregation separates these phases onto specialized workers. This architecture, detailed in the Prefill/Decode Disaggregation section, allows independent scaling of compute-bound prefill and memory-bound decode resources.
 
 ```bash
 # Install transfer engine
 uv pip install mooncake-transfer-engine
 
-# Prefill worker
+# Prefill worker (compute-optimized)
 python -m sglang.launch_server \
     --model-path Qwen/Qwen2.5-0.5B-Instruct \
     --disaggregation-mode prefill \
     --port 30000 \
     --disaggregation-ib-device mlx5_roce0
 
-# Decode worker
+# Decode worker (memory-optimized)
 python -m sglang.launch_server \
     --model-path Qwen/Qwen2.5-0.5B-Instruct \
     --disaggregation-mode decode \
@@ -843,7 +750,7 @@ python -m sglang.launch_server \
     --base-gpu-id 1 \
     --disaggregation-ib-device mlx5_roce0
 
-# Router
+# Router with PD-aware scheduling
 python -m sglang_router.launch_router \
     --pd-disaggregation \
     --prefill http://127.0.0.1:30000 \
@@ -851,9 +758,13 @@ python -m sglang_router.launch_router \
     --port 8080
 ```
 
-### Testing Session Affinity
+The `--disaggregation-ib-device mlx5_roce0` flag specifies the RDMA device for KV cache transfer between prefill and decode workers. This is critical for performance—without RDMA, KV cache blocks must traverse the network stack, adding significant latency. The Mooncake transfer engine handles the zero-copy data movement, as described in the Transfer Engines section.
 
-To verify that session affinity improves cache hit rates:
+In production, you'd typically run multiple prefill and decode workers, with the ratio determined by your workload's prefill-to-decode compute ratio. For long-context workloads (prefill-heavy), you might use a 2:1 or 3:1 prefill-to-decode ratio; for chatbot workloads (decode-heavy), a 1:2 ratio may be more appropriate.
+
+### Testing Session Affinity {#sec:sglang-session-example}
+
+Session affinity routes consecutive requests from the same conversation to the same worker, maximizing KV cache reuse. This example demonstrates how to use session IDs and measure the resulting speedup—the mechanism is described in the Session Affinity and Cache Locality section.
 
 ```python
 import requests
@@ -861,7 +772,7 @@ import requests
 router_url = "http://router:8080/v1/chat/completions"
 session_id = "test-session-123"
 
-# First request creates session
+# First request creates session and computes KV cache
 response1 = requests.post(router_url, json={
     "model": "opt-125m",
     "messages": [{"role": "user", "content": "Hello!"}],
@@ -869,7 +780,7 @@ response1 = requests.post(router_url, json={
 })
 print(f"First request: {response1.elapsed.total_seconds()}s")
 
-# Second request should hit cache
+# Second request reuses KV cache from first request
 response2 = requests.post(router_url, json={
     "model": "opt-125m",
     "messages": [{"role": "user", "content": "What did I say?"}],
@@ -879,9 +790,13 @@ print(f"Second request: {response2.elapsed.total_seconds()}s")
 print(f"Speedup: {response1.elapsed / response2.elapsed:.2f}x")
 ```
 
-### MoE Model with EP+TP
+The speedup you observe depends on the overlap between requests. If the second request's prefix matches the first request's full context (system prompt + conversation history), RadixAttention can skip prefill entirely for the shared portion. In multi-turn conversations with long system prompts, this can reduce TTFT by 50-90%. The router's session affinity ensures these requests land on the same worker where the KV cache resides.
 
-For MoE models, combine expert parallelism with tensor parallelism:
+For applications without natural session boundaries (e.g., batch processing), you can still benefit from prefix sharing by sorting requests to group those with common prefixes together, then using the cache-aware routing policy.
+
+### MoE Model with EP+TP {#sec:sglang-moe-example}
+
+MoE (Mixture of Experts) models require expert parallelism to distribute experts across GPUs, combined with tensor parallelism for the dense layers. This configuration, detailed in the Expert Parallelism for MoE Models section, demonstrates SGLang's support for hybrid parallelism strategies.
 
 ```bash
 python -m sglang.launch_server \
@@ -893,23 +808,9 @@ python -m sglang.launch_server \
     --enable-two-batch-overlap
 ```
 
-## Distributed Coordination
+The flags break down as follows: `--tp 8` shards dense layers across 8 GPUs using tensor parallelism; `--ep 16` distributes experts across 16 GPUs (with 2 GPUs per expert group in this case). The `--moe-a2a-backend deepep` flag selects the DeepEP backend for all-to-all communication during expert routing—this is optimized for MoE's sparse activation patterns. The `--moe-runner-backend deep_gemm` flag uses fused GEMM kernels for expert computation.
 
-Distributed inference requires coordination between components. The key synchronization points differ by parallelism type:
-
-**Tensor Parallelism** uses all-reduce after each layer to combine partial results across GPUs. This is the most communication-intensive pattern.
-
-**Pipeline Parallelism** uses point-to-point communication between stages. Each stage sends its output to the next stage and receives input from the previous stage.
-
-**Expert Parallelism** uses all-to-all communication to route tokens to their assigned experts and gather results.
-
-**Router-based DP** requires no synchronization between workers—each processes requests independently, and the router handles distribution.
-
-### Fault Tolerance
-
-SGLang's router architecture provides natural fault tolerance. When a worker fails, the router detects it through health checks and routes subsequent requests to healthy workers. Sessions may lose their cached KV state, but requests continue to be served.
-
-For TP/PP deployments, failure is more disruptive since all ranks in a group must be available. Recovery typically requires restarting the entire group.
+Two additional optimizations are enabled: `--enable-dp-attention` activates Data Parallel Attention (described in the Data Parallel Attention section), which is beneficial for models with few KV heads like those using MLA or GQA. The `--enable-two-batch-overlap` flag enables Two-Batch Overlap (TBO), which hides all-to-all communication latency by overlapping it with computation from adjacent batches.
 
 ## Summary
 
