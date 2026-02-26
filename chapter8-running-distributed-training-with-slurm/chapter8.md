@@ -67,6 +67,10 @@ When you submit a job with `sbatch`, the request goes to slurmctld, which queues
 
 SLURM's scheduling algorithms, partition configurations, QOS (Quality of Service) policies, and plugin architecture are rich topics that cluster administrators tune for their specific workloads. This chapter focuses on the **user-facing aspects**—how to submit jobs, request resources, and integrate with distributed training frameworks—rather than cluster administration. For SLURM internals and administration, the official documentation[^slurm] and the SchedMD training materials provide comprehensive coverage.
 
+![SLURM Architecture: slurmctld, slurmd, and slurmdbd daemons.](img/slurm_architecture.png){#fig:slurm-architecture .block width=95% align=center}
+
+Figure~\ref{fig:slurm-architecture} illustrates the overall architecture. Users interact with the head node through commands like `sbatch` (submit batch jobs), `srun` (run interactive commands), and `squeue` (query job status), all of which communicate with slurmctld. The controller daemon maintains the job queue, tracks node states, and makes scheduling decisions—when resources become available, it notifies the appropriate slurmd daemons to launch job processes. Each slurmd manages its local node: spawning tasks, enforcing resource limits via cgroups, monitoring process health, and reporting status back to the controller. The optional slurmdbd daemon persists accounting data (job history, resource consumption, user allocations) to a database, enabling fair-share scheduling policies that balance resource usage across users and projects over time.
+
 ## Setting Up SLURM for Multi-GPU Training
 
 Most users won't need to install SLURM themselves—cluster administrators handle that. But understanding the configuration helps debug issues when jobs don't behave as expected, and setting up a local test environment is invaluable for developing and debugging distributed training scripts before submitting to a production cluster.
@@ -94,6 +98,10 @@ NodeName=node7 Name=gpu File=/dev/nvidia7
 ```
 
 This mapping ensures that when a job requests `--gres=gpu:1` on node6, SLURM sets `CUDA_VISIBLE_DEVICES` to expose only `/dev/nvidia6` to that job. You can adjust the GPU indices to use any available GPUs on your machine—for instance, `/dev/nvidia0` and `/dev/nvidia1` if you want to use the first two GPUs instead. On a real cluster, each physical node would have its own `gres.conf` entry mapping to its local GPUs.
+
+![Virtual multi-node cluster on a single physical machine.](img/virtual_node_setup.png){#fig:virtual-node-setup .block width=90% align=center}
+
+Figure~\ref{fig:virtual-node-setup} shows the virtual node setup. Two slurmd daemons (node6 and node7) run on the same physical machine but listen on different ports. Each virtual node is mapped to a specific GPU through `gres.conf`, allowing you to test multi-node distributed training code locally.
 
 ### Quick Setup and Verification
 
@@ -193,6 +201,10 @@ squeue -u $USER          # List your jobs
 scontrol show job <job_id>  # Detailed job info
 ```
 
+![SLURM job state lifecycle.](img/job_lifecycle.png){#fig:job-lifecycle .block width=90% align=center}
+
+Figure~\ref{fig:job-lifecycle} shows the job state transitions. Jobs start in PENDING while waiting for resources, move to RUNNING when allocated, then COMPLETING during cleanup, and finally COMPLETED on success. Jobs can also transition to FAILED (on error), CANCELLED (user intervention), or TIMEOUT (exceeded time limit). Use `squeue` to see current state and `sacct` for historical job information.
+
 ### Understanding SLURM Environment Variables
 
 When SLURM launches your job, it automatically populates environment variables that map directly to distributed training concepts. Understanding this mapping is key to writing portable training scripts that work across different cluster configurations.
@@ -201,9 +213,17 @@ When SLURM launches your job, it automatically populates environment variables t
 
 When you use `torchrun` or initialize `torch.distributed` with `init_method='env://'`, PyTorch reads these variables (or the `RANK`, `LOCAL_RANK`, `WORLD_SIZE` variables you derive from them) and configures the process group automatically. This abstraction means your training code doesn't need to know the specifics of SLURM—it just reads standard environment variables that any launcher can provide.
 
+![SLURM to PyTorch environment variable mapping.](img/slurm_env_vars_mapping.png){#fig:slurm-env-vars .block width=85% align=center}
+
+Figure~\ref{fig:slurm-env-vars} shows the mapping between SLURM and PyTorch environment variables. Your training script can either use SLURM variables directly or export them as standard PyTorch variables (`RANK`, `LOCAL_RANK`, `WORLD_SIZE`, `MASTER_ADDR`). The `torchrun` launcher handles this translation automatically when used with SLURM.
+
 ## PyTorch Distributed Training with Slurm
 
 This section provides an overview of different distributed training frameworks and their integration with SLURM. For hands-on examples with complete code, see [Section 9: Hands-on: Complete Distributed Training Workflow](#9-hands-on-complete-distributed-training-workflow).
+
+![Multi-node distributed training with SLURM.](img/multi_node_training.png){#fig:multi-node-training .block width=90% align=center}
+
+Figure~\ref{fig:multi-node-training} illustrates how SLURM orchestrates multi-node distributed training. SLURM launches processes across allocated nodes, each process binds to a specific GPU, and NCCL handles the AllReduce communication for gradient synchronization. The environment variables set by SLURM enable each process to identify its global rank, local rank, and the master address for establishing the process group.
 
 ### PyTorch DDP (Distributed Data Parallel)
 
