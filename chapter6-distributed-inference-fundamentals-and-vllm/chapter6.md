@@ -475,14 +475,10 @@ PagedAttention divides the KV cache into fixed-size blocks, typically 16 tokens 
 
 Each request maintains a block table that maps logical sequence positions to physical block addresses, similar to page tables in OS virtual memory. This allows sequences to be logically continuous while physically stored in discrete blocks scattered across GPU memory. Blocks are allocated and freed as sequences grow or complete. When a request finishes, its blocks are immediately returned to a shared block pool. Freed blocks can be immediately reused by new requests, eliminating fragmentation and enabling near-100% memory utilization.
 
-```
-Block Pool: [Block0][Block1][Block2][Block3][Block4][Block5]...
-            ↓        ↓        ↓
-Request 1:  [Block0][Block1]  (finished, blocks returned to pool)
-Request 2:  [Block2]          (active)
-Request 3:  [Block3][Block4]   (active)
-            ↑ No fragmentation - blocks can be reused immediately
-```
+![PagedAttention block-based memory](img/paged_attention_blocks.png){#fig:paged-attention-blocks .block width=90% align=center}
+
+Figure~\ref{fig:paged-attention-blocks} illustrates this block-based approach. The block pool at the top contains all available blocks. Request 1 has finished and its blocks (Block 0, Block 1) are returned to the pool, shown as free (yellow). Request 2 uses Block 2, and Request 3 uses Blocks 3 and 4. Unlike contiguous allocation, when Request 1 finishes, its blocks immediately become available for any new request—regardless of size. A new request needing 3 blocks can grab Block 0, Block 1, and Block 5 without requiring them to be adjacent.
+
 
 ### Eliminating Padding FLOPs
 
