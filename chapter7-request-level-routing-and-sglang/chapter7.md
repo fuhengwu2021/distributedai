@@ -200,7 +200,7 @@ SGLang's scheduler is aware of the radix cache and uses it to optimize batch for
 
 The cache also integrates with session affinity. When requests from the same session are routed to the same worker, the radix tree on that worker accumulates the conversation history. Follow-up messages in a conversation benefit from the cached KV from previous turns, dramatically reducing latency for multi-turn interactions.
 
-Under the hood, SGLang implements RadixAttention through a two-level memory pool (as of SGLang v0.4). The first level maps each request to its tokens' KV cache indices. The second level stores the actual KV cache data, organized as `[num_layers, max_tokens, num_heads, head_dim]`. The radix tree sits on top of these pools, tracking which prefixes are cached and enabling efficient lookup and sharing.
+Under the hood, SGLang implements RadixAttention through a two-level memory pool (as of SGLang v0.5). The first level maps each request to its tokens' KV cache indices. The second level stores the actual KV cache data, organized as `[num_layers, max_tokens, num_heads, head_dim]`. The radix tree sits on top of these pools, tracking which prefixes are cached and enabling efficient lookup and sharing.
 
 ### Structured Output Decoding with X-Grammar
 
