@@ -52,6 +52,21 @@ Fourth, SLURM scales efficiently. The same commands and scripts work whether you
 
 The integration between SLURM and PyTorch's distributed training is remarkably smooth once you understand the mapping. Your training code doesn't need to know whether it's running on a laptop with 2 GPUs or a cluster with 256—the abstraction handles the details. A job script specifies resource requirements (`--nodes=4 --gres=gpu:8`), SLURM allocates those resources and sets up the environment, and your training script initializes distributed communication using the environment variables SLURM provides.
 
+
+### SLURM Architecture: A Brief Overview
+
+Before diving into usage, it helps to understand SLURM's architecture at a high level. SLURM consists of several daemons that work together to manage the cluster:
+
+- **slurmctld** (controller daemon): The central brain that runs on the head node. It manages the job queue, makes scheduling decisions, allocates resources, and monitors job state. In production clusters, slurmctld typically runs in a high-availability configuration with a backup controller.
+
+- **slurmd** (compute daemon): Runs on each compute node. It receives job allocations from slurmctld, launches and monitors tasks, reports node status back to the controller, and enforces resource limits using Linux cgroups.
+
+- **slurmdbd** (database daemon): Optional but common in production. It stores accounting data (job history, resource usage, user/project allocations) in a MySQL or MariaDB database, enabling fair-share scheduling and usage reporting.
+
+When you submit a job with `sbatch`, the request goes to slurmctld, which queues it and eventually allocates resources based on scheduling policies (priority, fair-share, backfill). Once resources are available, slurmctld notifies the relevant slurmd daemons, which spawn your job's processes and set up the environment variables your training script reads.
+
+SLURM's scheduling algorithms, partition configurations, QOS (Quality of Service) policies, and plugin architecture are rich topics that cluster administrators tune for their specific workloads. This chapter focuses on the **user-facing aspects**—how to submit jobs, request resources, and integrate with distributed training frameworks—rather than cluster administration. For SLURM internals and administration, the official documentation[^slurm] and the SchedMD training materials provide comprehensive coverage.
+
 ## Setting Up SLURM for Multi-GPU Training
 
 Most users won't need to install SLURM themselves—cluster administrators handle that. But understanding the configuration helps debug issues when jobs don't behave as expected, and setting up a local test environment is invaluable for developing and debugging distributed training scripts before submitting to a production cluster.
