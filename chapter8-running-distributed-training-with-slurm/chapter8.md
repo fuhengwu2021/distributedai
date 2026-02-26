@@ -2,8 +2,8 @@
 
 *Managing GPU resources and coordinating multi-node jobs with SLURM*
 
-> Understanding the concepts is only part of the equation—you also need to know how to actually run these systems in practice. Most HPC clusters and cloud providers use job schedulers like Slurm to manage GPU resources and coordinate multi-node jobs.
-- Adapted from Chapter 8
+> In a room full of top software designers, if two agree on the same thing, that’s a majority.
+- Bill Curtis
 
 **Code Summary**
 
@@ -18,22 +18,33 @@
 - `SLURM_PROCID`: SLURM environment variable for process ID
 - `SLURM_NTASKS`: SLURM environment variable for number of tasks
 
-## Introduction to Slurm for Distributed Training
+## Introduction to Clusters for HPC and AI Training
 
-Slurm (Simple Linux Utility for Resource Management) is a widely-used open-source job scheduler and resource manager for HPC and AI clusters. It excels at:
+The previous chapters covered the theory and implementation of distributed training—DDP for gradient synchronization, FSDP for memory efficiency, DeepSpeed for ZeRO optimization, and Megatron for model parallelism. But understanding these frameworks is only half the challenge. The other half is actually running them on real hardware: allocating GPUs across nodes, coordinating processes, managing job queues, and handling the inevitable failures that occur at scale.
 
-- **Resource allocation**: Allocate GPUs, CPUs, and memory across multiple nodes
-- **Job scheduling**: Queue and schedule training jobs based on priority and resource availability
-- **Multi-node coordination**: Automatically set up environment variables for distributed training
-- **GPU management**: Track and allocate GPU resources via Generic Resources (GRES)
+Modern AI training happens on clusters—collections of interconnected machines that pool their compute resources. A typical GPU cluster consists of compute nodes (each containing multiple GPUs, CPUs, and memory), a high-speed interconnect (InfiniBand or high-bandwidth Ethernet) linking the nodes, shared storage accessible from all nodes, and a head node that manages job submission and scheduling. The cluster might have dozens to thousands of nodes, representing millions of dollars in hardware that must be shared efficiently among many users and projects.
 
-### Why Slurm for Distributed Training?
+This shared nature creates a fundamental challenge: how do you allocate resources fairly, ensure jobs don't interfere with each other, and maximize utilization of expensive hardware? In the early days of computing, users would sign up for time slots on a shared machine. Modern clusters use job schedulers—software that accepts job requests, queues them based on priority and resource availability, allocates resources when they become available, monitors running jobs, and cleans up when jobs complete or fail.
 
-- **Industry standard**: Used by most HPC centers and cloud providers
-- **PyTorch integration**: Native support via `torch.distributed` and `torchrun`
-- **Resource isolation**: Ensures jobs don't interfere with each other
-- **Fair scheduling**: Prevents resource hoarding and enables fair-share scheduling
-- **Checkpointing support**: Built-in mechanisms for job preemption and resumption
+Several job schedulers exist in the HPC ecosystem. PBS (Portable Batch System) and its derivatives (Torque, PBS Pro) were dominant in traditional HPC. LSF (Load Sharing Facility) is popular in enterprise environments. HTCondor excels at high-throughput computing workloads where many independent jobs need to be distributed across available machines.[^htcondor] Kubernetes has become the standard for cloud-native workloads. But for GPU clusters running AI training workloads, SLURM has emerged as the dominant choice, used by the majority of academic institutions, national labs, and increasingly by cloud providers offering HPC instances.
+
+[^htcondor]: HTCondor is particularly popular in academic settings for embarrassingly parallel workloads. See https://www.cs.utexas.edu/facilities/documentation/condor for an example of HTCondor deployment at UT Austin.
+
+### Why SLURM for AI Training?
+
+SLURM (Simple Linux Utility for Resource Management) started as a project at Lawrence Livermore National Laboratory in 2002 and has evolved into a sophisticated resource manager supporting clusters with millions of cores.[^slurm] Several factors make it particularly well-suited for AI training workloads.
+
+[^slurm]: SLURM is maintained by SchedMD. Official documentation and downloads are available at https://slurm.schedmd.com/.
+
+First, SLURM has first-class support for GPUs through its Generic Resource (GRES) system. You can request specific GPU types (`--gres=gpu:a100:4`), and SLURM ensures exclusive allocation—no other job can access your GPUs while your job runs. This is critical for training, where GPU memory fragmentation from shared access would cause out-of-memory errors.
+
+Second, SLURM integrates seamlessly with PyTorch's distributed training. When SLURM launches your job across multiple nodes, it automatically sets environment variables that map directly to distributed training concepts: `SLURM_PROCID` becomes the global rank, `SLURM_LOCALID` becomes the local rank within a node, `SLURM_NTASKS` becomes the world size, and `SLURM_JOB_NODELIST` provides the node list needed to establish communication. PyTorch's `torchrun` launcher reads these variables and initializes the process group automatically.
+
+Third, SLURM provides robust job management features essential for long-running training jobs: job arrays for hyperparameter sweeps, job dependencies for multi-stage pipelines, preemption and checkpointing support for handling time limits, and detailed accounting for tracking resource usage. These features become essential when training runs take days or weeks.
+
+Fourth, SLURM scales efficiently. The same commands and scripts work whether you're running on a 4-node lab cluster or a 10,000-node supercomputer. This portability means skills transfer across institutions and cloud providers.
+
+The integration between SLURM and PyTorch's distributed training is remarkably smooth once you understand the mapping. Your training code doesn't need to know whether it's running on a laptop with 2 GPUs or a cluster with 256—the abstraction handles the details. A job script specifies resource requirements (`--nodes=4 --gres=gpu:8`), SLURM allocates those resources and sets up the environment, and your training script initializes distributed communication using the environment variables SLURM provides.
 
 ## Setting Up Slurm for Multi-GPU Training
 
