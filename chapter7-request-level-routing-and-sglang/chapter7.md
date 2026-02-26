@@ -1290,35 +1290,29 @@ We've now covered both training (DDP, FSDP, DeepSpeed) and inference (vLLM, SGLa
 
 ## References
 
-### Official Documentation
+__SGLang and RadixAttention__
 
-- [SGLang Documentation](https://docs.sglang.io/): Official SGLang documentation and user guide
-- [SGLang GitHub](https://github.com/sgl-project/sglang): SGLang source code repository
-- [SGLang Model Gateway (Router)](https://docs.sglang.io/advanced_features/router.html): Router architecture and load balancing
-- [PD Disaggregation](https://docs.sglang.io/advanced_features/pd_disaggregation.html): Prefill-decode disaggregation feature
-- [Expert Parallelism](https://docs.sglang.io/advanced_features/expert_parallelism.html): Expert parallelism for MoE models
-- [Multi-Node Deployment](https://docs.sglang.io/references/multi_node_deployment/multi_node.html): Multi-node deployment guide
+- SGLang: Efficient Execution of Structured Language Model Programs (2023). https://arxiv.org/abs/2312.07104
+- SGLang v0.4: Faster, Longer, and Scalable LLM Serving (2025). https://arxiv.org/abs/2506.21901
+- SGLang Documentation: https://docs.sglang.io/
+- SGLang GitHub: https://github.com/sgl-project/sglang
 
-### Research Papers
+__Distributed Inference__
 
-- [SGLang: Efficient Execution of Structured Language Model Programs](https://arxiv.org/html/2312.07104): Original SGLang paper introducing RadixAttention and structured output decoding
-- [Efficient Large Language Model Inference with Structured Outputs](https://arxiv.org/html/2512.12977v1): Research on structured output generation in LLM inference
-- [Advanced Inference Optimization Techniques](https://arxiv.org/html/2512.07461v1): Techniques for optimizing LLM inference performance
-- [Distributed Inference Systems for Large Language Models](https://arxiv.org/html/2511.20714v1): Distributed inference architectures and strategies
-- [Memory-Efficient Inference for Large Language Models](https://arxiv.org/html/2511.16138v2): Memory optimization techniques in LLM inference
-- [High-Throughput Inference Serving Systems](https://arxiv.org/html/2510.09665v2): Systems design for high-throughput LLM serving
-- [SGLang Backend: Advanced Runtime Optimizations](https://arxiv.org/html/2506.21901v1): Deep dive into SGLang's runtime optimizations and architecture (important)
-- [Constrained Decoding for Language Models](https://arxiv.org/html/2403.06988v1): Techniques and algorithms for constrained text generation
+- SGLang Model Gateway (Router): https://docs.sglang.io/advanced_features/router.html
+- PD Disaggregation: https://docs.sglang.io/advanced_features/pd_disaggregation.html
+- Expert Parallelism: https://docs.sglang.io/advanced_features/expert_parallelism.html
+- Multi-Node Deployment: https://docs.sglang.io/references/multi_node_deployment/multi_node.html
 
-### Tutorials and Code Walkthroughs
+__Structured Output and Constrained Decoding__
 
-- [SGLang Diffusion Code Walk Through](https://www.linkedin.com/pulse/sglang-diffusion-code-walk-through-chenyang-zhao-hd7gc/): Detailed code walkthrough of SGLang's diffusion model support by Chenyang Zhao
-- [SGLang Code Walk Through](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/sglang/code-walk-through/readme.md): Comprehensive guide to understanding SGLang's codebase and architecture
-- [SGLang Scheduler Evolution](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/sglang/scheduler-evolution/SGLang%20Scheduler%20Evolution.md): Technical evolution of SGLang's scheduler from serial to CPU/GPU overlap
-- [Constraint Decoding in SGLang](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/tree/main/sglang/constraint-decoding): Concepts, methods, and optimization techniques for constraint decoding
-- [Understanding Constraint Decoding](https://www.aidancooper.co.uk/constrained-decoding/): Comprehensive guide to constraint decoding concepts and methods
+- XGrammar: Flexible and Efficient Structured Generation Engine for Large Language Models (2024). https://arxiv.org/abs/2411.15100
+- Constrained Decoding in SGLang: https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/tree/main/sglang/constraint-decoding
+- Understanding Constraint Decoding: https://www.aidancooper.co.uk/constrained-decoding/
 
-### Blog Posts
+__Tutorials and Walkthroughs__
 
-- [Why SGLang is a Game-Changer for LLM Workflows](https://huggingface.co/blog/paresh2806/sglang-efficient-llm-workflows): Hugging Face blog post covering SGLang's architecture, RadixAttention, structured output decoding, and production use cases
-- [Use Cases Favoring vLLM vs SGLang in 2025](https://kanerika.com/blogs/sglang-vs-vllm/): Practical deployment guide with performance benchmarks, use case analysis, and decision framework for choosing between SGLang and vLLM
+- SGLang Code Walk Through: https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/sglang/code-walk-through/readme.md
+- SGLang Scheduler Evolution: https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/sglang/scheduler-evolution/SGLang%20Scheduler%20Evolution.md
+- Why SGLang is a Game-Changer for LLM Workflows (Hugging Face, 2025). https://huggingface.co/blog/paresh2806/sglang-efficient-llm-workflows
+- Use Cases Favoring vLLM vs SGLang (2025). https://kanerika.com/blogs/sglang-vs-vllm/
