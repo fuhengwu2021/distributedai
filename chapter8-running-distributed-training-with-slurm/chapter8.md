@@ -67,7 +67,6 @@ The key insight is that SLURM's architecture separates the concept of a "node" f
 # Use $HOSTNAME or $(hostname) to get the actual hostname
 NodeName=node6 NodeHostname=$HOSTNAME Port=17016 \
     CPUs=112 RealMemory=240000 Gres=gpu:1 State=UNKNOWN
-
 NodeName=node7 NodeHostname=$HOSTNAME Port=17017 \
     CPUs=112 RealMemory=240000 Gres=gpu:1 State=UNKNOWN
 ```
@@ -100,13 +99,12 @@ The `sinfo` command shows the cluster's partition and node status:
 
 ```bash
 sinfo
-
-# Expected output:
+# Example output:
 # PARTITION AVAIL  TIMELIMIT  NODES  STATE NODELIST
 # gpu*         up   infinite      2   idle node[6-7]
 ```
 
-The output shows a partition named "gpu" (the asterisk indicates it's the default) with 2 idle nodes. For more detailed node information, use `scontrol show nodes`. To verify that jobs can actually run, submit a simple test:
+The example output shows a partition named "gpu" (the asterisk indicates it's the default) with 2 idle nodes. For more detailed node information, use `scontrol show nodes`. To verify that jobs can actually run, submit a simple test:
 
 ```bash
 srun -N 1 hostname
@@ -117,20 +115,24 @@ The first command runs `hostname` on one node; the second runs it on both nodes 
 
 ## Submitting Distributed Training Jobs
 
-### Basic Job Submission with `srun`
+With SLURM configured and verified, the next step is submitting actual training jobs. SLURM provides two primary submission methods: `srun` for interactive execution and `sbatch` for batch submission. Understanding when to use each—and how to structure your job scripts—is essential for productive cluster usage.
 
-The simplest way to run a distributed training job:
+### Interactive Execution with `srun`
+
+For quick tests and debugging, `srun` executes commands immediately on allocated resources. You specify what you need, and SLURM either runs your command right away (if resources are available) or waits until they become free. The `code/train.py` script is a self-contained example that automatically detects SLURM environment variables, initializes distributed training, and runs a simple 3-layer neural network (`SimpleModel`) on synthetic data (`SimpleDataset`) — useful for verifying your cluster setup:
 
 ```bash
 # Two nodes, 1 GPU each
-srun -N 2 --gres=gpu:1 --cpus-per-task=4 python train.py
+srun -N 2 --gres=gpu:1 --cpus-per-task=4 python code/train.py
 ```
 
-### Batch Jobs with `sbatch`
+The flags tell SLURM exactly what resources your job requires: `-N 2` requests two nodes, `--gres=gpu:1` requests one GPU per node, and `--cpus-per-task=4` allocates four CPU cores for data loading and preprocessing. SLURM finds nodes matching these requirements, sets up the environment, and runs your command across all allocated resources simultaneously.
 
-For longer-running jobs, use batch submission:
+Interactive execution is convenient for development, but it ties up your terminal and requires you to stay connected. For production training runs that may take hours or days, batch submission is the standard approach.
 
-**Example: `train_ddp.sh`**
+### Batch Submission with `sbatch`
+
+Batch jobs are defined in shell scripts with special `#SBATCH` directives that specify resource requirements. You submit the script to SLURM's queue, and it runs whenever resources become available—even if you've logged off. Here's a typical batch script for distributed training (a runnable version is in `code/train_ddp.sh`):
 
 ```bash
 #!/bin/bash
@@ -155,16 +157,20 @@ echo "Master: $MASTER_ADDR:$MASTER_PORT"
 echo "World size: $WORLD_SIZE, Rank: $RANK, Local rank: $LOCAL_RANK"
 
 # Run training
-srun python train_ddp.py
+srun python code/train_ddp.py
 ```
 
-Submit the job:
+The `#SBATCH` directives at the top define the job's resource envelope: 2 nodes, 1 GPU each, 28 CPU cores per task, 200GB memory, and a 24-hour time limit. The `%j` in output filenames expands to the job ID, so each run gets unique log files. These directives are comments to the shell but are parsed by `sbatch` before execution.
+
+The middle section sets up the distributed training environment. The critical piece is `MASTER_ADDR`—the hostname where rank 0 runs and where all other ranks connect to establish the process group. The `scontrol show hostnames` command converts SLURM's compressed node list format (e.g., `node[6-7]`) into individual hostnames, and `head -n 1` extracts the first one as the master. The corresponding Python training script is in `code/train_ddp.py`.
+
+Submit the job with `sbatch`, and SLURM returns a job ID immediately:
 
 ```bash
-sbatch train_ddp.sh
+sbatch code/train_ddp.sh
 ```
 
-Check job status:
+You can then monitor your job's progress through the queue:
 
 ```bash
 squeue                    # List all jobs
@@ -172,16 +178,13 @@ squeue -u $USER          # List your jobs
 scontrol show job <job_id>  # Detailed job info
 ```
 
-### Environment Variables
+### Understanding SLURM Environment Variables
 
-Slurm automatically sets these environment variables for distributed training:
+When SLURM launches your job, it automatically populates environment variables that map directly to distributed training concepts. Understanding this mapping is key to writing portable training scripts that work across different cluster configurations.
 
-- `SLURM_JOB_NODELIST`: List of allocated nodes (e.g., `node[6-7]`)
-- `SLURM_JOB_NUM_NODES`: Number of nodes allocated
-- `SLURM_NTASKS`: Total number of tasks
-- `SLURM_PROCID`: Global process rank (0 to NTASKS-1)
-- `SLURM_LOCALID`: Local rank on the node (0 to tasks-per-node-1)
-- `SLURM_NODEID`: Node index (0 to NUM_NODES-1)
+`SLURM_JOB_NODELIST` contains the list of allocated nodes in compressed format (e.g., `node[6-7]`). `SLURM_JOB_NUM_NODES` gives the count of nodes. For process-level information, `SLURM_NTASKS` is the total number of tasks (equivalent to world size in distributed training), `SLURM_PROCID` is the global rank (0 to NTASKS-1), `SLURM_LOCALID` is the local rank within a node (0 to tasks-per-node-1), and `SLURM_NODEID` is the node index (0 to NUM_NODES-1).
+
+When you use `torchrun` or initialize `torch.distributed` with `init_method='env://'`, PyTorch reads these variables (or the `RANK`, `LOCAL_RANK`, `WORLD_SIZE` variables you derive from them) and configures the process group automatically. This abstraction means your training code doesn't need to know the specifics of SLURM—it just reads standard environment variables that any launcher can provide.
 
 ## PyTorch Distributed Training with Slurm
 
@@ -246,7 +249,7 @@ Slurm can automatically set up the process group via MPI:
 #SBATCH --ntasks-per-node=1
 
 # Slurm automatically sets up MPI environment
-srun python train_ddp.py
+srun python code/train_ddp.py
 ```
 
 In your Python code:
@@ -266,7 +269,7 @@ dist.init_process_group(
 
 ### Job Arrays for Hyperparameter Tuning
 
-Run multiple training jobs with different hyperparameters:
+Run multiple training jobs with different hyperparameters. A runnable version is in `code/train_array.sh`:
 
 ```bash
 #!/bin/bash
@@ -278,13 +281,13 @@ Run multiple training jobs with different hyperparameters:
 LR=$(echo "0.001 0.0001 0.00001 0.000001" | cut -d' ' -f$((SLURM_ARRAY_TASK_ID % 4 + 1)))
 BATCH_SIZE=$((32 * (SLURM_ARRAY_TASK_ID / 4 + 1)))
 
-python train.py --lr $LR --batch_size $BATCH_SIZE
+python code/train.py --lr $LR --batch_size $BATCH_SIZE
 ```
 
 Submit:
 
 ```bash
-sbatch train_array.sh
+sbatch code/train_array.sh
 ```
 
 ### Interactive Jobs with `salloc`
@@ -298,7 +301,7 @@ salloc -N 2 --gres=gpu:1 --time=1:00:00
 # Once allocated, run commands
 srun hostname
 srun nvidia-smi
-srun python train.py
+srun python code/train.py
 
 # Release when done
 exit
@@ -318,7 +321,7 @@ sbatch --dependency=afterok:$JOB1 train_stage2.sh
 
 ### Checkpointing and Job Resumption
 
-Slurm supports job preemption and resumption:
+Slurm supports job preemption and resumption. A checkpoint utility script is in `code/checkpoint.py`, and a complete training script with checkpointing is in `code/train_distributed.sh`:
 
 ```bash
 #!/bin/bash
@@ -328,9 +331,9 @@ Slurm supports job preemption and resumption:
 #SBATCH --signal=SIGUSR1@90  # Send signal 90 seconds before time limit
 
 # Handle checkpoint signal
-trap 'echo "Checkpointing..."; python checkpoint.py' SIGUSR1
+trap 'echo "Checkpointing..."; python code/checkpoint.py' SIGUSR1
 
-python train.py --resume --checkpoint_dir=/path/to/checkpoints
+python code/train.py --resume --checkpoint_dir=/path/to/checkpoints
 ```
 
 ## Monitoring and Debugging
@@ -402,7 +405,7 @@ if dist.get_rank() == 0:
 - **Request appropriate memory**: Use `--mem` or `--mem-per-gpu` to avoid OOM
 
 ```bash
-srun -N 2 --gres=gpu:1 --mem=200G --cpus-per-task=28 python train.py
+srun -N 2 --gres=gpu:1 --mem=200G --cpus-per-task=28 python code/train.py
 ```
 
 ### Multi-Node Communication
@@ -471,11 +474,13 @@ srun -N 1 --gres=gpu:1 nvidia-smi -L
 
 ## Hands-on: Complete Distributed Training Workflow
 
-This section provides hands-on examples for running distributed training with different frameworks on SLURM clusters. All code examples are available in the `code/` directory.
+This section provides hands-on examples for running distributed training with different frameworks on SLURM clusters. All code examples are available in the `code/` directory. The complete Python training script is in `code/train_ddp.py` and the SLURM batch script is in `code/train_ddp.sh`.
 
 ### PyTorch DDP Example
 
 **Method 1: Using `torch.distributed.launch`**
+
+The following shows the essential structure of a DDP training script (full version in `code/train_ddp.py`):
 
 ```python
 # train_ddp.py
@@ -509,7 +514,7 @@ if __name__ == '__main__':
     main()
 ```
 
-**Slurm batch script:**
+**Slurm batch script** (full version in `code/train_ddp.sh`):
 
 ```bash
 #!/bin/bash
@@ -523,10 +528,12 @@ srun python -m torch.distributed.launch \
     --node_rank=$SLURM_NODEID \
     --master_addr=$MASTER_ADDR \
     --master_port=$MASTER_PORT \
-    train_ddp.py
+    code/train_ddp.py
 ```
 
 **Method 2: Using `torchrun` (Recommended)**
+
+The `torchrun` launcher is the modern replacement for `torch.distributed.launch`. A complete batch script is in `code/train_ddp.sh`:
 
 ```bash
 #!/bin/bash
@@ -540,12 +547,12 @@ srun torchrun \
     --node_rank=$SLURM_NODEID \
     --master_addr=$MASTER_ADDR \
     --master_port=$MASTER_PORT \
-    train_ddp.py
+    code/train_ddp.py
 ```
 
 ### PyTorch FSDP Example
 
-FSDP shards model parameters, gradients, and optimizer states across GPUs:
+FSDP shards model parameters, gradients, and optimizer states across GPUs. The complete training script is in `code/train_fsdp.py` and the SLURM batch script is in `code/train_fsdp.sh`:
 
 ```python
 # train_fsdp.py
@@ -576,7 +583,7 @@ if __name__ == '__main__':
     main()
 ```
 
-**Slurm batch script for FSDP:**
+**Slurm batch script for FSDP** (full version in `code/train_fsdp.sh`):
 
 ```bash
 #!/bin/bash
@@ -596,7 +603,7 @@ srun torchrun \
     --node_rank=$SLURM_NODEID \
     --master_addr=$MASTER_ADDR \
     --master_port=$MASTER_PORT \
-    train_fsdp.py
+    code/train_fsdp.py
 ```
 
 ### DeepSpeed ZeRO-3 Example
@@ -1020,8 +1027,8 @@ Use the provided conversion script (`code/megatron/convert_megatron_checkpoint.p
 
 ```bash
 # Convert Megatron checkpoint to standard PyTorch format
-python convert_megatron_checkpoint.py \
-    --checkpoint-dir checkpoints/gpt_8b/iter_0000010 \
+python code/megatron/convert_megatron_checkpoint.py \
+    --checkpoint-dir code/megatron/checkpoints/gpt_8b/iter_0000010 \
     --output-dir exported_checkpoint \
     --format pytorch \
     --num-layers 32 \
@@ -1037,8 +1044,8 @@ python convert_megatron_checkpoint.py \
 
 ```bash
 # Convert to HuggingFace format (simplified)
-python convert_megatron_checkpoint.py \
-    --checkpoint-dir checkpoints/gpt_8b/iter_0000010 \
+python code/megatron/convert_megatron_checkpoint.py \
+    --checkpoint-dir code/megatron/checkpoints/gpt_8b/iter_0000010 \
     --output-dir huggingface_checkpoint \
     --format huggingface \
     --num-layers 32 \
