@@ -71,21 +71,21 @@ NodeName=node7 NodeHostname=$HOSTNAME Port=17017 \
     CPUs=112 RealMemory=240000 Gres=gpu:1 State=UNKNOWN
 ```
 
-Each virtual node listens on a different port (17016, 17017) but shares the same hostname. The `Gres=gpu:1` declaration tells SLURM that each node has one GPU available. The corresponding `gres.conf` file maps these virtual GPUs to physical devices:
+Each virtual node listens on a different port (17016, 17017) but shares the same hostname. The `Gres=gpu:1` declaration tells SLURM that each node has one GPU available. The corresponding `gres.conf` file maps these virtual GPUs to physical devices. In this example, we're using an 8-GPU machine and dedicating the last two GPUs (indices 6 and 7) to our virtual cluster:
 
 ```bash
 NodeName=node6 Name=gpu File=/dev/nvidia6
 NodeName=node7 Name=gpu File=/dev/nvidia7
 ```
 
-This mapping ensures that when a job requests `--gres=gpu:1` on node6, SLURM sets `CUDA_VISIBLE_DEVICES` to expose only `/dev/nvidia6` to that job. On a real cluster, each physical node would have its own `gres.conf` entry mapping to its local GPUs.
+This mapping ensures that when a job requests `--gres=gpu:1` on node6, SLURM sets `CUDA_VISIBLE_DEVICES` to expose only `/dev/nvidia6` to that job. You can adjust the GPU indices to use any available GPUs on your machine—for instance, `/dev/nvidia0` and `/dev/nvidia1` if you want to use the first two GPUs instead. On a real cluster, each physical node would have its own `gres.conf` entry mapping to its local GPUs.
 
 ### Quick Setup and Verification
 
 The provided setup script automates the configuration process—creating directories, generating configuration files, and starting the SLURM daemons:
 
 ```bash
-cd code/chapter8
+cd code
 bash slurm_setup.sh
 ```
 
