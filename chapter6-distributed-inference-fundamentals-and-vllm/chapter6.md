@@ -38,12 +38,7 @@ Today, vLLM has become the de facto standard for LLM serving, powering productio
 
 ### Prerequisites
 
-Before installing vLLM, ensure you have:
-
-- **OS**: Linux (required for GPU support)
-- **Python**: 3.10+
-- **NVIDIA GPU**: With CUDA support (for CUDA-based installation)
-- **CUDA**: Compatible CUDA version installed
+vLLM runs on Linux with Python 3.10 or later. You'll need an NVIDIA GPU with CUDA support—while vLLM also supports AMD GPUs and other accelerators, NVIDIA remains the most common deployment target. Make sure you have a compatible CUDA version installed; vLLM's pip package typically bundles the necessary CUDA runtime, but having a matching driver is essential.
 
 ### Installation
 
@@ -53,7 +48,9 @@ vLLM can be installed using several methods. **Docker is the quickest way to try
 
 Docker provides the quickest way to get started with vLLM without installing dependencies locally. Pre-built images are available on the [vLLM Docker Hub page](https://hub.docker.com/r/vllm/vllm-openai).
 
-vLLM supports three main types of models. Base models like `facebook/opt-125m` are pre-trained language models without instruction tuning, and they use the `/v1/completions` endpoint with a `prompt` parameter. Chat models such as `Qwen/Qwen2.5-0.5B-Instruct` are fine-tuned for conversational tasks and use `/v1/chat/completions` with a `messages` parameter. Embedding models like `sentence-transformers/all-MiniLM-L6-v2` generate vector representations and use `/v1/embeddings` with an `input` parameter.
+vLLM supports a wide range of model architectures. For text generation, you can use base models like `facebook/opt-125m` with the `/v1/completions` endpoint, or instruction-tuned chat models like `Qwen/Qwen2.5-0.5B-Instruct` with the `/v1/chat/completions` endpoint. vLLM also supports embedding models and multimodal models—check the official documentation for the full list of supported architectures[^vllm-models].
+
+[^vllm-models]: https://docs.vllm.ai/en/latest/models/supported_models.html
 
 The vLLM server exposes an OpenAI-compatible API with endpoints for completions, chat completions, embeddings, and more. For a complete list of endpoints with detailed descriptions and usage examples, see the **OpenAI-Compatible API Endpoints** section in the Appendix.
 
@@ -78,8 +75,8 @@ docker run --runtime nvidia --gpus all \
 
 Here are some small models suitable for learning purposes:
 
-| Model Name | Type | Parameter |
-|-------------------------------------|------------|------|
+| Model Name in HF | Model Type | Params |
+|-------------------------------------------------|------------|--------|
 | `facebook/opt-125m` | Base | 125M |
 | `Qwen/Qwen2.5-0.5B-Instruct` | Chat/Instruct | 0.5B |
 | `meta-llama/Llama-3.2-1B-Instruct` | Chat/Instruct | 1B |
@@ -108,19 +105,19 @@ The model name is specified as a positional argument after the image tag. You ca
 
 __Verify the Setup__
 
-Once the container is running, verify it's working correctly. First, check that the server is responding:
+Once the container is running, you can verify it's working correctly through a series of API calls. The vLLM server exposes an OpenAI-compatible REST API, which means you can use familiar endpoints and request formats. Start by checking that the server is healthy and responsive:
 
 ```bash
 curl http://localhost:8000/health
 ```
 
-List the available models:
+You can also list the available models to confirm which model the server is serving:
 
 ```bash
 curl http://localhost:8000/v1/models
 ```
 
-Test a base model completion:
+To test actual inference, try a simple text completion request. The `/v1/completions` endpoint accepts a prompt and generates continuation text:
 
 ```bash
 curl http://localhost:8000/v1/completions \
@@ -128,7 +125,7 @@ curl http://localhost:8000/v1/completions \
   -d '{"model": "facebook/opt-125m", "prompt": "The result of 1+1 is", "max_tokens": 3}'
 ```
 
-Test a chat model:
+For chat-style models (instruction-tuned models designed for conversational interactions), use the `/v1/chat/completions` endpoint instead. This endpoint expects a list of messages with roles (system, user, assistant) rather than a raw prompt:
 
 ```bash
 curl http://localhost:8000/v1/chat/completions \
@@ -141,7 +138,7 @@ curl http://localhost:8000/v1/chat/completions \
   }'
 ```
 
-For deterministic output (same result every time), add `"temperature": 0`:
+If you need deterministic output (the same result every time for the same input), set `"temperature": 0` to enable greedy sampling, which always selects the highest probability token:
 
 ```bash
 curl http://localhost:8000/v1/chat/completions \
@@ -155,9 +152,11 @@ curl http://localhost:8000/v1/chat/completions \
   }'
 ```
 
-**Note**: Setting `temperature=0` enables greedy sampling (always selects the highest probability token), which should produce the same output for the same input. However, vLLM does not guarantee complete reproducibility by default due to scheduling and batching optimizations. For fully deterministic results, you may need to set `VLLM_ENABLE_V1_MULTIPROCESSING=0` or enable batch invariance (see vLLM's reproducibility documentation).
+>NOTES: Setting `temperature=0` enables greedy sampling, but vLLM does not guarantee complete reproducibility by default due to scheduling and batching optimizations. For fully deterministic results, you may need to set `VLLM_ENABLE_V1_MULTIPROCESSING=0` or enable batch invariance (see vLLM's reproducibility documentation).
 
-Test an embedding model:
+>NOTEE
+
+vLLM also supports embedding models through the `/v1/embeddings` endpoint, which converts text into dense vector representations useful for semantic search and retrieval applications:
 
 ```bash
 curl http://localhost:8000/v1/embeddings \
@@ -170,23 +169,25 @@ curl http://localhost:8000/v1/embeddings \
 
 #### Install and Run from Package Manager (uv, conda, pip)
 
+If you prefer not to use Docker, you can install vLLM directly into a Python environment. There are several package managers to choose from, each with its own advantages.
+
 __Method 1: Using uv (Recommended)__
 
-```bash
-# Install uv (if not already installed)
-curl -LsSf https://astral.sh/uv/install.sh | sh
+The `uv` package manager is a modern, fast alternative to pip that handles dependency resolution more efficiently. If you don't have it installed, you can get it with a single command:
 
-# Create a new Python environment
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+Once installed, create a new Python environment and install vLLM:
+
+```bash
 uv venv --python 3.12 --seed
 source .venv/bin/activate
-
-# Install vLLM with automatic PyTorch backend detection
 uv pip install vllm --torch-backend=auto
 ```
 
-The `--torch-backend=auto` flag automatically selects the appropriate PyTorch index based on your CUDA driver version. You can also specify a specific backend (e.g., `--torch-backend=cu126` for CUDA 12.6).
-
-Alternatively, use `uv run` to execute vLLM commands without creating a permanent environment:
+The `--torch-backend=auto` flag is particularly useful because it automatically detects your CUDA driver version and selects the appropriate PyTorch index. If you need a specific CUDA version, you can specify it explicitly (e.g., `--torch-backend=cu126` for CUDA 12.6). For quick one-off commands without creating a permanent environment, `uv run` provides a convenient alternative:
 
 ```bash
 uv run --with vllm vllm --help
@@ -194,68 +195,63 @@ uv run --with vllm vllm --help
 
 __Method 2: Using conda__
 
+If you're already using conda for environment management, you can create a dedicated environment for vLLM:
+
 ```bash
-# Create a conda environment
 conda create -n vllm-env python=3.12 -y
 conda activate vllm-env
-
-# Install uv within conda (optional but recommended)
 pip install --upgrade uv
-
-# Install vLLM
 uv pip install vllm --torch-backend=auto
 ```
 
+Note that we still recommend using `uv` for the actual package installation even within a conda environment, as it handles vLLM's complex dependencies more reliably.
+
 __Method 3: Using pip directly__
 
+For a traditional Python setup, you can use pip with a standard virtual environment:
+
 ```bash
-# Create a virtual environment
 python3.12 -m venv vllm-env
 source vllm-env/bin/activate
-
-# Install vLLM
 pip install vllm
 ```
 
-**Note**: When using pip directly, ensure you have the correct PyTorch version installed for your CUDA version.
+>NOTES: When using pip directly, ensure you have the correct PyTorch version installed for your CUDA version. Mismatched versions can cause cryptic runtime errors.
+
+>NOTEE
 
 __Verifying Installation__
 
-After installation, verify that vLLM is correctly installed:
+Regardless of which installation method you chose, verify that vLLM is correctly installed by checking the version and testing the command-line interface:
 
 ```bash
-# Check vLLM version
 python -c "import vllm; print(vllm.__version__)"
-
-# Test basic functionality
 vllm --help
 ```
 
 #### Compile, Install, and Run from Local Source
 
-To build vLLM from source, clone the repository and install:
+For developers who want to modify vLLM's source code or need the latest unreleased features, building from source is the way to go. Clone the repository and install in editable mode:
 
 ```bash
-# Clone the repository
 git clone https://github.com/vllm-project/vllm.git
 cd vllm
-
-# Install from source
 pip install -e .
 ```
 
-For development installations with editable mode:
+For a full development setup that includes testing and linting tools, use the `dev` extras:
 
 ```bash
-# Install in development mode
 pip install -e ".[dev]"
 ```
 
-**Note**: Building from source requires all build dependencies and may take longer than package manager installation.
+>NOTES: Building from source requires all build dependencies (including CUDA toolkit and C++ compiler) and takes significantly longer than package manager installation. This approach is primarily for contributors and advanced users.
+
+>NOTEE
 
 #### Offline Inference
 
-Test your installation with a simple offline inference example:
+With vLLM installed, you can test it with a simple offline inference example. The following script (`code/offline_inference.py`) demonstrates the basic usage pattern: create an `LLM` instance with a model name, configure sampling parameters, and call `generate()` with your prompts:
 
 ```python
 from vllm import LLM, SamplingParams
@@ -274,6 +270,12 @@ outputs = llm.generate(prompts, sampling_params)
 for output in outputs:
     print(f"Prompt: {output.prompt!r}")
     print(f"Generated: {output.outputs[0].text!r}")
+```
+
+Run the script with:
+
+```bash
+python code/offline_inference.py
 ```
 
 #### Online Inference
