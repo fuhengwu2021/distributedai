@@ -183,20 +183,9 @@ Consider a typical AI assistant deployment. Every request starts with the same s
 
 RadixAttention solves this by organizing KV cache as a radix tree (also called a prefix tree). In this data structure, common prefixes are stored once and shared across all requests that use them. When a new request arrives, the system finds the longest matching prefix in the tree, reuses the existing KV cache for that prefix, and only computes KV cache for the new tokens. As requests complete, shared prefixes remain in the tree for future reuse while unique suffixes are evicted.
 
-Here's a concrete example. Suppose three requests arrive:
+![RadixAttention prefix sharing](img/radix_tree.png){#fig:radix-tree .block width=85% align=center}
 
-```
-Request 1: "You are helpful. What is Python?"
-Request 2: "You are helpful. Explain ML."
-Request 3: "You are helpful. Write code."
-
-Radix Tree:
-Root
- └─ "You are helpful. "
-    ├─ "What is Python?" (Request 1)
-    ├─ "Explain ML." (Request 2)
-    └─ "Write code." (Request 3)
-```
+Figure~\ref{fig:radix-tree} illustrates how RadixAttention shares KV cache across requests. Suppose three requests arrive with a common system prompt: "You are helpful. What is Python?", "You are helpful. Explain ML.", and "You are helpful. Write code." The radix tree stores the shared prefix "You are helpful. " once (green node), while each request's unique suffix is stored separately (yellow nodes).
 
 The KV cache for "You are helpful. " is computed once and shared by all three requests. Each unique suffix is computed separately. The savings compound as more requests share the same prefix.
 
@@ -205,6 +194,7 @@ The performance benefits are substantial. For workloads with shared prefixes (sy
 SGLang's scheduler is aware of the radix cache and uses it to optimize batch formation. When selecting the next batch to run, the scheduler sorts requests by their longest matching prefix length and prioritizes requests with longer shared prefixes. This maximizes cache hit rates and GPU utilization.
 
 The cache also integrates with session affinity. When requests from the same session are routed to the same worker, the radix tree on that worker accumulates the conversation history. Follow-up messages in a conversation benefit from the cached KV from previous turns, dramatically reducing latency for multi-turn interactions.
+
 
 ### Structured Output Decoding with X-Grammar
 
