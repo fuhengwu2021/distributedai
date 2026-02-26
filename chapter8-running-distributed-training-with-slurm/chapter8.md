@@ -26,9 +26,15 @@ Modern AI training happens on clusters—collections of interconnected machines 
 
 This shared nature creates a fundamental challenge: how do you allocate resources fairly, ensure jobs don't interfere with each other, and maximize utilization of expensive hardware? In the early days of computing, users would sign up for time slots on a shared machine. Modern clusters use job schedulers—software that accepts job requests, queues them based on priority and resource availability, allocates resources when they become available, monitors running jobs, and cleans up when jobs complete or fail.
 
-Several job schedulers exist in the HPC ecosystem. PBS (Portable Batch System) and its derivatives (Torque, PBS Pro) were dominant in traditional HPC. LSF (Load Sharing Facility) is popular in enterprise environments. HTCondor excels at high-throughput computing workloads where many independent jobs need to be distributed across available machines.[^htcondor] Kubernetes has become the standard for cloud-native workloads. But for GPU clusters running AI training workloads, SLURM has emerged as the dominant choice, used by the majority of academic institutions, national labs, and increasingly by cloud providers offering HPC instances.
+Several job schedulers exist in the HPC ecosystem. PBS (Portable Batch System) and its derivatives (Torque, PBS Pro) were dominant in traditional HPC.[^pbs] LSF (Load Sharing Facility) is popular in enterprise environments.[^lsf] HTCondor excels at high-throughput computing workloads where many independent jobs need to be distributed across available machines.[^htcondor] Kubernetes has become the standard for cloud-native workloads.[^k8s] But for GPU clusters running AI training workloads, SLURM has emerged as the dominant choice, used by the majority of academic institutions, national labs, and increasingly by cloud providers offering HPC instances.
 
-[^htcondor]: HTCondor is particularly popular in academic settings for embarrassingly parallel workloads. See https://www.cs.utexas.edu/facilities/documentation/condor for an example of HTCondor deployment at UT Austin.
+[^pbs]: PBS Professional is now maintained by Altair. See https://www.altair.com/pbs-professional/ for the commercial version, and https://github.com/openpbs/openpbs for the open-source OpenPBS.
+
+[^lsf]: IBM Spectrum LSF is widely used in financial services and life sciences. See https://www.ibm.com/products/hpc-workload-management.
+
+[^htcondor]: HTCondor is developed by the Center for High Throughput Computing at UW-Madison. See https://htcondor.org/ for the official site and https://www.cs.utexas.edu/facilities/documentation/condor for an example deployment at UT Austin.
+
+[^k8s]: Kubernetes can be extended for HPC workloads using projects like Volcano (https://volcano.sh/) or the Kubernetes Job API with GPU scheduling plugins.
 
 ### Why SLURM for AI Training?
 
