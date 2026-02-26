@@ -30,7 +30,11 @@ This chapter introduces vLLM, the inference engine that pioneered many technique
 
 ## Introduction to vLLM
 
-**vLLM** (virtual Large Language Model) is a high-throughput, memory-efficient inference and serving engine for large language models. It was designed to address the critical challenges of serving LLMs in production: maximizing throughput while minimizing latency and memory usage.
+When researchers at UC Berkeley set out to build a better LLM serving system in 2023, they faced a fundamental question: why do existing systems waste so much GPU memory? The answer led them to create **vLLM** (virtual Large Language Model), an inference engine that revolutionized how we think about KV cache management.
+
+The key insight was that traditional serving systems treat KV cache like a monolithic block—allocating contiguous memory for each request and hoping for the best. This approach, borrowed from training frameworks, works poorly for inference where requests arrive unpredictably, have wildly different lengths, and finish at different times. vLLM's breakthrough was to apply operating system concepts—specifically, virtual memory and paging—to KV cache management. The result is PagedAttention, which we'll explore in detail later in this chapter.
+
+Today, vLLM has become the de facto standard for LLM serving, powering production deployments at companies ranging from startups to hyperscalers. Its combination of high throughput, memory efficiency, and ease of use makes it an excellent starting point for understanding distributed inference.
 
 ### Prerequisites
 
@@ -313,19 +317,21 @@ curl http://localhost:8000/v1/completions \
 
 ![Decoder-only Transformer.](img/decoder_only.png){#fig:decoder-only .wrap width=30% align=top-right}
 
-Modern large language models like GPT, LLaMA, and their variants use decoder-only transformer architectures. Decoder-only transformer is proved to be highly effective for autoregressive language modeling and text generation tasks. These models consist of a stack of identical decoder layers, each containing a self-attention sublayer with causal masking, a feed-forward network (MLP), and residual connections with layer normalization.
+Before diving into KV cache, let's establish a clear picture of the architecture we're working with. Modern large language models—GPT, LLaMA, Qwen, and their variants—all share a common design: the decoder-only transformer. This architecture has proven remarkably effective for autoregressive language modeling, where the goal is to predict the next token given all previous tokens.
 
-The self-attention mechanism uses three learned linear projections: **Query (Q)**, **Key (K)**, and **Value (V)**. For each token at position $i$, the model computes:
+A decoder-only transformer consists of a stack of identical layers, typically 32 for a 7B model or 80+ for larger models. Each layer contains two main components: a self-attention sublayer with causal masking, and a feed-forward network (FFN). Residual connections and layer normalization tie everything together, ensuring stable training and inference.
 
-- $Q_i = x_i \times W_Q$ (Query vector)
-- $K_i = x_i \times W_K$ (Key vector)
-- $V_i = x_i \times W_V$ (Value vector)
+The self-attention mechanism is where the magic happens—and where KV cache becomes essential. Attention uses three learned linear projections to transform the input: **Query (Q)**, **Key (K)**, and **Value (V)**. For each token at position $i$, the model computes:
 
-where $x_i$ is the token embedding (or hidden state) and $W_Q$, $W_K$, $W_V$ are learned weight matrices. The attention scores are computed as:
+$$Q_i = x_i \times W_Q, \quad K_i = x_i \times W_K, \quad V_i = x_i \times W_V$$
+
+where $x_i$ is the token embedding (or hidden state from the previous layer) and $W_Q$, $W_K$, $W_V$ are learned weight matrices. The intuition is that Query represents "what am I looking for?", Key represents "what do I contain?", and Value represents "what information do I provide?". The attention mechanism then computes:
 
 $$\text{Attention}(Q, K, V) = \text{softmax}\left(\frac{Q \times K^T}{\sqrt{d_k}}\right) \times V$$
 
-where $d_k$ is the dimension of the key vectors. The causal mask ensures that tokens only attend to previous positions (set to $-\infty$ before softmax), preventing the model from "seeing" future tokens.
+The $Q \times K^T$ term computes similarity scores between all pairs of tokens—how relevant is each previous token to the current one? The softmax normalizes these scores into a probability distribution, and the result is used to weight the Value vectors. The $\sqrt{d_k}$ scaling factor prevents the dot products from growing too large, which would push the softmax into regions with vanishing gradients.
+
+For autoregressive generation, we apply a causal mask that sets attention scores to $-\infty$ for future positions before the softmax. This ensures that when predicting token $i$, the model can only attend to tokens $0, 1, \ldots, i-1$—it cannot "peek" at future tokens that don't exist yet during generation.
 
 Figure~\ref{fig:decoder-only} shows a typical decoder-only architecture. Each layer consists of two sub-layers: a masked multi-head self-attention mechanism and a position-wise feed-forward network (FFN). The masked attention ensures that position $i$ can only attend to positions $\leq i$, enforcing the autoregressive property. The FFN typically expands the hidden dimension by 4x (or uses SwiGLU with ~2.7x expansion in modern architectures like LLaMA), applies a non-linearity, and projects back. Residual connections and layer normalization stabilize training. Note that this diagram follows the original Transformer's "Add & Norm" order; modern LLMs like GPT and LLaMA use "Pre-Norm" (normalize before attention/FFN) for better training stability.
 
@@ -493,24 +499,17 @@ Flexible batching becomes possible because requests with different sequence leng
 
 ### Connection to Distributed Inference
 
-While PagedAttention solves memory efficiency within a single GPU, **distributed inference techniques** (tensor parallelism, data parallelism, pipeline parallelism) are needed when:
+PagedAttention solves memory efficiency within a single GPU, but what happens when even an efficiently-managed single GPU isn't enough? This is where distributed inference becomes essential. When models exceed single GPU memory capacity, when throughput requirements exceed what one GPU can deliver, or when models are simply too large for a single node, we need to spread the workload across multiple devices.
 
-- Models exceed single GPU memory capacity
-- Throughput requirements exceed single GPU capabilities
-- Models are too large for a single node
-
-The combination of PagedAttention (memory efficiency) and distributed parallelism (scalability) enables vLLM to serve the largest models efficiently in production environments.
+The combination of PagedAttention for memory efficiency and distributed parallelism for scalability is what enables vLLM to serve the largest models in production. PagedAttention ensures we're not wasting memory on fragmentation, while tensor, data, and pipeline parallelism let us scale beyond single-GPU limits.
 
 ## Motivation: The "Out of Memory" Problem
 
-As language models grow larger—reaching 400 billion parameters (like DeepSeek R1) or even 600 billion parameters—they exceed the memory capacity of a single GPU. Even with modern H100 GPUs, models of this scale cannot fit into a single device.
+As language models grow larger, a fundamental constraint emerges: they simply don't fit on a single GPU. DeepSeek R1 has 671 billion parameters. LLaMA 3.1 405B, as the name suggests, has 405 billion parameters. Even with an H100's 80GB of HBM, storing 405B parameters in FP16 (2 bytes per parameter) would require 810GB—ten times what a single GPU provides.
 
-One approach to address this is **quantization**—reducing precision from FP16 to FP8 or even lower bit widths. While this helps, it has limitations:
+One approach is **quantization**: reducing precision from FP16 to FP8 or even INT4. This helps, but has limits. FP8 halves memory requirements, so our 405B model now needs "only" 405GB—still five H100s worth of memory. INT4 gets us to ~200GB, but introduces accuracy trade-offs that may not be acceptable for all applications. And we haven't even accounted for KV cache, which for long-context inference can exceed the model weights themselves.
 
-1. **Accuracy trade-offs**: Lower precision can affect model accuracy, though modern quantization techniques have mitigated this significantly.
-2. **Limited scalability**: Even with FP8 (half a byte per parameter), a 400B parameter model still requires 200GB of memory, which exceeds single GPU capacity.
-
-The solution is to **distribute the model across multiple GPUs** using parallelism techniques. This provides much better scalability than quantization alone.
+The more scalable solution is to **distribute the model across multiple GPUs**. Rather than compressing the model to fit on one device, we spread it across many devices, each holding a portion of the weights and contributing to the computation. This is the domain of distributed inference, and vLLM provides three fundamental strategies: tensor parallelism, data parallelism, and pipeline parallelism.
 
 ## Overview of the vLLM Architecture
 
@@ -528,7 +527,7 @@ This architecture enables vLLM to scale from a single GPU to hundreds of GPUs ac
 
 ## Overview of Parallelism Strategies in vLLM
 
-[Parallelism strategies in vLLM](img/parallelism_strategies_overview.svg)
+![Parallelism strategies in vLLM.](img/parallelism_strategies_overview.png){#fig:vllm-parallelism .block width=90% align=center}
 
 vLLM provides three fundamental parallelism strategies for distributing computation and memory across multiple GPUs:
 
@@ -544,105 +543,33 @@ The following sections explore each strategy in detail, then discuss how they ca
 
 ## Tensor Parallelism (TP)
 
-**Tensor Parallelism (TP)** is a technique that shards model weights horizontally across multiple GPUs within a single node, allowing all GPUs to compute concurrently. This follows an **SPMD (Single Program, Multiple Data)** paradigm.
+**Tensor Parallelism (TP)** shards model weights horizontally across multiple GPUs within a single node, allowing all GPUs to compute concurrently. Unlike pipeline parallelism (which we'll cover later), where GPUs process different layers sequentially, tensor parallelism has every GPU working on the same layer simultaneously—each handling a different slice of the computation. This follows the **SPMD (Single Program, Multiple Data)** paradigm: all GPUs run the same code, but on different portions of the data.
 
-### Why Tensor Parallelism?
+### The Linear Algebra Foundation
 
-When models get larger, one GPU is insufficient. Even within a single node, you might have multiple GPUs available. The question is: how do we parallelize computation across these GPUs?
+To understand tensor parallelism, we need to understand how matrix multiplications can be split across devices. There are two fundamental patterns: column parallelism and row parallelism.
 
-**Answer**: Shard weights horizontally and compute everything concurrently at the same time.
+**Column parallelism** splits the weight matrix along its columns. Consider a matrix multiplication $Y = X \times A$. If we partition $A$ into two column blocks $[A_1 | A_2]$, then the output naturally partitions as $Y = [X \times A_1 | X \times A_2]$. Each GPU computes one piece of the result independently. To reassemble the full output, we use an **all-gather** operation that concatenates the pieces from all GPUs.
 
-### Visual Example
+**Row parallelism** takes a different approach. We split both the input $X$ and the weight matrix $A$ along their rows: $X = [X_1; X_2]$ and $A = [A_1; A_2]$. The output becomes $Y = X_1 \times A_1 + X_2 \times A_2$—each GPU computes a partial sum, and we use **all-reduce** to sum these partial results across all GPUs.
 
-For a model with 4 layers (for illustration):
+The key insight is that these two patterns can be chained cleverly to minimize communication. In a typical transformer MLP (the feed-forward network), we have an "up projection" followed by an activation function and a "down projection". If we apply column parallelism to the up projection, the output is naturally sharded across GPUs. We can then apply the activation function (element-wise, so no communication needed) and feed the sharded result directly into a row-parallel down projection. The only communication required is a single all-reduce at the end—no all-gather in between.
 
-- Each GPU gets a piece of each layer
-- All GPUs work simultaneously on different parts of the computation
-- Communication operations synchronize results between GPUs
-
-### Linear Algebra Behind TP: Column & Row Parallelism
-
-Tensor parallelism is built on two fundamental linear algebra operations:
-
-### Column Parallelism
-
-Splits the second matrix along its **columns**:
-
-```
-Y = X × A
-
-Split A into [A₁ | A₂] (column-wise)
-Then: Y = [X × A₁ | X × A₂]
-```
-
-- Each GPU computes one piece of the result
-- Use **all-gather** operation to concatenate the pieces
-- Result: Full output vector on all GPUs
-
-### Row Parallelism
-
-Splits the first vector and the matrix along its **rows**:
-
-```
-Y = X × A
-
-Split X into [X₁; X₂] and A into [A₁; A₂] (row-wise)
-Then: Y = X₁ × A₁ + X₂ × A₂
-```
-
-- Each GPU computes a partial result
-- Use **all-reduce** operation to sum the partial results
-- Result: Final output vector on all GPUs
-
-### Communication Operations
-
-- **All-gather**: Concatenates results from multiple GPUs
-- **All-reduce**: Sums partial results from multiple GPUs
-
-### Applying TP to a Multi-Layer Perceptron (MLP)
-
-An MLP layer (as found in LLaMA) consists of:
-
-```
-Input → Up Projection → Activation → Down Projection → Output
-```
-
-**Step-by-step TP application**:
-
-1. **Up Projection (Column Parallel)**:
-   - Split weight matrix A along columns
-   - Each GPU computes: `X × A₁` and `X × A₂`
-   - Results are naturally sharded (no all-gather needed yet)
-
-2. **Activation**:
-   - Element-wise operation (e.g., SiLU, ReLU)
-   - Operates on already-sharded data
-   - Output remains sharded
-
-3. **Down Projection (Row Parallel)**:
-   - Split weight matrix B along rows
-   - Each GPU computes partial result: `Activation₁ × B₁`
-   - Use **all-reduce** to sum partial results
-   - Final result available on all GPUs
-
-**Key Insight**: Within an MLP, we can avoid the all-gather after column parallel because the next operation (row parallel) needs sharded data anyway. We only need all-reduce at the end.
-
-### Scaling to More GPUs
-
-To use more GPUs, simply shard each matrix into more sections. For N GPUs:
-
-- Column parallel: Split into N columns
-- Row parallel: Split into N rows
+This pattern extends to attention as well. The Q, K, V projections can be column-parallel (each GPU handles a subset of attention heads), and the output projection can be row-parallel. Again, we need only one all-reduce per attention layer.
 
 ### Benefits of Tensor Parallelism
 
-### 1. Weight Space Reduction
+The most obvious benefit of tensor parallelism is **memory reduction**: each GPU stores only a fraction of the weights. A 140B parameter model that wouldn't fit on a single GPU can be split across two GPUs, with each holding ~70B parameters. But the benefits go deeper than just fitting larger models.
 
-**Benefit**: Each GPU stores only a fraction of the weights.
+Consider what happens to KV cache capacity. On a single 160GB GPU serving a 140B model, you might have 140GB for weights and only 20GB left for KV cache. With TP=2, each GPU holds 70GB of weights, leaving 90GB for KV cache—a 4.5x increase in cache capacity per GPU, and 9x total across both GPUs. This super-linear scaling of KV cache is often the real motivation for tensor parallelism, even when a model technically fits on fewer GPUs.
 
-**Example**: 
+Tensor parallelism also reduces latency by effectively multiplying memory bandwidth. During inference, especially in the decode phase, we're often memory-bound—waiting for weights to be loaded from HBM rather than waiting for computation. With TP=2, we're loading from two GPUs' worth of HBM simultaneously, doubling effective bandwidth.
 
-- 140B parameter model
+The trade-off is communication overhead. Every layer requires an all-reduce operation, transferring data of size `batch_size × sequence_length × hidden_size`. On systems with NVLink (providing 600+ GB/s between GPUs), this overhead is manageable. On PCIe-only systems (32 GB/s), communication can dominate runtime for prefill-heavy workloads—sometimes consuming 60% or more of total time.
+
+**Example**:
+
+A 140B parameter model
 - With TP=2: Each GPU stores ~70B parameters
 - **Result**: Model can now fit on GPUs that couldn't hold the full model
 
@@ -714,68 +641,21 @@ To use more GPUs, simply shard each matrix into more sections. For N GPUs:
 
 ## Data Parallelism (DP) for Throughput Scaling
 
-**Data Parallelism (DP)** is a technique that replicates model weights across separate instances or GPUs to process independent batches of requests. Unlike tensor parallelism (which splits a model across GPUs) or pipeline parallelism (which splits layers across GPUs), data parallelism creates multiple complete copies of the model, each handling different requests.
+Tensor parallelism splits a single model across GPUs to handle larger models or reduce latency. But what if your model already fits on one GPU (or a small TP group), and your bottleneck is simply serving more concurrent requests? This is where **Data Parallelism (DP)** comes in.
 
-### Why Data Parallelism?
+The concept is straightforward: instead of splitting one model across multiple GPUs, we create multiple complete copies of the model, each running independently on its own GPU (or TP group). Each replica handles different requests, and a load balancer distributes incoming traffic across them. There's no communication between replicas during inference—they're completely independent, like running multiple separate vLLM servers.
 
-When a model fits on a single GPU (or a small TP group), but you need to serve more concurrent requests than a single replica can handle, data parallelism allows you to scale throughput horizontally by adding more model replicas.
-
-**Key Use Cases**:
-
-- **Throughput scaling**: Serve more requests simultaneously by adding replicas
-- **Load balancing**: Distribute requests across multiple independent model instances
-- **MoE models**: Combine DP attention layers with EP/TP expert layers for optimal MoE performance
-
-### How Data Parallelism Works
-
-In data parallelism:
-
-- Each DP rank maintains a **complete copy** of the model weights
-- Each rank processes **independent batches** of requests
-- Each rank has its **own independent KV cache**
-- Requests are distributed across ranks (load balancing)
-
-```
-DP Rank 0: [Complete Model] → Processes Batch 1
-DP Rank 1: [Complete Model] → Processes Batch 2
-DP Rank 2: [Complete Model] → Processes Batch 3
-DP Rank 3: [Complete Model] → Processes Batch 4
-```
-
-### Data Parallelism vs. Other Parallelism Strategies
-
-| Strategy | Model Replication | Communication | Use Case |
-|----------|-------------------|---------------|----------|
-| **Data Parallel (DP)** | Full model on each rank | None (independent) | Throughput scaling, load balancing |
-| **Tensor Parallel (TP)** | Split weights horizontally | All-reduce per layer | Model too large for single GPU |
-| **Pipeline Parallel (PP)** | Split layers vertically | Sequential data transfer | Model too large for single node |
-| **Expert Parallel (EP)** | Split experts | All-to-all for routing | MoE models |
+This independence is both DP's greatest strength and its limitation. Because replicas don't communicate, there's zero communication overhead—throughput scales linearly with the number of replicas. Add four replicas, get four times the throughput. But this also means each replica needs enough memory for a complete model copy, so DP doesn't help when the model itself is too large.
 
 ### Combining Data Parallelism with Other Strategies
 
-Data parallelism can be combined with tensor parallelism and expert parallelism:
-
-#### DP + TP
-
-When using both DP and TP:
-
-- Each DP rank contains a TP group
-- Total GPUs = `DP_size × TP_size`
-- Example: `DP=4, TP=2` requires 8 GPUs (4 replicas, each with 2-GPU TP)
+In practice, DP is often combined with TP. Consider serving a 70B model on a system with 8 GPUs. The model requires TP=2 to fit, leaving us with 4 potential TP groups. We can run DP=4 to create four replicas, each using two GPUs with tensor parallelism. The total GPU count is `DP_size × TP_size = 4 × 2 = 8`.
 
 ```bash
 vllm serve $MODEL --data-parallel-size 4 --tensor-parallel-size 2
 ```
 
-#### DP + EP (for MoE Models)
-
-For MoE models, data parallelism is particularly powerful:
-
-- **Attention layers**: Use data parallel (each rank has full attention)
-- **Expert layers**: Use expert parallel or tensor parallel
-- Expert layers form a `(DP × TP)` sized group for synchronization
-
-**Important**: For MoE models with DP, forward passes must be aligned across all ranks. Even if a rank has no requests, it must perform "dummy" forward passes to maintain synchronization with expert layers.
+For MoE models, the interaction between DP and expert parallelism is more nuanced. The attention layers can run in pure data-parallel mode (each replica has complete attention weights), while the expert layers use expert parallelism to distribute experts across the DP group. This requires synchronization: even if a DP rank has no requests in a given step, it must participate in the all-to-all communication for expert routing. vLLM handles this automatically, but it's worth understanding that MoE + DP isn't as "independent" as dense model DP.
 
 ### Deployment Modes
 
@@ -837,50 +717,13 @@ An external load balancer (e.g., nginx, HAProxy) routes requests to different ra
 - More sophisticated load balancing (KV cache aware)
 - Independent scaling of each rank
 
-### Benefits of Data Parallelism
+### Benefits and Trade-offs
 
-1. **Linear throughput scaling**: Adding more replicas increases throughput proportionally
-2. **Independent KV caches**: Each rank maintains its own KV cache, maximizing total cache capacity
-3. **Fault tolerance**: If one rank fails, others continue serving
-4. **Prefix caching optimization**: Load balancer can route requests with common prefixes to the same rank
-5. **No communication overhead**: Unlike TP/PP, DP ranks operate independently
+Data parallelism's appeal lies in its simplicity and effectiveness. Throughput scales linearly—double the replicas, double the throughput. Each replica maintains its own KV cache, so total cache capacity also scales linearly. If one replica fails, the others continue serving, providing natural fault tolerance. And because replicas don't communicate during inference, there's no communication overhead eating into your compute budget.
 
-### Trade-offs of Data Parallelism
+The trade-offs are equally clear. Memory efficiency suffers because each replica stores a complete copy of model weights. For a 70B model, four DP replicas means storing 280B parameters worth of weights across the system—versus 70B with tensor parallelism. Load balancing becomes important: a naive round-robin approach ignores the fact that different replicas may have different KV cache utilization, leading to suboptimal performance. And for MoE models, the "independence" of DP breaks down because expert routing requires cross-replica communication.
 
-#### Advantages
-
-1. **Simple and effective**: Easy to understand and deploy
-2. **No communication overhead**: Ranks operate independently
-3. **Linear scaling**: Throughput scales with number of replicas
-4. **Flexible load balancing**: Can optimize routing based on cache state
-
-#### Disadvantages
-
-1. **Memory overhead**: Each rank stores full model weights (or TP-sharded weights)
-2. **MoE synchronization**: For MoE models, ranks must synchronize even when idle
-3. **Load balancing complexity**: External mode requires additional infrastructure
-4. **Not for large models**: If model doesn't fit on a single GPU/TP group, DP alone won't help
-
-### When to Use Data Parallelism
-
-- **Good**: 
-  - Model fits on single GPU (or small TP group)
-  - Need to serve more concurrent requests
-  - Throughput is the primary concern
-  - MoE models (combine DP attention with EP experts)
-
-- **Not suitable**:
-  - Model too large for single GPU/TP group (use TP/PP first)
-  - Latency-sensitive workloads (TP may be better)
-  - Limited GPU memory (DP replicates weights)
-
-### Best Practices
-
-1. **Start with TP/PP**: Use TP/PP to fit the model, then add DP for throughput
-2. **Profile load balancing**: For external mode, monitor and optimize routing
-3. **Consider prefix caching**: Route requests with common prefixes to same rank
-4. **Monitor KV cache**: Balance requests based on available KV cache per rank
-5. **Use Ray backend**: For multi-node DP, Ray simplifies deployment
+The decision framework is straightforward: use TP/PP first to make the model fit, then add DP to scale throughput. If your model fits on a single GPU and you need more throughput, DP is the simplest solution. If latency is your primary concern, TP (which reduces per-request latency by parallelizing computation) may be better than DP (which doesn't affect single-request latency at all).
 
 ### vLLM Data Parallelism Source Code
 
@@ -931,54 +774,15 @@ The data parallelism implementation in vLLM is distributed across several key fi
 
 ## Pipeline Parallelism (PP)
 
-**Pipeline Parallelism (PP)** shards the model across multiple nodes when models are too large for a single node (e.g., DeepSeek R1, LLaMA 405B). 
+When models grow beyond what a single node can hold—think DeepSeek R1 at 671B parameters or LLaMA 405B—we need to distribute layers across multiple machines. This is where **Pipeline Parallelism (PP)** comes in.
 
-**Note**: While PP can technically work on a single node, it's not the recommended approach:
+While tensor parallelism splits each layer horizontally (all GPUs work on the same layer simultaneously), pipeline parallelism splits the model vertically along layers. GPU 0 might hold layers 0-19, GPU 1 holds layers 20-39, and so on. Data flows through the pipeline sequentially: GPU 0 processes its layers and sends the output to GPU 1, which processes its layers and sends to GPU 2, and so forth.
 
-- **Single node**: Use **Tensor Parallelism (TP)** when the model doesn't fit on one GPU
-- **Multi-node**: Use **TP within nodes + PP across nodes** for very large models
-
-PP is primarily designed for multi-node deployments where you need to distribute layers across nodes.
-
-### How Pipeline Parallelism Works
-
-Unlike tensor parallelism (which splits layers horizontally), pipeline parallelism **splits the model along layers**:
-
-- Each GPU holds a **group of consecutive layers**
-
-- Data flows sequentially through GPUs
-- Each GPU computes its layers, then sends results to the next GPU
-
-### Implementation in vLLM
-
-```python
-# Simplified concept
-for layer_group in my_layers:
-    if not first_stage:
-        data = receive_from_previous_gpu()
-    result = compute_layers(layer_group, data)
-    if not last_stage:
-        send_to_next_gpu(result)
-```
-
-**Key differences from TP**:
-
-- **TP**: All GPUs work simultaneously (SPMD)
-- **PP**: GPUs work sequentially (MPMD - Multiple Program, Multiple Data)
-- **TP**: High communication, low latency
-- **PP**: Low communication, but doesn't improve latency
-
-### Communication Pattern
-
-- **Data size**: `batch_size × sequence_length × hidden_size`
-- **Frequency**: Once per layer group (much less than TP)
-- **Trade-off**: Lower communication overhead, but sequential execution
-
-### Solving Pipeline Bubbles with Request Groups
+The communication pattern is fundamentally different from TP. In tensor parallelism, every layer requires an all-reduce across all GPUs—high frequency, but the data stays within a node where NVLink provides fast interconnect. In pipeline parallelism, communication happens only at stage boundaries—much less frequent, but the data typically crosses node boundaries where network bandwidth is limited. This makes PP well-suited for multi-node deployments where inter-node bandwidth is the bottleneck.
 
 ### The Pipeline Bubble Problem
 
-In naive pipeline parallelism, GPUs sit idle between batches:
+The sequential nature of pipeline parallelism creates an efficiency challenge. When GPU 0 is processing a batch, GPUs 1 and 2 sit idle waiting for input. When GPU 2 is processing, GPUs 0 and 1 are idle waiting for the next batch. In a naive implementation, each GPU is active only a fraction of the time—a massive waste of expensive hardware.
 
 ```
 GPU 0: [====]     [====]     [====]
@@ -986,74 +790,17 @@ GPU 1:     [====]     [====]     [====]
 GPU 2:         [====]     [====]     [====]
 ```
 
-**Problem**: Each GPU is idle most of the time—huge waste of resources.
+vLLM addresses this with **request groups** (also called virtual engines). Instead of processing one batch at a time, the system maintains multiple independent request streams. While GPU 2 is processing Group 1, GPU 1 can be processing Group 2, and GPU 0 can be processing Group 3. The pipeline stays full, and all GPUs stay busy.
 
-### Solution: Request Groups (Virtual Engines)
+The trade-off is that KV cache must be split among request groups. With 4 pipeline stages, each group gets roughly 1/4 of the total KV cache capacity. This limits the maximum batch size per group, which can reduce efficiency for memory-bound decode operations that benefit from larger batches.
 
-vLLM uses **request groups** (also called virtual engines) to keep all GPUs busy:
+### Chunked Prefill for Smoother Pipelines
 
-```
-GPU 0: [Group1][Group2][Group3][Group4][Group1][Group2]...
-GPU 1: [Group1][Group2][Group3][Group4][Group1][Group2]...
-GPU 2: [Group1][Group2][Group3][Group4][Group1][Group2]...
-```
+Another source of pipeline bubbles is the mismatch between prefill and decode. Prefill processes many tokens in parallel and is compute-intensive; decode processes one token at a time and is memory-bound. A long prefill can take 10x longer than a decode step, creating bubbles as faster decode operations wait for slower prefills.
 
-**How it works**:
+**Chunked prefill** solves this by breaking long prefills into smaller chunks that interleave with decode operations. Instead of processing a 4096-token prompt all at once, the system might process 512 tokens per iteration, spreading the prefill cost across multiple steps. This smooths out the pipeline and prevents any single long prefill from blocking other requests.
 
-- Multiple independent request streams (groups) run simultaneously
-- Each group is data-independent
-- vLLM uses multiple schedulers and cache engines to maintain separation
-- Locks ensure only one request group operates on each GPU at a time
-
-### Trade-offs
-
-1. **KV Cache Splitting**: KV cache is divided among request groups
-   - Each group gets a fraction (e.g., 1/4 for 4 PP stages)
-   - Supports smaller batch sizes per group
-
-2. **Micro-batches**: Each request group acts as a micro-batch
-   - All groups together form the full batch
-   - Can reduce decode efficiency (memory-bound operations benefit from larger batches)
-
-3. **Load Balancing**: vLLM balances by splitting KV cache evenly and routing requests to schedulers with most available KV cache
-
-### Optimizing Pipelines with Chunked Prefill
-
-### The Prefill vs. Decode Problem
-
-- **Prefill**: Long sequences, compute-intensive, can take significant time
-- **Decode**: Short sequences, memory-bound, fast
-
-**Problem**: Long prefill can create bubbles in the pipeline when decode is much faster.
-
-### Solution: Chunked Prefill
-
-**Chunked prefill** amortizes the cost of prefill by:
-
-1. Processing only a chunk of the prefill initially
-2. Interleaving the remaining prefill with subsequent decode steps
-3. Spreading prefill computation across multiple decode iterations
-
-**Visual Example**:
-
-Without chunked prefill:
-```
-Prefill: [==============]
-Decode:  [=][=][=][=][=]
-         ↑ Bubble here
-```
-
-With chunked prefill:
-```
-Prefill: [==][==][==][==][==]  (chunked)
-Decode:  [=][=][=][=][=][=][=]
-         ↑ Smooth, no bubbles
-```
-
-### Benefits
-
-1. **Eliminates bubbles**: Smooth pipeline execution
-2. **More KV cache space**: By limiting maximum batch size, vLLM can infer more available KV cache
+Chunked prefill is enabled by default in vLLM v1, but the chunk size may need tuning for your workload. Too large, and you get bubbles; too small, and you add overhead from the extra iterations. Profile your specific prefill-to-decode ratio to find the sweet spot.
 3. **Better concurrency**: Prevents arbitrary large prefill from consuming all memory
 
 ### Choosing Chunk Size
@@ -1075,17 +822,17 @@ Decode:  [=][=][=][=][=][=][=]
 
 ## Expert Parallelism (EP): A Modifier Flag for MoE Models
 
-**Expert Parallelism (EP)** is not a standalone parallelism strategy. Instead, it is a modifier flag (`--enable-expert-parallel`) that changes how MoE (Mixture-of-Experts) models distribute experts and communicate across GPUs. EP must be combined with TP or DP—it cannot be used alone.
+Mixture-of-Experts (MoE) models like Mixtral, DeepSeek, and Phi-MoE present a unique parallelism challenge. Unlike dense models where every parameter is used for every token, MoE models route each token to only a subset of "experts"—typically 2 out of 8, 16, or even 256 total experts. This sparse activation pattern means the model has many more parameters than a dense model of equivalent compute cost, but those parameters are distributed across many experts that aren't all active simultaneously.
 
-**Critical constraint**: The EP flag only takes effect when `TP_SIZE × DP_SIZE > 1`. If both TP and DP are set to 1, the EP flag is ignored.
+**Expert Parallelism (EP)** is vLLM's mechanism for distributing these experts across GPUs. Unlike TP, DP, and PP which are standalone strategies, EP is a modifier flag (`--enable-expert-parallel`) that changes how MoE layers behave when combined with TP or DP. You can't use EP alone—it requires `TP_SIZE × DP_SIZE > 1` to take effect.
 
-This section uses Phi-tiny-MoE-instruct (referred to as Phi-tiny) to illustrate how MoE architectures work and how the EP flag modifies parallelism behavior.
+To understand why EP matters, we need to first understand how MoE models work. Let's use Phi-tiny-MoE-instruct as a concrete example.
 
 ### Understanding MoE Architecture
 
-In MoE models, the standard feed-forward network (FFN) is replaced with a **Mixture-of-Experts** layer that contains multiple expert networks. Each token is routed to a subset of experts (typically top-2) based on a learned routing mechanism.
+In a standard transformer, the feed-forward network (FFN) after attention is a simple two-layer MLP. In an MoE model, this FFN is replaced with multiple expert networks—each expert is itself a complete MLP—plus a routing mechanism that decides which experts process each token. Figure~\ref{fig:moe-arch} illustrates this architecture.
 
-[MOE Architecture](img/moe_arch.svg)
+![MoE architecture.](img/moe_arch.png){#fig:moe-arch .block width=85% align=center}
 
 #### Decoder Layer Structure
 
@@ -1191,85 +938,36 @@ class PhiMoESparseMoeBlock(nn.Module):
         return final_hidden_states.reshape(batch_size, sequence_length, hidden_dim), router_logits
 ```
 
-The routing process works as follows:
-
-1. **Gate computation**: A linear layer (`gate`) computes routing logits for each token over all experts.
-2. **Expert selection**: The `sparsemixer` function selects the top-2 experts for each token and computes routing weights.
-3. **Expert processing**: Each selected expert processes its assigned tokens, with outputs weighted by routing weights.
-4. **Aggregation**: Expert outputs are aggregated using `index_add_` to combine contributions from multiple experts per token.
+The routing process has four steps. First, a gate layer computes routing logits for each token over all experts—essentially asking "which experts should handle this token?" Second, the top-k experts (typically k=2) are selected based on these logits, and routing weights are computed to determine how much each expert's output should contribute. Third, each selected expert processes its assigned tokens. Finally, the expert outputs are aggregated, weighted by the routing scores, to produce the final output for each token.
 
 ### How Expert Parallelism Modifies Behavior
 
-The EP flag changes two key aspects of MoE model execution:
+Without the EP flag, vLLM handles MoE models by sharding each expert's weights across GPUs using tensor parallelism—every GPU has a piece of every expert. With EP enabled, the distribution changes: each GPU holds complete experts, but only a subset of them. The formula is straightforward: `EP_SIZE = TP_SIZE × DP_SIZE`, and each GPU holds `Total_Experts / EP_SIZE` complete experts.
 
-1. **Expert Distribution**:
-   - **Without EP**: All experts are present on every GPU, but their weight tensors are sharded across GPUs (via `flatten_tp_across_dp`).
-   - **With EP**: Experts are distributed across GPUs, with each GPU holding a different subset of complete experts (via `determine_expert_map`).
+Consider DeepSeek-R1 with its 256 routed experts. With `TP=8, DP=1` and EP enabled, each of the 8 GPUs holds 32 complete experts. With `TP=1, DP=8` and EP enabled, the same distribution occurs—32 experts per GPU—but the communication pattern changes. TP+EP uses all-reduce (same as TP without EP), while DP+EP uses all-to-all communication to route tokens to the GPUs holding their selected experts.
 
-2. **Communication Pattern**:
-   - **TP + EP**: Uses AllReduce communication (same as TP without EP, since `dp_size=1`).
-   - **DP + EP**: Uses AllToAll communication, enabling DP Attention with partitioned KV cache.
+The choice between TP+EP and DP+EP has significant implications for KV cache. With TP+EP, KV cache is duplicated across all TP ranks (each GPU stores the full cache). With DP+EP, KV cache is partitioned—each GPU stores cache only for its assigned requests. For models using Multi-Latent Attention (MLA) or Multi-Query Attention (MQA) like DeepSeek, DP+EP is often essential because it avoids the memory overhead of duplicating the already-compressed KV cache.
 
-### Expert Distribution Formula
-
-For routed experts, the distribution follows:
-
-```
-EP_SIZE = TP_SIZE × DP_SIZE
-Routed experts per GPU = Total Routed Experts / EP_SIZE
-```
-
-**Example**: DeepSeek-R1 has 256 routed experts:
-
-- With `TP=8, DP=1, EP`: Each GPU holds 32 complete experts (256/8 = 32)
-- With `TP=1, DP=8, EP`: Each GPU holds 32 complete experts (256/8 = 32)
-- With `TP=4, DP=2, EP`: Each GPU holds 32 complete experts (256/8 = 32)
-
-### When to Use Expert Parallelism
-
-The EP flag provides benefits when:
-
-1. **High expert activation density** (>3%): AllToAll communication overhead is offset by memory bandwidth gains.
-2. **MLA/MQA models** (DeepSeek V2/V3/R1): EP with DP is essential for proper KV cache partitioning.
-3. **Memory bandwidth is the bottleneck**: EP distributes experts to leverage aggregate memory bandwidth across GPUs.
-
-**Note**: For ultra-sparse models (<1% activation density), EP may add overhead. The EP flag requires additional dependencies (DeepEP, pplx-kernels, DeepGEMM) and may not be fully stable for all model/quantization/hardware combinations. See the [vLLM Expert Parallel Deployment documentation](https://docs.vllm.ai/en/latest/serving/expert_parallel_deployment/) for details.
+When should you use EP? The flag provides benefits when expert activation density is high enough (>3%) that the all-to-all communication overhead is offset by memory bandwidth gains from distributing experts. For ultra-sparse models (<1% activation), EP may actually hurt performance. The EP flag also requires additional dependencies (DeepEP, pplx-kernels, DeepGEMM) and may not be stable for all model/quantization/hardware combinations—consult the vLLM documentation for your specific setup.
 
 ## Combining Parallelism Strategies
 
-vLLM allows combining multiple parallelism strategies to efficiently distribute models across GPUs. Understanding which combinations work and their constraints is crucial for successful deployment.
+Real-world deployments often combine multiple parallelism strategies. A 405B model might use TP=8 within each node (leveraging NVLink) and PP=4 across nodes (where network bandwidth is limited). An MoE model might use DP=4 for throughput scaling with EP enabled for efficient expert distribution. Understanding how these strategies interact is crucial for optimal deployment.
 
-### TP + PP: Tensor and Pipeline Parallelism
+### TP + PP: The Standard Multi-Node Configuration
 
-Since TP and PP operate along **different axes**, they can be combined effectively:
+Tensor parallelism and pipeline parallelism operate along orthogonal axes—TP splits layers horizontally, PP splits the model vertically along layers. This makes them naturally complementary. The typical pattern is to use TP within nodes (where NVLink provides 600+ GB/s bandwidth) and PP across nodes (where network bandwidth is 100-400 Gb/s).
 
-**Typical Configuration**:
+This combination also reduces inter-node communication. With TP=4 within each node, the data transferred between pipeline stages is only `batch_size × sequence_length × hidden_size / 4`—each GPU sends only its shard, not the full tensor.
 
-- **Pipeline Parallelism**: Across nodes (where interconnect is slower)
-- **Tensor Parallelism**: Within nodes (where NVLink provides fast communication)
-
-**Benefits**:
-1. **Reduced communication in PP**: Each GPU only sends its TP chunk between pipeline stages
-   - Data size: `batch_size × sequence_length × hidden_size / TP_size`
-   - Smaller transfers between pipeline stages
-
-2. **Flexibility**: Can adapt to hardware constraints and interconnect characteristics
-
-**Example**:
 ```bash
 --tensor-parallel-size 4    # TP within each node
 --pipeline-parallel-size 8  # PP across 8 nodes
 ```
 
-### TP + EP: Tensor Parallelism with Expert Parallelism
+### TP + EP and DP + EP: Expert Parallelism Combinations
 
-When combining TP with EP for MoE models:
-
-**Behavior**:
-
-- Experts are distributed across TP ranks (split experts)
-- Uses AllReduce communication (not AllToAll, since `dp_size=1`)
-- KV cache is duplicated on each TP rank (same as TP without EP)
+For MoE models, the choice between TP+EP and DP+EP depends on your priorities. TP+EP distributes experts across TP ranks using all-reduce communication, with KV cache duplicated on each rank. This works well for latency-sensitive workloads where you want all GPUs contributing to each request.
 
 **Use case**: Large MoE models that don't fit on a single GPU, low-moderate concurrency workloads.
 
@@ -1441,61 +1139,19 @@ nsys-ui profile.qdrep
 
 ## Summary
 
-### Key Takeaways
+This chapter covered the fundamentals of distributed inference with vLLM, from the memory management innovations that make efficient serving possible to the parallelism strategies that scale beyond single GPUs.
 
-1. **Three fundamental strategies**: TP, DP, and PP are the core parallelism strategies in vLLM
-2. **EP is a modifier**: Expert Parallelism is a flag (`--enable-expert-parallel`) that modifies MoE behavior when combined with TP or DP
-3. **Combine strategies strategically**: TP+PP for multi-node, TP+EP for MoE latency, DP+EP for MoE throughput
-4. **Enable chunked prefill** for pipeline parallelism, but tune the chunk size carefully
-5. **Profile your workload**: Don't set parameters arbitrarily—measure communication vs. computation ratios
-6. **Consider trade-offs**:
-   - TP: Lower latency, higher communication overhead
-   - PP: Lower communication, doesn't improve latency, more complex
-   - DP: Linear throughput scaling, no communication overhead, but replicates weights
-   - EP: Modifies expert distribution and communication patterns for MoE models
+We started with PagedAttention, vLLM's breakthrough contribution to LLM serving. By treating KV cache like virtual memory—allocating fixed-size blocks that can be scattered across GPU memory and reclaimed when requests complete—PagedAttention eliminates the fragmentation that plagued earlier serving systems. The block-based design also eliminates padding FLOPs: attention kernels iterate only over blocks that exist, never wasting compute on padded positions. Together, these innovations enable 2-4x higher throughput compared to traditional approaches.
 
-### When to Use What
+We then explored the three fundamental parallelism strategies. Tensor parallelism splits each layer horizontally across GPUs, reducing per-GPU memory requirements and latency at the cost of all-reduce communication every layer. Data parallelism replicates the model across GPUs, scaling throughput linearly with zero communication overhead, but requiring each replica to store complete weights. Pipeline parallelism splits the model vertically along layers, enabling multi-node deployments where inter-node bandwidth is limited, but introducing pipeline bubbles that must be mitigated with request groups and chunked prefill.
 
-- **Tensor Parallelism**: 
-  - Model doesn't fit on single GPU
-  - Good interconnect (NVLink) available
-  - Latency-sensitive workloads
-  
-- **Data Parallelism**:
-  - Model fits on single GPU (or small TP group)
-  - Need to serve more concurrent requests
-  - Throughput is primary concern
-  - MoE models (combine with EP for experts)
-  
-- **Pipeline Parallelism**:
-  - Model doesn't fit on single node
-  - Poor interconnect between nodes
-  - Throughput-focused workloads
+For MoE models, expert parallelism modifies how experts are distributed and how tokens are routed. The choice between TP+EP (all-reduce, duplicated KV cache) and DP+EP (all-to-all, partitioned KV cache) depends on whether you're optimizing for latency or throughput, and whether your model uses MLA/MQA attention.
 
-- **Combined TP+PP**:
-  - Very large models (400B+ parameters)
-  - Multi-node deployments
-  - Need to balance latency and communication
+The decision framework is straightforward: start with the minimum parallelism needed to fit your model (TP first, then PP for multi-node), then add DP to scale throughput. Profile your workload to understand the communication-to-computation ratio, and tune chunked prefill size based on your prefill-to-decode mix. Don't set parameters arbitrarily—measure, iterate, and optimize for your specific deployment.
 
-- **Expert Parallelism (EP)**:
-  - MoE models with high activation density (>3%)
-  - MLA/MQA models (DeepSeek) require EP with DP for KV cache partitioning
-  - Must be combined with TP or DP (not standalone)
-  - Activation constraint: `TP_SIZE × DP_SIZE > 1`
+Looking ahead, vLLM continues to evolve with disaggregated prefill/decode (separating the compute-bound prefill from memory-bound decode onto different hardware), improved EP stability across model/quantization/hardware combinations, and tighter integration with emerging hardware like AMD MI300X and Intel Gaudi.
 
-- **Combined Strategies**:
-  - **TP+PP**: Very large models (400B+), multi-node deployments
-  - **TP+EP**: MoE models, low-moderate concurrency, latency-sensitive
-  - **DP+EP**: MoE models, high concurrency, throughput-focused (enables DP Attention)
-  - **TP+DP+EP**: Large MoE models needing both sharding and throughput scaling
-
-### Future Developments
-
-- **vLLM v1**: Enhanced features and optimizations
-- **Disaggregated Prefill/Decode**: Advanced techniques for further optimization
-- **Improved EP stability**: Better support across model/quantization/hardware combinations
-
-vLLM's model parallelism approach (TP/PP/DP/EP) is excellent for large models and high-throughput workloads. But what if you need ultra-low latency for interactive applications? Or what if your models fit on a single GPU but you need to handle thousands of concurrent requests with session persistence? That's where SGLang comes in. The next chapter introduces SGLang, which uses a router-based architecture optimized for low-latency, high-QPS workloads. Unlike vLLM's focus on model sharding, SGLang emphasizes request-level routing, session affinity, and workload disaggregation to achieve different performance characteristics.
+vLLM's model parallelism approach excels for large models and high-throughput workloads. But what if you need ultra-low latency for interactive applications, or you want to handle thousands of concurrent requests with sophisticated routing and session persistence? The next chapter introduces SGLang, which takes a different approach: rather than focusing on model sharding, SGLang emphasizes request-level routing, prefix caching, and workload disaggregation to achieve different performance characteristics.
 
 ## References
 
