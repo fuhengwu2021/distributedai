@@ -385,7 +385,7 @@ After prefill completes, the model enters the **decode** phase. Here, tokens are
 
 Consider generating the first new token after the prompt. The input to the query projection is $X_1 = Y_0$ (the newly generated token), but for attention to work correctly, the Key and Value projections need the full context—the original prompt $X_0$ concatenated with the new token $X_1$, resulting in shape $B \times (L_2 + 1) \times D$.
 
-![Decode without KV cache.](img/decode_without_kvcache.png){#fig:decode-no-cache .block width=90% align=center}
+![Decode without KV cache.](img/decode_without_kvcache.png){#fig:decode-no-cache .block width=100% align=center}
 
 Figure~\ref{fig:decode-no-cache} illustrates this naive approach. The query needs to attend to the entire context so far. For example, if our prompt $X_0$ is "Time flies" and $Y_0$ is "like", we use "like" to query the context "Time flies like" and predict the next token, probably "an". Then we use "an" to query "Time flies like an" and get "arrow". This process continues: each newly generated token must attend to all previous tokens (both the original prompt and all previously generated tokens) to maintain context and generate coherent text. However, at each step, we need to recompute the Key and Value vectors for the entire sequence history, even though most of these computations were already performed in previous steps.
 
@@ -397,7 +397,7 @@ Without caching, this naive approach has time complexity $O(L_{\text{total}}^2)$
 
 KV cache solves this inefficiency by storing precomputed Key and Value vectors for all previously processed tokens. Instead of concatenating and recomputing, we can simply use $X_1$ as input for $K$ and $V$ calculation, as long as we cache the previous results. Take $Key$ vector as an example, we only calucate $K_{new}$ which has shape of $B1D_k$ and the time complexity reduced dramatically.
 
-![KV cache grows with each decode step.](img/cache_grow.png){#fig:cache-grow .block width=85% align=center}
+![KV cache grows with each decode step.](img/cache_grow.png){#fig:cache-grow .block width=100% align=center}
 
 Figure~\ref{fig:cache-grow} shows how the KV cache grows with each generated token. With KV cache, the decoding stage becomes much more efficient.
 
@@ -416,7 +416,7 @@ With KV cache, the computational complexity changes dramatically:
 
 The key improvement is reducing the quadratic dependency on sequence length in the decode phase to linear, making long-sequence generation feasible. However, this comes at the cost of memory: KV cache requires $O(L_{\text{total}} \cdot D)$ memory to store all cached Key and Value vectors.
 
-![Decode with KV cache.](img/decode_with_kvcache.png){#fig:decode-with-cache .block width=90% align=center}
+![Decode with KV cache.](img/decode_with_kvcache.png){#fig:decode-with-cache .block width=100% align=center}
 
 Figure~\ref{fig:decode-with-cache} shows the decode phase with KV cache enabled. The decode phase has a fundamentally different compute profile than prefill. With only one token being processed, the matrix multiplications are essentially matrix-vector operations. The arithmetic intensity is low—we're memory-bound, spending most of the time loading model weights from GPU memory rather than computing. This is why batching multiple decode requests together (continuous batching, covered later) is crucial for efficiency.
 
