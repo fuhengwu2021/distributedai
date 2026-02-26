@@ -1,6 +1,6 @@
-# Chapter 7: Request-Level Routing and SGLang {-}
+# Chapter 7: Cross-Request Optimization with SGLang {-}
 
-*Ultra-low latency inference with request-level routing and workload disaggregation*
+*RadixAttention, structured generation, and request-level routing for low-latency inference*
 
 > The best way to predict the future is to invent it.
 - Alan Kay, Computer Scientist
@@ -22,17 +22,17 @@
 
 In the previous chapter, we explored vLLM's approach to distributed inference: model parallelism. When a model is too large for a single GPU, vLLM splits the model weights across multiple GPUs using tensor parallelism (TP) or pipeline parallelism (PP). Workers must synchronize—all-reduce operations for TP, pipeline stages for PP—and the system optimizes for throughput by batching as many requests as possible.
 
-This approach works well for large models and batch-oriented workloads, but it has limitations. The synchronization overhead between workers adds latency. Session state (like conversation history) doesn't naturally persist across requests. And for smaller models that fit on a single GPU, the model parallelism machinery becomes unnecessary overhead.
+SGLang takes a different approach, though not by eliminating parallelism. SGLang supports TP, PP, and EP just like vLLM. The difference is that SGLang elevates *cross-request optimization* to a first-class concern. While vLLM primarily focuses on intra-request execution efficiency (how efficiently a single request is processed), SGLang additionally optimizes inter-request execution efficiency (how requests interact and share resources).
 
-SGLang takes a fundamentally different approach. Instead of splitting model weights across workers, SGLang routes requests to independent workers, each running a complete model replica. There's no weight synchronization between workers—each processes requests independently. A router sits in front of the workers, intelligently directing requests based on cache locality, session affinity, and load balancing.
+The core innovations that enable this are **RadixAttention** and the **zero-overhead scheduler**. RadixAttention organizes KV cache as a radix tree, allowing requests with common prefixes to share cached computations. The scheduler overlaps CPU work with GPU computation, eliminating idle time. These optimizations work at the kernel and scheduler level—they're not about routing.
 
-This request-level routing architecture excels at what vLLM's model parallelism struggles with: ultra-low latency for interactive applications, session persistence for multi-turn conversations, and efficient handling of high QPS (queries per second) workloads. When a user sends multiple messages in a conversation, SGLang's router ensures all messages go to the same worker, where the KV cache from previous turns is already warm. The result is 2-3x lower latency for follow-up requests compared to systems without session affinity.
+On top of this execution engine, SGLang introduces **request-level routing** as a scaling primitive. Instead of only scaling through model parallelism (splitting weights), SGLang can scale through request routing (distributing requests to independent workers). A router directs traffic based on cache locality, session affinity, and load balancing. This is particularly effective for workloads where models fit on a single GPU or small TP group.
 
-Beyond routing, SGLang introduces innovations that complement its architecture: RadixAttention for sharing KV cache across requests with common prefixes, X-Grammar for efficient structured output generation, and a zero-overhead scheduler that overlaps CPU scheduling with GPU computation. These techniques work together to make SGLang particularly effective for interactive chat applications, AI agents with system prompts, and any workload where latency matters more than raw throughput.
+The combination is powerful for specific workloads. For multi-turn conversations with shared system prompts, RadixAttention's prefix caching combined with session affinity can reduce latency by 2-3x on follow-up requests. But this benefit is conditional—it requires prefix reuse, conversational workloads, and non-batch-dominated scenarios. For batch throughput workloads or very large models requiring extensive model parallelism, vLLM's approach may be more appropriate.
 
-**SGLang** (Structured Generation Language) emerged from the LMSYS team at UC Berkeley—the same group behind the Chatbot Arena leaderboard. While vLLM focused on memory efficiency through PagedAttention, SGLang's creators asked a different question: how can we make LLM serving faster for interactive applications where users expect near-instant responses?
+**SGLang** (Structured Generation Language) emerged from the LMSYS team at UC Berkeley—the same group behind the Chatbot Arena leaderboard. While vLLM focused on memory efficiency through PagedAttention, SGLang's creators asked a different question: how can we optimize across requests, not just within them?
 
-The answer led to a fundamentally different architecture. Instead of optimizing how a single model instance handles requests, SGLang optimizes how requests flow through a distributed system. The result is an inference engine that excels at high-QPS, low-latency workloads—particularly multi-turn conversations where maintaining session state is critical.
+The answer led to RadixAttention for cross-request KV cache sharing, X-Grammar for efficient structured output generation, and a zero-overhead scheduler that maximizes GPU utilization. Request-level routing emerged later as a production scaling layer that complements these core innovations.
 
 ### Prerequisites
 
@@ -217,11 +217,13 @@ The SGLang Runtime contains several key components working together. The **Token
 
 For distributed deployments, SGLang adds a **Router** (also called Model Gateway) layer above the API Server. The Router distributes requests across multiple SRT instances, maintaining session affinity so that requests from the same conversation go to the same worker (preserving KV cache locality). It includes a control plane for worker management, load monitoring, and health checking, plus a data plane that implements various load balancing policies.
 
-The architectural difference from vLLM is fundamental. vLLM uses a scheduler-executor-worker pattern focused on model parallelism—splitting model weights across GPUs and coordinating them through all-reduce operations. SGLang's architecture focuses on request-level optimizations instead. Rather than sharding model weights, SGLang routes requests to independent workers, each running a complete model. This eliminates synchronization overhead and enables features like session affinity that are difficult to implement in model-parallel systems.
+The architectural difference from vLLM lies in optimization focus. vLLM uses a scheduler-executor-worker pattern optimized for intra-request efficiency—PagedAttention for memory management, model parallelism for large models. SGLang's architecture additionally optimizes inter-request efficiency through RadixAttention and cache-aware scheduling. Both systems support TP/PP/EP for model parallelism; SGLang adds request-level routing as a complementary scaling primitive for workloads where models fit on individual workers.
 
 ## SGLang Core Theory
 
-SGLang's performance comes from several innovations working together: RadixAttention for KV cache reuse across requests, X-Grammar for efficient structured output generation, operator fusion to reduce kernel launch overhead, and a zero-overhead scheduler that overlaps CPU and GPU work. While vLLM focuses on memory efficiency within individual requests (PagedAttention) and model parallelism for large models, SGLang emphasizes optimizations that span multiple requests—making it particularly effective for high-QPS workloads where many requests share common patterns.
+SGLang's performance advantages come primarily from its execution engine innovations, not from routing. The core technologies are: **RadixAttention** for KV cache reuse across requests, **zero-overhead scheduler** for eliminating CPU/GPU idle time, **X-Grammar** for efficient structured output generation, and **operator fusion** to reduce kernel launch overhead. These are kernel-level and scheduler-level optimizations that work regardless of deployment topology.
+
+While vLLM focuses on memory efficiency within individual requests (PagedAttention), SGLang emphasizes optimizations that span multiple requests. This makes SGLang particularly effective for workloads where many requests share common patterns—system prompts, few-shot examples, or multi-turn conversations.
 
 ### RadixAttention: Prefix Cache Reuse
 
@@ -317,11 +319,11 @@ The performance benefits are substantial: up to 2x throughput improvement over s
 
 ## Router-Based Distributed Architecture
 
-Now we arrive at SGLang's most distinctive feature: its router-based distributed architecture. While vLLM distributes inference by splitting model weights across GPUs (tensor parallelism, pipeline parallelism), SGLang takes a fundamentally different approach—it routes requests to independent workers, each running a complete model.
+Beyond its core execution engine, SGLang introduces request-level routing as a scaling primitive that complements traditional model parallelism. This is not a replacement for TP/PP—SGLang supports those just like vLLM. Rather, routing provides an additional scaling dimension for workloads where models fit on individual workers.
 
-The difference is profound. In vLLM's model parallelism, workers must synchronize: all-reduce operations for tensor parallelism, pipeline handoffs for pipeline parallelism. This synchronization adds latency and couples workers together. In SGLang's router-based architecture, workers are independent. Each processes requests on its own, with no synchronization overhead. The router sits in front, directing traffic based on load, cache locality, and session affinity.
+The key distinction: eliminating *intra-layer* synchronization is impossible when using TP/PP—you still need all-reduce for TP, pipeline handoffs for PP. What router-based scaling eliminates is *inter-request* synchronization. Each worker processes requests independently, with no coordination overhead between workers. The router directs traffic based on load, cache locality, and session affinity.
 
-This architectural choice reflects different optimization targets. vLLM optimizes for large models that don't fit on a single GPU and for throughput-oriented batch processing. SGLang optimizes for high-QPS, low-latency workloads where models fit on individual GPUs (or small GPU groups) and where request routing decisions matter more than model weight distribution.
+This is most valuable when models fit on a single GPU or small TP group (2-8 GPUs). For very large models requiring extensive TP/PP across many GPUs, the router adds little value—you're limited by model parallelism anyway. But for smaller models serving high QPS, routing enables horizontal scaling without the communication overhead of traditional data parallelism.
 
 ### SGLang Model Gateway Architecture
 
@@ -335,19 +337,25 @@ The data plane implements multiple router types. The HTTP Router handles standar
 
 For reliability, the gateway implements exponential backoff with jitter for retries, worker-scoped circuit breakers that automatically fail over when workers become unhealthy, and token-bucket rate limiting with queuing. Observability comes through Prometheus metrics (latency, throughput, cache hit rates), OpenTelemetry tracing, and structured logging.
 
-### Why Router-Based Architecture?
+### When Router-Based Architecture Excels
 
-The router-based approach offers several advantages over model parallelism for appropriate workloads.
+Router-based scaling is most valuable in specific scenarios:
 
-Cache locality is perhaps the biggest win. With session affinity, all requests from the same conversation go to the same worker, where the KV cache from previous turns is already warm. There's no expensive cache transfer between workers.
+**High-QPS interactive workloads**: Chatbot SaaS, enterprise multi-tenant deployments, 100K+ concurrent sessions. The router's cache-aware policies maximize RadixAttention benefits.
 
-Independent scaling becomes possible. You can scale prefill workers (which are compute-bound) separately from decode workers (which are memory-bound), optimizing resource allocation for your specific workload.
+**Multi-turn conversations with shared prefixes**: Session affinity keeps conversations on the same worker, where KV cache from previous turns is already warm. Combined with RadixAttention's prefix sharing, this can reduce latency by 2-3x for follow-up requests—but only for conversational workloads with prefix reuse.
 
-Fault tolerance is simpler. When a worker fails, the router simply routes around it. There's no need to re-shard model weights or rebuild distributed state—other workers continue operating independently.
+**Independent scaling requirements**: Scale prefill workers (compute-bound) separately from decode workers (memory-bound) through PD disaggregation.
 
-Flexible routing policies enable advanced use cases: priority queues for premium users, A/B testing between model versions, SLA-based routing that directs latency-sensitive requests to less-loaded workers.
+**Fault tolerance**: When a worker fails, the router routes around it. No need to re-shard model weights.
 
-The trade-off is that router-based architecture works best when models fit on a single GPU or small TP group (2-4 GPUs). For very large models requiring TP/PP across many GPUs, vLLM's model parallelism approach remains more appropriate.
+Router-based architecture is **not** advantageous for:
+
+**Batch inference**: Router hop latency adds overhead without cache locality benefits.
+
+**Very large models (70B+)**: When models require extensive TP/PP, you're limited by model parallelism anyway.
+
+**Throughput-only workloads**: vLLM's continuous batching may be more efficient when latency doesn't matter.
 
 ## Prefill/Decode Disaggregation
 
@@ -437,7 +445,7 @@ For NIXL backend (which works across different network fabrics), replace `--disa
 
 ## Distributed Inference Architecture and Parallelism Strategies
 
-While SGLang's router-based architecture is its distinguishing feature, the system also supports traditional parallelism strategies for cases where they're needed. Understanding when to use each approach—and how they can combine—is crucial for building scalable inference systems.
+SGLang's core innovations (RadixAttention, zero-overhead scheduler) work at the execution engine level. For scaling, SGLang supports both traditional parallelism strategies (TP/PP/EP) and router-based request distribution. Understanding when to use each approach—and how they can combine—is crucial for building scalable inference systems.
 
 SGLang supports four parallelism dimensions, which can be combined as needed. **Tensor Parallelism (TP)** splits model weights across GPUs within a node, using all-reduce for synchronization. **Pipeline Parallelism (PP)** splits model layers across GPUs or nodes, using point-to-point communication between stages. **Data Parallelism (DP)** replicates the model across workers, each processing different requests independently. **Expert Parallelism (EP)** distributes MoE experts across devices, using all-to-all communication for token routing.
 
@@ -1245,44 +1253,46 @@ For TP/PP deployments, failure is more disruptive since all ranks in a group mus
 
 ## Summary
 
-This chapter explored SGLang's approach to distributed inference, which differs fundamentally from vLLM's model parallelism. Where vLLM shards model weights across GPUs and requires synchronization between workers, SGLang's router-based architecture distributes requests to independent workers, eliminating communication overhead.
+This chapter explored SGLang's approach to LLM inference, which differs from vLLM not by eliminating parallelism, but by elevating cross-request optimization to a first-class concern. While vLLM optimizes intra-request execution efficiency, SGLang additionally optimizes inter-request execution efficiency.
 
-The key innovations that make SGLang effective for high-QPS, low-latency workloads are:
+The core innovations that drive SGLang's performance are at the execution engine level:
 
-**RadixAttention** enables KV cache sharing across requests with common prefixes. For workloads with shared system prompts or multi-turn conversations, this can save up to 90% of prefill computation.
+**RadixAttention** enables KV cache sharing across requests with common prefixes. For workloads with shared system prompts or multi-turn conversations, this can save up to 90% of prefill computation. This is SGLang's most distinctive technical contribution.
+
+**Zero-Overhead Scheduler** overlaps CPU scheduling with GPU computation, eliminating the idle time that plagued earlier scheduler designs. This is a kernel-level optimization that works regardless of deployment topology.
 
 **X-Grammar** provides efficient structured output decoding using FSMs and PDAs. Unlike naive constraint decoding that validates each token against the full grammar, X-Grammar precompiles token masks and achieves 75%+ cache hit rates.
 
-**Zero-Overhead Scheduler** overlaps CPU scheduling with GPU computation, eliminating the idle time that plagued earlier scheduler designs.
+Built on this execution engine, SGLang provides scaling primitives:
 
-**Router-based architecture** enables horizontal scaling without the communication overhead of tensor or pipeline parallelism. Each worker runs a complete model and processes requests independently.
+**Router-based architecture** introduces request-level routing as a complement to traditional model parallelism. This eliminates inter-request synchronization (not intra-layer synchronization—TP/PP/EP still require their respective communication patterns). Most valuable when models fit on single GPUs or small TP groups.
 
-**Session affinity** routes requests from the same conversation to the same worker, maintaining KV cache locality and improving latency by 2-3x for multi-turn interactions.
+**Session affinity** routes requests from the same conversation to the same worker, maximizing RadixAttention benefits. The 2-3x latency improvement for follow-up requests is conditional on multi-turn workloads with prefix reuse.
 
 **PD disaggregation** separates prefill and decode into specialized workers, allowing independent scaling based on workload characteristics.
 
 ### When to Choose SGLang vs vLLM
 
-The choice between SGLang and vLLM comes down to your primary optimization target.
+The choice is about optimization focus, not paradigm opposition. Both systems support TP/PP/EP; they differ in what else they optimize.
 
-**Choose SGLang when:**
-- Latency is critical (especially TTFT under 50ms)
-- You have high QPS with many concurrent sessions
-- Models fit on 1-8 GPUs
-- You need session affinity for conversational workloads
+**SGLang excels when:**
+- Cross-request optimization matters (shared prefixes, multi-turn conversations)
+- High QPS with many concurrent sessions (chatbot SaaS, enterprise multi-tenant)
+- Models fit on 1-8 GPUs and router-based scaling is viable
 - Structured output decoding is required
+- Session affinity benefits outweigh router hop latency
 
-**Choose vLLM when:**
-- Very large models require 16+ GPUs
-- Throughput is more important than latency
-- You're doing batch processing
+**vLLM excels when:**
+- Very large models require extensive TP/PP (16+ GPUs)
+- Batch throughput is the primary metric
+- Single-shot prompts without prefix reuse dominate
 - Simpler deployment without router setup is preferred
 
-The fundamental architectural difference: vLLM shards model weights across GPUs and requires synchronization between workers. SGLang routes requests to independent workers running complete models, eliminating communication overhead but limiting model size to what fits on a single worker (or small TP group).
+Note that vLLM also supports prefix caching and session pinning—just implemented differently. The systems represent design tradeoffs, not mutually exclusive paradigms.
 
 ### Complementary Deployment
 
-Many production systems use both. vLLM handles batch processing and large model serving where model parallelism is necessary. SGLang handles interactive APIs and structured generation where low latency matters. A routing layer directs requests to the appropriate backend based on workload characteristics.
+Many production systems use both. vLLM handles batch processing and large model serving where its PagedAttention and model parallelism shine. SGLang handles interactive APIs where RadixAttention's cross-request optimization and session affinity provide latency benefits. A routing layer directs requests to the appropriate backend based on workload characteristics.
 
 ### Looking Ahead
 
