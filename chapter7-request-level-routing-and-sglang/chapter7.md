@@ -161,59 +161,9 @@ For alternative installation methods (pip, uv, or from source), refer to the [SG
 
 SGLang's architecture follows a frontend-backend design pattern. The frontend (API Server) handles client requests, while the backend (SGLang Runtime, or SRT) executes inference. This separation allows the system to optimize each layer independently.
 
-```
-┌────────────────────────────────────────┐
-│           Clients                      │
-│  ┌──────────────┐  ┌──────────────┐    │
-│  │SGLang Program│  │ HTTP Client  │    │
-│  │ + Interpreter│  │              │    │
-│  └──────┬───────┘  └──────┬───────┘    │
-└─────────┼─────────────────┼────────────┘
-          │                 │
-          └────────┬────────┘
-                   ↓
-        ┌──────────────────────┐
-        │    API Server        │ ← Entry point for requests
-        └──────────┬───────────┘
-                   │
-                   ↓
-    ┌──────────────────────────────────┐
-    │   SGLang Runtime (SRT)           │
-    │                                  │
-    │  ┌──────────┐                    │
-    │  │Tokenizer │ ← Converts text to tokens
-    │  └────┬─────┘                    │
-    │       │                          │
-    │       ↓                          │
-    │  ┌──────────────┐                │
-    │  │Request Queue │ ← Batches requests
-    │  └──────┬───────┘                │
-    │         │                        │
-    │         ↓                        │
-    │  ┌──────────────┐                │
-    │  │  Scheduler   │ ← Intelligent batching
-    │  │              │   RadixAttention
-    │  └──────┬───────┘                │
-    │         │                        │
-    │         ↓                        │
-    │  ┌──────────────────────┐        │
-    │  │   GPU Workers        │        │
-    │  │  W0 → W1 → W2 → W3   │ ← Model execution
-    │  └──────┬───────────────┘        │
-    │         │                        │
-    │         ↓                        │
-    │  ┌──────────────┐                │
-    │  │ Detokenizer  │ ← Converts tokens to text
-    │  └──────┬───────┘                │
-    └─────────┼────────────────────────┘
-              │
-              ↓
-        ┌──────────────┐
-        │  API Server  │ ← Returns responses
-        └──────────────┘
-```
+![SGLang Architecture](img/sglang_architecture.png){#fig:sglang-arch .block width=70% align=center}
 
-The SGLang Runtime contains several key components working together. The **Tokenizer** converts incoming text into numerical tokens that the model can process. The **Request Queue** buffers these tokenized requests, managing concurrency and preparing them for batching. The **Scheduler** is where SGLang's intelligence lives—it batches requests intelligently, prioritizes tasks that can benefit from KV cache reuse through RadixAttention, and implements zero-overhead scheduling that overlaps CPU work with GPU computation. The **GPU Workers** execute the actual model inference, and can be organized for tensor parallelism (where workers collaborate on a single request) or as independent workers for data parallelism. Finally, the **Detokenizer** converts generated tokens back into human-readable text.
+Figure~\ref{fig:sglang-arch} illustrates the flow of requests through SGLang. Clients (either SGLang programs using the native interpreter or standard HTTP clients) send requests to the API Server, which serves as the entry point. The SGLang Runtime (SRT) then processes these requests through a pipeline of components. The **Tokenizer** converts incoming text into numerical tokens that the model can process. The **Request Queue** buffers these tokenized requests, managing concurrency and preparing them for batching. The **Scheduler** is where SGLang's intelligence lives—it batches requests intelligently, prioritizes tasks that can benefit from KV cache reuse through RadixAttention, and implements zero-overhead scheduling that overlaps CPU work with GPU computation. The **GPU Workers** execute the actual model inference, and can be organized for tensor parallelism (where workers collaborate on a single request) or as independent workers for data parallelism. Finally, the **Detokenizer** converts generated tokens back into human-readable text, and the response flows back through the API Server to the client.
 
 For distributed deployments, SGLang adds a **Router** (also called Model Gateway) layer above the API Server. The Router distributes requests across multiple SRT instances, maintaining session affinity so that requests from the same conversation go to the same worker (preserving KV cache locality). It includes a control plane for worker management, load monitoring, and health checking, plus a data plane that implements various load balancing policies.
 
