@@ -484,6 +484,10 @@ Figure~\ref{fig:paged-attention-blocks} illustrates this block-based approach. T
 
 Once blocks exist, the iteration semantics of attention computation fundamentally change. This is a crucial consequence of the block-based design, not an additional optimization. With block-based storage, attention computation no longer assumes KV cache is a continuous sequence from position 1 to $(L_2 + t)_{\max}$. Instead, attention iterates over the block table, and tokens that do not exist simply do not have corresponding blocks.
 
+![Padding vs PagedAttention](img/padding_vs_paged.png){#fig:padding-vs-paged .block width=100% align=center}
+
+Figure~\ref{fig:padding-vs-paged} contrasts the two approaches. In traditional batching (left), three requests with lengths 4, 7, and 3 tokens must all be padded to the maximum length of 7. The attention kernel computes over all 21 positions (7 × 3), but only 14 contain actual tokens—7 positions (33%) are wasted on padding. With PagedAttention (right), each request's attention computation visits only its actual tokens. No padding exists, so all FLOPs contribute to meaningful computation.
+
 During decoding, the attention computation for request $i$ iterates only over the blocks listed in its block table:
 
 $$A_t^{(i)} = \text{softmax}\left(Q_t^{(i)} \cdot \bigcup_{b \in \mathcal{B}_i} K_b^T\right)$$
@@ -656,6 +660,8 @@ The sequential nature of pipeline parallelism creates an efficiency challenge. W
 
 ![Pipeline bubble](img/pipeline_bubble.png){#fig:pipeline-bubble .block width=85% align=center}
 
+Figure~\ref{fig:pipeline-bubble} illustrates this problem. Time flows left to right, and each row represents a GPU in the pipeline. The colored blocks show when each GPU is actively processing a batch—GPU 0 (first stage) processes first, then passes data to GPU 1, which processes and passes to GPU 2. The white gaps between colored blocks are "pipeline bubbles": periods when a GPU sits idle because it's waiting for data from the previous stage or waiting for the next batch to arrive. In a 3-stage pipeline processing a single batch, each GPU is idle 2/3 of the time. With expensive hardware like H100s costing thousands of dollars per hour, this idle time translates directly to wasted money.
+
 vLLM addresses this with **request groups** (also called virtual engines). Instead of processing one batch at a time, the system maintains multiple independent request streams. While GPU 2 is processing Group 1, GPU 1 can be processing Group 2, and GPU 0 can be processing Group 3. The pipeline stays full, and all GPUs stay busy.
 
 The trade-off is that KV cache must be split among request groups. With 4 pipeline stages, each group gets roughly 1/4 of the total KV cache capacity. This limits the maximum batch size per group, which can reduce efficiency for memory-bound decode operations that benefit from larger batches.
@@ -678,9 +684,11 @@ To understand why EP matters, we need to first understand how MoE models work. L
 
 ### Understanding MoE Architecture
 
-In a standard transformer, the feed-forward network (FFN) after attention is a simple two-layer MLP. In an MoE model, this FFN is replaced with multiple expert networks—each expert is itself a complete MLP—plus a routing mechanism that decides which experts process each token. Figure~\ref{fig:moe-arch} illustrates this architecture.
+In a standard transformer, the feed-forward network (FFN) after attention is a simple two-layer MLP. In an MoE model, this FFN is replaced with multiple expert networks—each expert is itself a complete MLP—plus a routing mechanism that decides which experts process each token.
 
 ![MoE architecture](img/moe_arch.png){#fig:moe-arch .block width=85% align=center}
+
+Figure~\ref{fig:moe-arch} contrasts the two architectures. The left side shows a standard dense transformer layer: attention followed by a single FFN. The right side shows an MoE layer: attention followed by a router and multiple FFN experts (4 in this example). The router examines each token and decides which experts should process it—typically selecting the top-k experts (e.g., top-2) based on learned routing weights. Each selected expert processes the token independently, and their outputs are combined. This sparse activation means that even though the model has 4× the FFN parameters, each token only activates a fraction of them, keeping compute cost similar to the dense model while increasing model capacity.
 
 #### Decoder Layer Structure
 
