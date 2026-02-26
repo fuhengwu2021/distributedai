@@ -189,7 +189,7 @@ Figure~\ref{fig:radix-tree} illustrates how RadixAttention shares KV cache acros
 
 The KV cache for "You are helpful. " is computed once and shared by all three requests. Each unique suffix is computed separately. The savings compound as more requests share the same prefix.
 
-The performance benefits are substantial. For workloads with shared prefixes (system prompts, few-shot examples), RadixAttention can reduce prefill computation by up to 90%. Memory efficiency improves because shared prefixes are stored once rather than per-request. Latency drops 2-3x for requests that hit the cache. And throughput increases because reduced per-request memory enables larger batch sizes.
+The performance benefits are substantial—but conditional on workload characteristics. For workloads with long shared prefixes (system prompts, few-shot examples, multi-turn conversations), RadixAttention can reduce prefill computation by up to 90%. For workloads without prefix sharing (unique prompts, single-turn interactions), the benefit is minimal. Memory efficiency improves because shared prefixes are stored once rather than per-request. Latency drops 2-3x for requests that hit the cache. And throughput increases because reduced per-request memory enables larger batch sizes.
 
 SGLang's scheduler is aware of the radix cache and uses it to optimize batch formation. When selecting the next batch to run, the scheduler sorts requests by their longest matching prefix length and prioritizes requests with longer shared prefixes. This maximizes cache hit rates and GPU utilization.
 
@@ -262,6 +262,8 @@ The performance benefits are substantial: up to 2x throughput improvement over s
 Beyond its core execution engine, SGLang introduces request-level routing as a scaling primitive that complements traditional model parallelism. This is not a replacement for TP/PP—SGLang supports those just like vLLM. Rather, routing provides an additional scaling dimension for workloads where models fit on individual workers.
 
 The key distinction: eliminating *intra-layer* synchronization is impossible when using TP/PP—you still need all-reduce for TP, pipeline handoffs for PP. What router-based scaling eliminates is *inter-request* synchronization. Each worker processes requests independently, with no coordination overhead between workers. The router directs traffic based on load, cache locality, and session affinity.
+
+To be precise: router-based architecture eliminates cross-request synchronization (no coordination between workers processing different requests), but not intra-layer collective operations (TP still requires all-reduce, PP still requires pipeline handoffs, EP still requires all-to-all). If you use TP=8 within each worker, those 8 GPUs still synchronize on every layer—the router doesn't change that. What the router eliminates is the need for workers to coordinate with each other.
 
 This is most valuable when models fit on a single GPU or small TP group (2-8 GPUs). For very large models requiring extensive TP/PP across many GPUs, the router adds little value—you're limited by model parallelism anyway. But for smaller models serving high QPS, routing enables horizontal scaling without the communication overhead of traditional data parallelism.
 
@@ -950,6 +952,8 @@ python -m sglang.launch_server \
 
 The draft and target models should share the same tokenizer and vocabulary. Using models from the same family (like Qwen2.5-0.5B as draft for Qwen2.5-7B) typically gives the best results.
 
+Speculative decoding compounds well with RadixAttention. RadixAttention reduces prefill time by reusing cached KV for shared prefixes, improving time-to-first-token (TTFT). Speculative decoding then accelerates the decode phase by generating multiple tokens per forward pass. Together, they can dramatically reduce end-to-end latency for conversational workloads: RadixAttention handles the prefix, speculative decoding handles the generation.
+
 ## Data Parallel Attention
 
 Data Parallel Attention (DP Attention) is SGLang's optimization for models with few KV heads, like those using Multi-Head Latent Attention (MLA). The problem it solves is subtle but important.
@@ -1197,7 +1201,7 @@ This chapter explored SGLang's approach to LLM inference, which differs from vLL
 
 The core innovations that drive SGLang's performance are at the execution engine level:
 
-**RadixAttention** enables KV cache sharing across requests with common prefixes. For workloads with shared system prompts or multi-turn conversations, this can save up to 90% of prefill computation. This is SGLang's most distinctive technical contribution.
+**RadixAttention** enables KV cache sharing across requests with common prefixes. For workloads with long shared prefixes (system prompts, few-shot examples, multi-turn conversations), this can save up to 90% of prefill computation. For workloads without prefix sharing, the benefit is minimal. This is SGLang's most distinctive technical contribution.
 
 **Zero-Overhead Scheduler** overlaps CPU scheduling with GPU computation, eliminating the idle time that plagued earlier scheduler designs. This is a kernel-level optimization that works regardless of deployment topology.
 
