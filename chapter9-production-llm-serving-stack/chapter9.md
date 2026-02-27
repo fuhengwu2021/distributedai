@@ -1557,200 +1557,42 @@ One of llm-d's strengths is its broad hardware compatibility. The project direct
 
 ### Deployment Architecture
 
-![llm-d deployment architecture on Kubernetes.](img/llmd_architecture.png){#fig:llmd-architecture}
+![llm-d deployment architecture on Kubernetes.](img/llmd_architecture.png){#fig:llmd-architecture width=80%}
 
 Figure \ref{fig:llmd-architecture} illustrates the llm-d deployment architecture. Requests enter through an Envoy Proxy, which forwards them to the Inference Gateway (IGW). The IGW acts as an intelligent scheduler, routing requests to the appropriate model servers based on current load and request characteristics. In disaggregated inference mode, prefill servers handle prompt processing while decode servers generate tokens, with both sharing KV cache state through high-speed storage (NIXL over NVMe).
 
 
 ### Getting Started with llm-d
 
-**Prerequisites:**
+Deploying llm-d requires a production-grade Kubernetes cluster running version 1.29 or later. Unlike our local k3d experiments, llm-d is designed for environments with serious hardware: you'll need accelerators capable of running large models (think A100s or newer for 70B+ parameter models), and ideally fast interconnects like NVLink within nodes and InfiniBand or RoCE RDMA between nodes. For Google Cloud deployments, TPU ICI and DCN provide similar high-bandwidth connectivity.
 
-- Kubernetes 1.29+ cluster
-- Accelerators capable of running large models
-- Fast interconnects (NVLINK, IB/RoCE RDMA, TPU ICI, DCN)
+The installation process leverages Helm, Kubernetes' package manager. After adding the llm-d repository, a single `helm install` command deploys the entire stack---vLLM model servers, the Inference Gateway, Envoy proxy, and all the supporting infrastructure. The beauty of Helm is that complex configurations become simple key-value pairs: enabling the inference gateway, specifying which model to serve, setting tensor parallelism for multi-GPU inference.
 
-**Installation:**
+Configuration happens through a `values.yaml` file that reads almost like a specification document. You declare what you want---two IGW replicas with cache-aware routing, vLLM serving Llama 3.1 70B across four GPUs at 90% memory utilization, separate prefill and decode server pools with their own replica counts and GPU allocations---and Helm translates this into the dozens of Kubernetes resources needed to make it happen. The autoscaling section is particularly elegant: rather than scaling on CPU utilization (which means little for GPU workloads), you specify target queries per second, and llm-d's variant autoscaler handles the rest.
 
-llm-d provides Helm charts for easy deployment:
-
-```bash
-# Add llm-d Helm repository
-helm repo add llm-d https://llm-d.github.io/llm-d
-helm repo update
-
-# Install llm-d with inference scheduling
-helm install llm-d llm-d/llm-d \
-  --set inferenceGateway.enabled=true \
-  --set vllm.enabled=true \
-  --set vllm.model=meta-llama/Llama-3.1-70B-Instruct
-```
-
-**Configuration Example:**
-
-```yaml
-# values.yaml
-inferenceGateway:
-  enabled: true
-  replicas: 2
-  policy: cache_aware
-  routing:
-    prefixCacheAware: true
-    latencyPrediction: true
-
-vllm:
-  enabled: true
-  model: meta-llama/Llama-3.1-70B-Instruct
-  tensorParallelSize: 4
-  gpuMemoryUtilization: 0.9
-  
-prefillDecode:
-  enabled: true
-  prefill:
-    replicas: 2
-    resources:
-      requests:
-        nvidia.com/gpu: 4
-  decode:
-    replicas: 4
-    resources:
-      requests:
-        nvidia.com/gpu: 4
-
-autoscaling:
-  enabled: true
-  minReplicas: 2
-  maxReplicas: 10
-  targetQPS: 100
-```
+The accompanying code directory (`code/llmd/`) contains complete, tested deployment configurations. The `llm-d-multi-engine/` subdirectory demonstrates deploying the same model (Qwen2.5-0.5B-Instruct) with both vLLM and SGLang backends, showcasing llm-d's engine-agnostic routing. The `llm-d-multi-model/` subdirectory shows multi-model deployments with different Llama variants. Each directory includes deployment scripts, Helm values files, and troubleshooting guides---everything you need to replicate these setups in your own environment.
 
 ### Well-Lit Paths
 
-llm-d provides three tested and benchmarked deployment paths:
+The llm-d project uses the term "well-lit paths" to describe deployment patterns that have been thoroughly tested and benchmarked. Rather than leaving users to figure out optimal configurations through trial and error, these paths represent battle-tested recipes for common scenarios.
 
-**1. Intelligent Inference Scheduling**
+**Intelligent Inference Scheduling** is the starting point for most deployments. By placing vLLM behind the Inference Gateway, you immediately gain access to smarter load balancing than round-robin. The IGW predicts request latency based on prompt length and routes accordingly, preventing long requests from blocking short ones. It also tracks which vLLM instances have which prefixes cached, routing repeat requests to instances that can serve them faster. For teams just beginning their production LLM journey, this path offers the best balance of simplicity and performance improvement.
 
-Deploy vLLM behind the Inference Gateway to decrease serving latency and increase throughput:
+**Prefill/Decode Disaggregation** becomes valuable when serving large models with long prompts. Consider a 70B parameter model processing a 10,000-token document: the prefill phase (computing attention over all input tokens) is compute-intensive and parallelizable, while the decode phase (generating output tokens one by one) is memory-bandwidth-bound and sequential. By separating these onto different server pools, each can be optimized independently. Prefill servers can batch aggressively for throughput; decode servers can be tuned for minimal latency. The result is reduced time-to-first-token (TTFT) and more predictable time-per-output-token (TPOT). The catch is that KV cache must be transferred between servers, which requires fast interconnects---this path shines with InfiniBand or NVLink, but may not be worth the complexity on slower networks.
 
-```bash
-helm install llm-d llm-d/llm-d \
-  --set path=inference-scheduling \
-  --set inferenceGateway.enabled=true
-```
-
-**Benefits:**
-
-- Reduced latency through predicted latency balancing
-- Higher throughput with prefix-cache aware routing
-- Customizable scheduling policies
-
-**2. Prefill/Decode Disaggregation**
-
-Split inference into prefill and decode servers:
-
-```bash
-helm install llm-d llm-d/llm-d \
-  --set path=prefill-decode \
-  --set prefillDecode.enabled=true
-```
-
-**Benefits:**
-
-- Reduced TTFT (Time to First Token)
-- More predictable TPOT (Time Per Output Token)
-- Better resource utilization for large models and long prompts
-
-**3. Wide Expert-Parallelism**
-
-Deploy very large MoE models with Data Parallelism and Expert Parallelism:
-
-```bash
-helm install llm-d llm-d/llm-d \
-  --set path=expert-parallelism \
-  --set model.type=moe \
-  --set expertParallelism.enabled=true
-```
-
-**Benefits:**
-
-- Reduced end-to-end latency for MoE models
-- Increased throughput
-- Efficient scaling over fast accelerator networks
+**Wide Expert-Parallelism** targets Mixture-of-Experts (MoE) models like Mixtral or DeepSeek. These models activate only a subset of parameters for each token, making them efficient at inference time but challenging to deploy. Expert parallelism distributes different experts across different GPUs, while data parallelism handles multiple requests simultaneously. llm-d coordinates this complex dance, routing tokens to the right experts while maximizing accelerator utilization. For organizations deploying MoE models at scale, this path can dramatically reduce latency and increase throughput.
 
 ### Monitoring and Observability
 
-llm-d integrates with standard Kubernetes monitoring:
+Production LLM serving demands visibility into system behavior. llm-d integrates with standard Kubernetes monitoring stacks---Prometheus for metrics collection, Grafana for visualization. Beyond generic metrics like CPU and memory, llm-d exposes LLM-specific telemetry: request latency distributions, tokens-per-second throughput, GPU utilization across the fleet, and crucially, KV cache hit rates. This last metric is particularly telling: high hit rates indicate that the prefix-aware routing is working effectively, while low hit rates suggest you might need cache warming strategies or routing policy adjustments.
 
-```yaml
-monitoring:
-  enabled: true
-  prometheus:
-    enabled: true
-  grafana:
-    enabled: true
-  metrics:
-    - request_latency
-    - throughput
-    - gpu_utilization
-    - kv_cache_hit_rate
-```
+### Choosing Your Path
 
-### Best Practices
+For teams new to production LLM serving, the intelligent inference scheduling path offers the gentlest learning curve with immediate benefits. You can deploy it with minimal configuration changes from a basic vLLM setup, yet gain meaningful latency and throughput improvements from smarter routing.
 
-1. **Start with Inference Scheduling Path**
-   - Simplest production-ready deployment
-   - Good for most use cases
-   - Easy to extend later
+As your deployment matures and you encounter specific bottlenecks, the other paths become relevant. If users complain about slow time-to-first-token on long documents, prefill/decode disaggregation can help---but only if you have the network bandwidth to transfer KV cache efficiently. If you're deploying MoE models and seeing suboptimal GPU utilization, expert parallelism may be the answer.
 
-2. **Use Prefill/Decode for Large Models**
-   - Especially effective for models like Llama-70B
-   - Best for very long prompts
-   - Requires fast interconnects
-
-3. **Monitor KV Cache Hit Rates**
-   - High hit rates indicate effective routing
-   - Low hit rates may need cache warming
-   - Adjust routing policies based on metrics
-
-4. **Tune Autoscaling Parameters**
-   - Set appropriate min/max replicas
-   - Configure target QPS based on workload
-   - Monitor scaling behavior
-
-5. **Leverage Hardware-Specific Optimizations**
-   - Use NVLINK for NVIDIA GPUs
-   - Configure IB/RoCE for AMD GPUs
-   - Optimize for TPU ICI when using TPUs
-
-### Comparison with Custom Stacks
-
-| Feature | Custom Stack | llm-d |
-|---------|--------------|-------|
-| Setup Time | Weeks | Hours |
-| Operational Complexity | High | Low |
-| Flexibility | High | Medium |
-| Production Readiness | Requires extensive testing | Pre-tested |
-| Hardware Support | Manual configuration | Multi-accelerator support |
-| Autoscaling | Custom implementation | Built-in |
-| KV Cache Management | Custom | Integrated |
-
-### When to Use llm-d
-
-**Use llm-d when:**
-
-- You need production-ready deployment quickly
-- You're deploying on Kubernetes
-- You want standardized best practices
-- You need multi-accelerator support
-- You want prefill/decode disaggregation
-
-**Consider custom stack when:**
-
-- You need very specific customizations
-- You're not using Kubernetes
-- You have unique requirements not covered by llm-d
-
-
+The key is to monitor your metrics and let them guide your evolution. Watch KV cache hit rates to assess routing effectiveness. Track TTFT and TPOT separately to understand where latency comes from. Monitor GPU utilization to identify underutilized capacity. And tune autoscaling parameters based on actual traffic patterns rather than theoretical estimates---set minimum replicas high enough to handle baseline load without cold starts, maximum replicas to accommodate peaks, and target QPS based on observed capacity per instance.
 
 ## Hands-On Examples: LLM serving in Kubernetes with k3d
 
@@ -2934,45 +2776,6 @@ with tracer.start_as_current_span("request"):
 - Canary deployments for new models
 - Cost tracking per department
 - Audit logging
-
-
-
-## Skills Learned
-
-By the end of this chapter, readers will be able to:
-
-1. **Build complete serving stacks**
-   - Design and implement tokenizer service
-   - Deploy model runners with proper configuration
-   - Set up API gateway with routing and rate limiting
-
-2. **Implement routing and model selection**
-   - Design feature-based routing
-   - Implement A/B traffic splits
-   - Build dynamic model selection based on load and latency
-
-3. **Use canary rollouts safely**
-   - Implement gradual traffic shifting
-   - Monitor canary performance
-   - Automate rollback on SLO violations
-
-4. **Add tracing and monitoring**
-   - Instrument services with OpenTelemetry
-   - Collect metrics with Prometheus
-   - Build monitoring dashboards
-
-5. **Improve reliability and cost efficiency**
-   - Handle cold starts gracefully
-   - Implement autoscaling
-   - Optimize costs with spot instances and model selection
-
-6. **Deploy with llm-d on Kubernetes**
-   - Use Helm charts for production deployment
-   - Configure intelligent inference scheduling
-   - Set up prefill/decode disaggregation
-   - Monitor and optimize Kubernetes-based serving
-
-
 
 ## Summary
 
