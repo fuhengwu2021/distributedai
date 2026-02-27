@@ -101,7 +101,7 @@ But model weights are just the start. During training, you also need space for g
 
 Training needs way more memory than inference. You need to store model weights, gradients (one per parameter), optimizer states, and activations from the forward pass.
 
-**Optimizer State**
+__Optimizer State__
 
 The optimizer state size depends on which optimizer you use. Take Stochastic Gradient Descent (SGD) as an example, the model weights are updated according to this formula:
 
@@ -164,7 +164,7 @@ Here's a summary of optimizer state memory requirements for common optimizers:
 
 The table shows optimizer states only. You still need to store model weights (1×) and gradients (1×) regardless of which optimizer you use.
 
-**Activation Output**
+__Activation Output__
 
 Activation layers (like ReLU, GELU, sigmoid) don't have parameters - they're just functions applied element-wise. But their outputs (activation outputs, often shortened to "activations") need to be stored in memory during training. 
 
@@ -301,7 +301,7 @@ During the forward pass, you compute and store all layer activation outputs (we 
 
 The activation memory scales with batch size and sequence length—larger batches or longer sequences mean more activation outputs to store. Techniques like gradient checkpointing trade compute for memory by recomputing activations instead of storing them all.
 
-**Training Stage**
+__Training Stage__
 
 During training, memory usage varies across different stages of the training loop. Understanding when each component is needed helps you estimate peak memory requirements and identify optimization opportunities.
 

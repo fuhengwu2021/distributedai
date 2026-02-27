@@ -8,7 +8,7 @@
 
 Implement a function to initialize a distributed process group with proper error handling.
 
-**Requirements:**
+__Requirements:__
 - Function signature: `setup_distributed(rank, world_size, backend='nccl')`
 - Initialize the process group using `torch.distributed.init_process_group()`
 - Set the CUDA device for the current rank: `torch.cuda.set_device(rank)`
@@ -16,7 +16,7 @@ Implement a function to initialize a distributed process group with proper error
 - Return `True` if successful, `False` otherwise
 - Print a message indicating successful initialization with rank and world_size
 
-**Test your function:**
+__Test your function:__
 ```python
 import torch.distributed as dist
 import os
@@ -34,7 +34,7 @@ if setup_distributed(rank, world_size):
 
 Implement a manual gradient averaging function using AllReduce, simulating what DDP does internally.
 
-**Requirements:**
+__Requirements:__
 - Function signature: `average_gradients(model, world_size)`
 - Iterate through all parameters in the model
 - For each parameter with `requires_grad=True`:
@@ -42,7 +42,7 @@ Implement a manual gradient averaging function using AllReduce, simulating what 
   - Divide the gradient by `world_size` to get the average
 - Handle the case where gradients might be `None` (skip those parameters)
 
-**Test your function:**
+__Test your function:__
 ```python
 import torch
 import torch.nn as nn
@@ -70,7 +70,7 @@ print(f"Gradient on rank {rank}: {model.weight.grad}")
 
 Implement a function that broadcasts a tensor from rank 0 to all other ranks and verifies the result.
 
-**Requirements:**
+__Requirements:__
 - Function signature: `broadcast_and_verify(tensor, root=0)`
 - If current rank is root: create or use the provided tensor
 - If current rank is not root: create a zero tensor of the same shape
@@ -78,7 +78,7 @@ Implement a function that broadcasts a tensor from rank 0 to all other ranks and
 - After broadcast, verify that all ranks have identical data
 - Return the broadcasted tensor and a boolean indicating if verification passed
 
-**Test your function:**
+__Test your function:__
 ```python
 import torch
 import torch.distributed as dist
@@ -100,7 +100,7 @@ print(f"Rank {rank}: {result}, Verified: {verified}")
 
 Create a wrapper class for `DistributedSampler` that automatically handles epoch setting.
 
-**Requirements:**
+__Requirements:__
 - Class name: `AutoEpochDistributedSampler`
 - Inherit from `torch.utils.data.distributed.DistributedSampler`
 - Override `__iter__()` to automatically call `set_epoch()` with an internal epoch counter
@@ -108,7 +108,7 @@ Create a wrapper class for `DistributedSampler` that automatically handles epoch
 - Add a method `get_epoch()` to return the current epoch number
 - The sampler should increment the epoch counter each time `__iter__()` is called
 
-**Test your function:**
+__Test your function:__
 ```python
 from torch.utils.data import Dataset, DataLoader
 import torch.distributed as dist
@@ -143,7 +143,7 @@ for epoch in range(3):
 
 Write a script that measures the time taken for gradient synchronization using AllReduce.
 
-**Requirements:**
+__Requirements:__
 - Function signature: `measure_sync_time(model, num_iterations=10)`
 - Create a model with configurable size (number of parameters)
 - Run forward and backward pass
@@ -152,7 +152,7 @@ Write a script that measures the time taken for gradient synchronization using A
 - Test with different model sizes (1M, 10M, 100M parameters) and different world sizes
 - Print results showing how sync time scales with model size and world size
 
-**Test your function:**
+__Test your function:__
 ```python
 import torch
 import torch.nn as nn
