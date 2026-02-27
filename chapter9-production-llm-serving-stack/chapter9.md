@@ -19,1326 +19,213 @@
 - `docker`: Docker SDK for container management
 
 
-
 ## Anatomy of a Production LLM Serving System
 
-A production LLM serving system is more than just a model running on a GPU. It's a complex distributed system with multiple components working together to provide reliable, scalable, and cost-effective inference services. Understanding the architecture is crucial for building robust systems.
+In the previous chapters, we explored how to train large models at scale using distributed techniques like DDP, FSDP, DeepSpeed, and Megatron-LM. We also examined inference engines like vLLM and SGLang that optimize single-node and multi-node inference. Now it's time to put these pieces together into a complete production system.
 
-### System Components
+AI model serving encompasses a broad spectrum of workloads. Traditional machine learning models—gradient boosted trees, linear models, and small neural networks—are typically served on CPUs with frameworks like TensorFlow Serving or Triton Inference Server. Computer vision models for image classification or object detection can also run efficiently on CPUs using optimized runtimes like ONNX Runtime, which has powered production CV workloads for years; GPUs are only necessary for the larger models or when throughput requirements are higher. These workloads have relatively predictable latency since input sizes are fixed. Diffusion models for image generation (Stable Diffusion, DALL-E) present unique challenges with their iterative denoising process, requiring careful batching strategies and often benefiting from techniques like classifier-free guidance caching.
 
-**Core Components:**
+LLM serving, however, has its own distinct characteristics that set it apart from these other workloads. The autoregressive nature of text generation means that output length is unpredictable—a simple "yes" or "no" question might generate 2 tokens, while a code generation request might produce 2,000. This variability makes batching and resource allocation fundamentally different from fixed-output models. The KV cache grows linearly with sequence length, creating memory pressure that doesn't exist in traditional ML serving. And the streaming nature of chat applications means users expect to see tokens as they're generated, not just a final response.
 
-1. **Tokenizer Service**
-   - Stateless, lightweight service
-   - Handles text tokenization and detokenization
-   - Can be scaled independently
-   - Low latency requirement (<10ms)
+This chapter focuses specifically on LLM serving, building on the inference engines we covered in Chapters 6 and 7. The architectural patterns we discuss—routing, load balancing, observability—apply broadly to AI serving, but the specific implementations and trade-offs are tailored to the unique demands of large language models.
 
-2. **Model Runner**
-   - Stateful, GPU-backed inference engine
-   - Manages model loading, KV cache, batching
-   - Handles continuous batching and scheduling
-   - High throughput requirement
+A production LLM serving system is more than just a model running on a GPU. It's a complex distributed system with multiple components working together to provide reliable, scalable, and cost-effective inference services. Understanding this architecture is essential before diving into specific deployment strategies.
 
-3. **API Gateway**
-   - Request routing and load balancing
-   - Authentication and authorization
-   - Rate limiting and throttling
-   - Request/response transformation
+The core components of a production serving stack include:
 
-4. **Monitoring and Observability**
-   - Metrics collection (Prometheus)
-   - Distributed tracing (OpenTelemetry)
-   - Logging and alerting
-   - Performance dashboards
+**Tokenizer Service.** This is a stateless, lightweight service that handles text tokenization and detokenization. Because it's stateless and CPU-bound, it can be scaled independently from the GPU-heavy model runners. The latency requirement is typically under 10ms—fast enough that it doesn't become a bottleneck in the request pipeline.
 
-### System Architecture
+**Model Runner.** This is the heart of the system: a stateful, GPU-backed inference engine that manages model loading, KV cache, and continuous batching. In production, you'll typically use vLLM or SGLang (covered in Chapters 6 and 7) as the model runner, but the architectural principles apply regardless of which engine you choose.
 
-**High-Level Architecture:**
-```
-┌─────────────┐
-│   Clients   │
-└──────┬──────┘
-       │
-       ▼
-┌─────────────┐
-│ API Gateway │ (Routing, Auth, Rate Limiting)
-└──────┬──────┘
-       │
-       ├──────────────┬──────────────┐
-       ▼              ▼              ▼
-┌──────────┐   ┌──────────┐   ┌──────────┐
-│Tokenizer │   │ Model    │   │ Model    │
-│ Service  │   │ Runner 1 │   │ Runner 2 │
-└──────────┘   └──────────┘   └──────────┘
-       │              │              │
-       └──────────────┴──────────────┘
-                      │
-                      ▼
-              ┌──────────────┐
-              │ Monitoring   │
-              │ & Tracing    │
-              └──────────────┘
+**API Gateway.** The gateway sits between clients and the backend services, handling request routing, authentication, rate limiting, and load balancing. It's the single entry point that abstracts away the complexity of multiple model runners and routing decisions.
+
+**Monitoring and Observability.** Production systems need visibility into what's happening. This includes metrics collection (typically with Prometheus), distributed tracing (OpenTelemetry), structured logging, and alerting. Without observability, debugging production issues becomes nearly impossible.
+
+![Production LLM serving architecture.](img/serving_architecture.png){#fig:serving-architecture .block width=80% align=center}
+
+Figure~\ref{fig:serving-architecture} shows how these components fit together. Clients send requests to the API Gateway, which routes them to the appropriate model runner based on the requested model and current load. The tokenizer service handles text-to-token conversion, and all components report metrics and traces to the observability stack.
+
+The complete implementation of these components is available in `code/basic/`. The examples use Llama-2-7B-Chat as the default model, which requires a GPU with at least 16GB VRAM (e.g., NVIDIA RTX 4090, A100, or H100). For machines with less VRAM, you can substitute a smaller model like TinyLlama-1.1B or Qwen2-0.5B by modifying the model name in the code.
+
+To try them out, first install the dependencies:
+
+```bash
+pip install fastapi uvicorn httpx pydantic transformers vllm
 ```
 
-### Tokenizer Service
+Then start the tokenizer service:
 
-**Implementation:**
-```python
-from fastapi import FastAPI, HTTPException
-from transformers import AutoTokenizer
-import asyncio
-
-app = FastAPI()
-
-class TokenizerService:
-    def __init__(self):
-        self.tokenizers = {}
-        self.load_tokenizer("llama-2-7b", "meta-llama/Llama-2-7b-chat-hf")
-    
-    def load_tokenizer(self, model_name, tokenizer_path):
-        """Load tokenizer for a model"""
-        tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
-        self.tokenizers[model_name] = tokenizer
-    
-    def encode(self, model_name, text):
-        """Tokenize text"""
-        if model_name not in self.tokenizers:
-            raise ValueError(f"Tokenizer for {model_name} not found")
-        
-        tokenizer = self.tokenizers[model_name]
-        tokens = tokenizer.encode(text, return_tensors="pt")
-        return tokens.tolist()[0]
-    
-    def decode(self, model_name, token_ids):
-        """Detokenize tokens"""
-        if model_name not in self.tokenizers:
-            raise ValueError(f"Tokenizer for {model_name} not found")
-        
-        tokenizer = self.tokenizers[model_name]
-        text = tokenizer.decode(token_ids, skip_special_tokens=True)
-        return text
-
-tokenizer_service = TokenizerService()
-
-@app.post("/tokenize")
-async def tokenize(request: dict):
-    """Tokenize endpoint"""
-    model_name = request.get("model", "llama-2-7b")
-    text = request.get("text", "")
-    
-    try:
-        tokens = tokenizer_service.encode(model_name, text)
-        return {"tokens": tokens, "model": model_name}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/detokenize")
-async def detokenize(request: dict):
-    """Detokenize endpoint"""
-    model_name = request.get("model", "llama-2-7b")
-    token_ids = request.get("tokens", [])
-    
-    try:
-        text = tokenizer_service.decode(model_name, token_ids)
-        return {"text": text, "model": model_name}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8001)
+```bash
+cd code/basic
+uvicorn tokenizer_service:app --host 0.0.0.0 --port 8001
 ```
 
-### Model Runner
+In another terminal, start the model runner (this will download and load the model):
 
-**Basic Model Runner:**
-```python
-import torch
-from transformers import AutoModelForCausalLM
-from vllm import LLM, SamplingParams
-import asyncio
-from typing import List, Dict
+```bash
+# For GPU with 16GB+ VRAM (default: Llama-2-7B-Chat)
+python model_runner.py
 
-class ModelRunner:
-    def __init__(self, model_name: str, gpu_id: int = 0):
-        self.model_name = model_name
-        self.gpu_id = gpu_id
-        self.llm = None
-        self.load_model()
-    
-    def load_model(self):
-        """Load model for inference"""
-        print(f"Loading model {self.model_name} on GPU {self.gpu_id}...")
-        self.llm = LLM(
-            model=self.model_name,
-            tensor_parallel_size=1,
-            gpu_memory_utilization=0.9,
-            trust_remote_code=True
-        )
-        print("Model loaded successfully")
-    
-    def generate(self, prompts: List[str], **kwargs) -> List[str]:
-        """Generate text from prompts"""
-        sampling_params = SamplingParams(
-            temperature=kwargs.get("temperature", 0.7),
-            top_p=kwargs.get("top_p", 0.9),
-            max_tokens=kwargs.get("max_tokens", 512),
-            stop=kwargs.get("stop", [])
-        )
-        
-        outputs = self.llm.generate(prompts, sampling_params)
-        return [output.outputs[0].text for output in outputs]
-    
-    async def generate_async(self, prompts: List[str], **kwargs) -> List[str]:
-        """Async generation"""
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self.generate, prompts, **kwargs)
-
-# Usage
-runner = ModelRunner("meta-llama/Llama-2-7b-chat-hf")
-prompts = ["What is machine learning?", "Explain neural networks."]
-results = runner.generate(prompts, max_tokens=100)
+# For smaller GPUs, edit model_runner.py to use a smaller model:
+# self.model_name = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
 ```
 
-### API Gateway
+In a third terminal, start the API gateway:
 
-**Basic API Gateway with FastAPI:**
-```python
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from typing import List, Optional
-import httpx
-import time
-from collections import defaultdict
-
-app = FastAPI()
-
-# CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Request models
-class GenerationRequest(BaseModel):
-    prompt: str
-    model: Optional[str] = "llama-2-7b"
-    temperature: Optional[float] = 0.7
-    max_tokens: Optional[int] = 512
-    top_p: Optional[float] = 0.9
-
-class GenerationResponse(BaseModel):
-    text: str
-    model: str
-    latency_ms: float
-    tokens_generated: int
-
-# Rate limiting
-class RateLimiter:
-    def __init__(self, max_requests: int = 100, window_seconds: int = 60):
-        self.max_requests = max_requests
-        self.window_seconds = window_seconds
-        self.requests = defaultdict(list)
-    
-    def is_allowed(self, client_id: str) -> bool:
-        """Check if request is allowed"""
-        now = time.time()
-        client_requests = self.requests[client_id]
-        
-        # Remove old requests
-        client_requests[:] = [t for t in client_requests if now - t < self.window_seconds]
-        
-        # Check limit
-        if len(client_requests) >= self.max_requests:
-            return False
-        
-        # Add current request
-        client_requests.append(now)
-        return True
-
-rate_limiter = RateLimiter(max_requests=100, window_seconds=60)
-
-# Model routing
-MODEL_ENDPOINTS = {
-    "llama-2-7b": "http://localhost:8002",
-    "llama-2-13b": "http://localhost:8003",
-    "mistral-7b": "http://localhost:8004"
-}
-
-@app.post("/generate", response_model=GenerationResponse)
-async def generate(request: GenerationRequest, client_id: str = "default"):
-    """Generate text endpoint"""
-    # Rate limiting
-    if not rate_limiter.is_allowed(client_id):
-        raise HTTPException(status_code=429, detail="Rate limit exceeded")
-    
-    # Route to appropriate model
-    model_endpoint = MODEL_ENDPOINTS.get(request.model)
-    if not model_endpoint:
-        raise HTTPException(status_code=404, detail=f"Model {request.model} not found")
-    
-    # Forward request to model runner
-    start_time = time.time()
-    async with httpx.AsyncClient() as client:
-        response = await client.post(
-            f"{model_endpoint}/generate",
-            json={
-                "prompt": request.prompt,
-                "temperature": request.temperature,
-                "max_tokens": request.max_tokens,
-                "top_p": request.top_p
-            },
-            timeout=60.0
-        )
-    
-    latency_ms = (time.time() - start_time) * 1000
-    
-    if response.status_code != 200:
-        raise HTTPException(status_code=response.status_code, detail=response.text)
-    
-    result = response.json()
-    
-    return GenerationResponse(
-        text=result["text"],
-        model=request.model,
-        latency_ms=latency_ms,
-        tokens_generated=result.get("tokens_generated", 0)
-    )
-
-@app.get("/health")
-async def health():
-    """Health check endpoint"""
-    return {"status": "healthy"}
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+```bash
+uvicorn api_gateway:app --host 0.0.0.0 --port 8000
 ```
 
-### Request Flow
+You can then send requests to the gateway:
 
-**Complete Request Flow:**
-```python
-async def handle_request(request: GenerationRequest):
-    """Handle a complete generation request"""
-    # 1. Tokenize (if needed)
-    tokenizer_response = await tokenize_request(request.prompt)
-    
-    # 2. Route to model
-    model_response = await route_to_model(request.model, tokenizer_response)
-    
-    # 3. Detokenize
-    final_response = await detokenize_response(model_response)
-    
-    # 4. Log and trace
-    await log_request(request, final_response)
-    
-    return final_response
+```bash
+curl -X POST http://localhost:8000/generate \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "What is machine learning?", "max_tokens": 100}'
 ```
 
-## Multi-Model Routing and Load Balancing
+The tokenizer service (`code/basic/tokenizer_service.py`) demonstrates a FastAPI-based service for text-to-token conversion. The model runner (`code/basic/model_runner.py`) wraps vLLM for inference. The API gateway (`code/basic/api_gateway.py`) shows routing, rate limiting, and request forwarding.
 
-In production systems, you often need to serve multiple models simultaneously, route requests intelligently, and balance load across instances. This section covers routing strategies and load balancing techniques.
+## Request Routing and Traffic Management
+
+In production systems, you often need to serve multiple models simultaneously, route requests intelligently, and balance load across instances. Beyond basic routing, you also need strategies for safely rolling out new model versions and running experiments. This section covers the complete traffic management picture: routing, load balancing, canary deployments, and A/B testing.
 
 ### Routing Strategies
 
-**1. Feature-Based Routing:**
-```python
-class FeatureBasedRouter:
-    def __init__(self):
-        self.routes = {
-            "code": "code-llama-7b",
-            "chat": "llama-2-7b-chat",
-            "summarization": "mistral-7b",
-            "default": "llama-2-7b"
-        }
-    
-    def route(self, request: dict) -> str:
-        """Route based on request features"""
-        # Check explicit model parameter
-        if "model" in request:
-            return request["model"]
-        
-        # Route based on prompt content
-        prompt = request.get("prompt", "").lower()
-        
-        if any(keyword in prompt for keyword in ["code", "function", "class", "def"]):
-            return self.routes["code"]
-        elif any(keyword in prompt for keyword in ["hello", "hi", "chat", "conversation"]):
-            return self.routes["chat"]
-        elif any(keyword in prompt for keyword in ["summarize", "summary", "brief"]):
-            return self.routes["summarization"]
-        else:
-            return self.routes["default"]
-```
+There are three common approaches to routing requests in multi-model deployments:
 
-**2. A/B Traffic Splits:**
-```python
-import random
-import hashlib
+**Feature-based routing** examines the request content to determine which model is best suited. For example, code-related prompts might route to Code Llama, while general chat goes to a conversational model. This approach works well when different models have distinct strengths, but requires careful keyword matching or classification logic.
 
-class ABRouter:
-    def __init__(self, split_ratio: float = 0.5):
-        self.split_ratio = split_ratio
-        self.model_a = "llama-2-7b"
-        self.model_b = "llama-2-13b"
-    
-    def route(self, request: dict) -> str:
-        """Route based on A/B split"""
-        # Use consistent hashing for same user
-        user_id = request.get("user_id", "anonymous")
-        hash_value = int(hashlib.md5(user_id.encode()).hexdigest(), 16)
-        
-        # Consistent assignment
-        if (hash_value % 100) < (self.split_ratio * 100):
-            return self.model_a
-        else:
-            return self.model_b
-```
+**A/B traffic splits** use consistent hashing to assign users to model variants. The key insight is using the user ID (or session ID) as the hash input, ensuring the same user always gets the same model. This consistency is crucial for meaningful A/B comparisons—if users bounced between models randomly, you couldn't attribute performance differences to the model itself.
 
-**3. Dynamic Model Selection:**
-```python
-class DynamicRouter:
-    def __init__(self):
-        self.models = {
-            "llama-2-7b": {
-                "endpoint": "http://localhost:8002",
-                "latency_budget_ms": 500,
-                "cost_per_token": 0.001
-            },
-            "llama-2-13b": {
-                "endpoint": "http://localhost:8003",
-                "latency_budget_ms": 1000,
-                "cost_per_token": 0.002
-            }
-        }
-        self.model_loads = {model: 0 for model in self.models}
-    
-    def route(self, request: dict) -> str:
-        """Route based on load and latency budget"""
-        latency_budget = request.get("latency_budget_ms", 1000)
-        cost_sensitive = request.get("cost_sensitive", False)
-        
-        # Filter models by latency budget
-        available_models = [
-            model for model, config in self.models.items()
-            if config["latency_budget_ms"] <= latency_budget
-        ]
-        
-        if not available_models:
-            # Fallback to fastest
-            return min(self.models.keys(), key=lambda m: self.models[m]["latency_budget_ms"])
-        
-        # Select based on cost or load
-        if cost_sensitive:
-            return min(available_models, key=lambda m: self.models[m]["cost_per_token"])
-        else:
-            return min(available_models, key=lambda m: self.model_loads[m])
-    
-    def update_load(self, model: str, delta: int):
-        """Update model load"""
-        if model in self.model_loads:
-            self.model_loads[model] += delta
-```
+**Dynamic model selection** considers runtime factors like current load, latency budgets, and cost constraints. A cost-sensitive request might route to a smaller, cheaper model, while a latency-critical request goes to the fastest available option. This approach requires tracking model performance metrics in real-time.
+
+The implementation of all three strategies is available in `code/basic/routing.py`. The `FeatureBasedRouter`, `ABRouter`, and `DynamicRouter` classes demonstrate these patterns.
 
 ### Load Balancing
 
-**Round-Robin Load Balancer:**
+Once you've decided which model handles a request, you need to choose which instance of that model receives it. The three standard approaches are:
+
+**Round-robin** distributes requests evenly across instances by cycling through them in order. It's simple and works well when instances have similar capacity and requests have similar cost.
+
+**Least connections** routes to the instance with the fewest active requests. This naturally handles varying request durations—slow requests don't cause one instance to fall behind while others sit idle.
+
+**Weighted balancing** assigns different capacities to instances, useful when you have heterogeneous hardware (e.g., some instances on A100s, others on H100s).
+
+All three balancers, plus a health checker that integrates with them, are implemented in `code/basic/load_balancer.py` and `code/basic/health_check.py`.
+
+### Canary Deployments and A/B Testing
+
+Beyond routing to existing models, you need strategies for safely introducing new model versions. Canary deployments allow you to gradually roll out new models while monitoring for issues. A/B testing enables comparing model performance in production. Both techniques are essential for safe, data-driven model updates.
+
+**Canary Deployment.** The idea behind canary deployment is simple: instead of switching all traffic to a new model at once, you start by sending a small percentage (say, 10%) to the new "canary" model while the rest continues to the stable version. You monitor both versions, comparing error rates and latency. If the canary performs well, you gradually increase its traffic share. If it performs poorly, you roll back immediately with minimal user impact. The key metrics to track are error rate and latency—a reasonable promotion policy might allow the canary to have up to 10% higher error rate and 20% higher latency than the stable version, with rollback triggered if the canary's error rate exceeds twice the stable version's rate.
+
+**Traffic Shifting.** This is the mechanism for gradually moving users from stable to canary. A typical progression might be: 10% → 25% → 50% → 75% → 100%. At each step, you wait for enough requests to accumulate (statistical significance) before deciding whether to proceed or roll back.
+
+**A/B Testing.** A/B testing differs from canary deployment in its goal: canaries are about safe rollouts, while A/B tests are about comparing alternatives to make data-driven decisions. An A/B test might compare two different models, two different prompt templates, or two different inference configurations. The critical requirement is consistent assignment—the same user must always see the same variant, achieved through consistent hashing of the user ID.
+
+The complete implementation of canary deployment, traffic shifting, and A/B testing is available in `code/basic/canary.py`. Here's how to use these classes in practice:
+
 ```python
-from collections import deque
+from canary import CanaryDeployment, TrafficShifter, ABTestFramework, ABTestConfig
 
-class RoundRobinBalancer:
-    def __init__(self, endpoints: List[str]):
-        self.endpoints = deque(endpoints)
-        self.health_status = {endpoint: True for endpoint in endpoints}
-    
-    def get_endpoint(self) -> str:
-        """Get next endpoint in round-robin fashion"""
-        attempts = 0
-        while attempts < len(self.endpoints):
-            endpoint = self.endpoints[0]
-            self.endpoints.rotate(1)
-            
-            if self.health_status.get(endpoint, False):
-                return endpoint
-            
-            attempts += 1
-        
-        # All unhealthy, return first anyway
-        return self.endpoints[0]
-    
-    def mark_unhealthy(self, endpoint: str):
-        """Mark endpoint as unhealthy"""
-        self.health_status[endpoint] = False
-    
-    def mark_healthy(self, endpoint: str):
-        """Mark endpoint as healthy"""
-        self.health_status[endpoint] = True
-```
+# Example 1: Canary deployment for a new model version
+canary = CanaryDeployment(
+    stable_model="llama-2-7b-v1",
+    canary_model="llama-2-7b-v2",
+    traffic_percent=0.1  # Start with 10% to canary
+)
 
-**Least Connections Load Balancer:**
-```python
-class LeastConnectionsBalancer:
-    def __init__(self, endpoints: List[str]):
-        self.endpoints = endpoints
-        self.connection_counts = {endpoint: 0 for endpoint in endpoints}
-        self.lock = asyncio.Lock()
-    
-    async def get_endpoint(self) -> str:
-        """Get endpoint with least connections"""
-        async with self.lock:
-            endpoint = min(
-                self.endpoints,
-                key=lambda e: self.connection_counts[e]
-            )
-            self.connection_counts[endpoint] += 1
-            return endpoint
-    
-    async def release_endpoint(self, endpoint: str):
-        """Release connection from endpoint"""
-        async with self.lock:
-            if endpoint in self.connection_counts:
-                self.connection_counts[endpoint] = max(0, self.connection_counts[endpoint] - 1)
-```
+# Route a request
+model = canary.route({"prompt": "Hello"})  # Returns stable or canary model
+# After getting response, record metrics
+canary.record_metrics(model, latency=0.15, error=False)
 
-**Weighted Load Balancer:**
-```python
-import random
+# Check if canary should be promoted or rolled back
+if canary.should_promote():
+    print("Canary performing well, increase traffic")
+elif canary.should_rollback():
+    print("Canary failing, rolling back")
 
-class WeightedBalancer:
-    def __init__(self, endpoints: List[tuple]):
-        """
-        endpoints: List of (endpoint, weight) tuples
-        """
-        self.endpoints = endpoints
-        self.total_weight = sum(weight for _, weight in endpoints)
-    
-    def get_endpoint(self) -> str:
-        """Get endpoint based on weights"""
-        r = random.uniform(0, self.total_weight)
-        cumulative = 0
-        
-        for endpoint, weight in self.endpoints:
-            cumulative += weight
-            if r <= cumulative:
-                return endpoint
-        
-        # Fallback to last endpoint
-        return self.endpoints[-1][0]
-```
+# Example 2: Gradual traffic shifting
+shifter = TrafficShifter("model-v1", "model-v2")
+shifter.increase_traffic()  # 0% -> 10%
+shifter.increase_traffic()  # 10% -> 25%
+# ... continue based on metrics
 
-### Health Checks
-
-**Health Check Implementation:**
-```python
-import asyncio
-import httpx
-
-class HealthChecker:
-    def __init__(self, endpoints: List[str], check_interval: int = 30):
-        self.endpoints = endpoints
-        self.check_interval = check_interval
-        self.health_status = {endpoint: True for endpoint in endpoints}
-        self.running = False
-    
-    async def check_endpoint(self, endpoint: str) -> bool:
-        """Check if endpoint is healthy"""
-        try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                response = await client.get(f"{endpoint}/health")
-                return response.status_code == 200
-        except Exception:
-            return False
-    
-    async def check_all(self):
-        """Check all endpoints"""
-        tasks = [self.check_endpoint(endpoint) for endpoint in self.endpoints]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        
-        for endpoint, is_healthy in zip(self.endpoints, results):
-            self.health_status[endpoint] = is_healthy if isinstance(is_healthy, bool) else False
-    
-    async def start(self):
-        """Start health checking loop"""
-        self.running = True
-        while self.running:
-            await self.check_all()
-            await asyncio.sleep(self.check_interval)
-    
-    def stop(self):
-        """Stop health checking"""
-        self.running = False
-    
-    def is_healthy(self, endpoint: str) -> bool:
-        """Check if endpoint is currently healthy"""
-        return self.health_status.get(endpoint, False)
-```
-
-## Canary Deployments and A/B Testing
-
-Canary deployments allow you to gradually roll out new model versions while monitoring for issues. A/B testing enables comparing model performance in production. This section covers both techniques.
-
-### Canary Deployment
-
-**Basic Canary Implementation:**
-```python
-class CanaryDeployment:
-    def __init__(self, stable_model: str, canary_model: str, traffic_percent: float = 0.1):
-        self.stable_model = stable_model
-        self.canary_model = canary_model
-        self.traffic_percent = traffic_percent
-        self.metrics = {
-            "stable": {"requests": 0, "errors": 0, "latency_sum": 0.0},
-            "canary": {"requests": 0, "errors": 0, "latency_sum": 0.0}
-        }
-    
-    def route(self, request: dict) -> str:
-        """Route request to stable or canary"""
-        import random
-        if random.random() < self.traffic_percent:
-            return self.canary_model
-        else:
-            return self.stable_model
-    
-    def record_metrics(self, model: str, latency: float, error: bool = False):
-        """Record metrics for model"""
-        if model in self.metrics:
-            self.metrics[model]["requests"] += 1
-            self.metrics[model]["latency_sum"] += latency
-            if error:
-                self.metrics[model]["errors"] += 1
-    
-    def get_error_rate(self, model: str) -> float:
-        """Get error rate for model"""
-        if model not in self.metrics:
-            return 0.0
-        m = self.metrics[model]
-        if m["requests"] == 0:
-            return 0.0
-        return m["errors"] / m["requests"]
-    
-    def get_avg_latency(self, model: str) -> float:
-        """Get average latency for model"""
-        if model not in self.metrics:
-            return 0.0
-        m = self.metrics[model]
-        if m["requests"] == 0:
-            return 0.0
-        return m["latency_sum"] / m["requests"]
-    
-    def should_promote(self) -> bool:
-        """Check if canary should be promoted"""
-        canary_error_rate = self.get_error_rate(self.canary_model)
-        stable_error_rate = self.get_error_rate(self.stable_model)
-        canary_latency = self.get_avg_latency(self.canary_model)
-        stable_latency = self.get_avg_latency(self.stable_model)
-        
-        # Promote if canary is better or similar
-        if canary_error_rate <= stable_error_rate * 1.1:  # Allow 10% tolerance
-            if canary_latency <= stable_latency * 1.2:  # Allow 20% latency increase
-                return True
-        
-        return False
-    
-    def should_rollback(self) -> bool:
-        """Check if canary should be rolled back"""
-        canary_error_rate = self.get_error_rate(self.canary_model)
-        stable_error_rate = self.get_error_rate(self.stable_model)
-        
-        # Rollback if canary error rate is significantly worse
-        if canary_error_rate > stable_error_rate * 2.0:
-            return True
-        
-        return False
-```
-
-### Traffic Shifting
-
-**Gradual Traffic Shifting:**
-```python
-class TrafficShifter:
-    def __init__(self, stable_model: str, canary_model: str):
-        self.stable_model = stable_model
-        self.canary_model = canary_model
-        self.canary_percent = 0.0
-        self.shift_steps = [0.1, 0.25, 0.5, 0.75, 1.0]  # Gradual steps
-        self.current_step = 0
-    
-    def route(self, request: dict) -> str:
-        """Route based on current traffic percentage"""
-        import random
-        if random.random() < self.canary_percent:
-            return self.canary_model
-        else:
-            return self.stable_model
-    
-    def increase_traffic(self) -> bool:
-        """Increase canary traffic to next step"""
-        if self.current_step < len(self.shift_steps) - 1:
-            self.current_step += 1
-            self.canary_percent = self.shift_steps[self.current_step]
-            return True
-        return False
-    
-    def decrease_traffic(self):
-        """Decrease canary traffic (rollback)"""
-        if self.current_step > 0:
-            self.current_step -= 1
-            self.canary_percent = self.shift_steps[self.current_step]
-```
-
-### A/B Testing Framework
-
-**A/B Testing Implementation:**
-```python
-import hashlib
-from typing import Dict, List
-from dataclasses import dataclass
-
-@dataclass
-class ABTestConfig:
-    test_name: str
-    variants: Dict[str, float]  # variant_name -> traffic_percent
-    metrics: List[str]  # Metrics to track
-
-class ABTestFramework:
-    def __init__(self):
-        self.tests: Dict[str, ABTestConfig] = {}
-        self.results: Dict[str, Dict[str, Dict]] = {}  # test_name -> variant -> metrics
-    
-    def register_test(self, config: ABTestConfig):
-        """Register an A/B test"""
-        self.tests[config.test_name] = config
-        self.results[config.test_name] = {
-            variant: {metric: [] for metric in config.metrics}
-            for variant in config.variants.keys()
-        }
-    
-    def assign_variant(self, test_name: str, user_id: str) -> str:
-        """Assign user to a variant"""
-        if test_name not in self.tests:
-            return "default"
-        
-        config = self.tests[test_name]
-        
-        # Consistent hashing for same user
-        hash_value = int(hashlib.md5(f"{test_name}:{user_id}".encode()).hexdigest(), 16)
-        cumulative = 0.0
-        
-        for variant, percent in config.variants.items():
-            cumulative += percent
-            if (hash_value % 100) < (cumulative * 100):
-                return variant
-        
-        # Fallback to first variant
-        return list(config.variants.keys())[0]
-    
-    def record_metric(self, test_name: str, variant: str, metric: str, value: float):
-        """Record a metric value"""
-        if test_name in self.results:
-            if variant in self.results[test_name]:
-                if metric in self.results[test_name][variant]:
-                    self.results[test_name][variant][metric].append(value)
-    
-    def get_results(self, test_name: str) -> Dict:
-        """Get test results"""
-        if test_name not in self.results:
-            return {}
-        
-        results = {}
-        for variant, metrics in self.results[test_name].items():
-            results[variant] = {
-                metric: {
-                    "mean": sum(values) / len(values) if values else 0,
-                    "count": len(values)
-                }
-                for metric, values in metrics.items()
-            }
-        
-        return results
-
-# Usage
-ab_framework = ABTestFramework()
-
-# Register test
-ab_framework.register_test(ABTestConfig(
+# Example 3: A/B testing two models
+ab = ABTestFramework()
+ab.register_test(ABTestConfig(
     test_name="model_comparison",
-    variants={"llama-2-7b": 0.5, "mistral-7b": 0.5},
-    metrics=["latency", "quality_score", "error_rate"]
+    variants={"llama-7b": 0.5, "mistral-7b": 0.5},
+    metrics=["latency", "quality_score"]
 ))
 
-# Assign variant
-user_id = "user123"
-variant = ab_framework.assign_variant("model_comparison", user_id)
-
-# Record metrics
-ab_framework.record_metric("model_comparison", variant, "latency", 0.15)
-ab_framework.record_metric("model_comparison", variant, "quality_score", 0.85)
-
-# Get results
-results = ab_framework.get_results("model_comparison")
+# Assign user to variant (consistent across requests)
+variant = ab.assign_variant("model_comparison", user_id="user123")
+# Record metrics after serving
+ab.record_metric("model_comparison", variant, "latency", 0.12)
+# Get aggregated results
+results = ab.get_results("model_comparison")
 ```
 
-### Automated Rollback
+These patterns integrate with the API gateway—in production, you'd wire the routing logic into your request handling pipeline.
 
-**SLO-Based Rollback:**
-```python
-class SLOMonitor:
-    def __init__(self, slo_config: dict):
-        self.slo_config = slo_config  # e.g., {"error_rate": 0.01, "p95_latency_ms": 500}
-        self.metrics = []
-    
-    def record_request(self, latency_ms: float, error: bool):
-        """Record a request"""
-        self.metrics.append({
-            "latency_ms": latency_ms,
-            "error": error,
-            "timestamp": time.time()
-        })
-        
-        # Keep only recent metrics (last hour)
-        cutoff = time.time() - 3600
-        self.metrics = [m for m in self.metrics if m["timestamp"] > cutoff]
-    
-    def check_slo(self) -> dict:
-        """Check if SLOs are being met"""
-        if not self.metrics:
-            return {"status": "unknown", "violations": []}
-        
-        violations = []
-        
-        # Check error rate
-        error_rate = sum(1 for m in self.metrics if m["error"]) / len(self.metrics)
-        if error_rate > self.slo_config.get("error_rate", 0.01):
-            violations.append(f"Error rate {error_rate:.3f} exceeds SLO {self.slo_config['error_rate']}")
-        
-        # Check latency
-        latencies = [m["latency_ms"] for m in self.metrics]
-        p95_latency = np.percentile(latencies, 95)
-        if p95_latency > self.slo_config.get("p95_latency_ms", 500):
-            violations.append(f"P95 latency {p95_latency:.1f}ms exceeds SLO {self.slo_config['p95_latency_ms']}ms")
-        
-        return {
-            "status": "violated" if violations else "met",
-            "violations": violations,
-            "error_rate": error_rate,
-            "p95_latency_ms": p95_latency
-        }
+## Operations: Observability, Reliability, and Cost
 
-# Automated rollback
-class AutoRollback:
-    def __init__(self, canary_deployment: CanaryDeployment, slo_monitor: SLOMonitor):
-        self.canary = canary_deployment
-        self.slo_monitor = slo_monitor
-        self.rollback_threshold = 3  # Number of consecutive violations
-    
-    def check_and_rollback(self):
-        """Check SLO and rollback if needed"""
-        slo_status = self.slo_monitor.check_slo()
-        
-        if slo_status["status"] == "violated":
-            # Rollback canary
-            self.canary.traffic_percent = 0.0
-            print(f"Auto-rollback triggered: {slo_status['violations']}")
-            return True
-        
-        return False
-```
+Beyond traffic management, production systems require operational capabilities: monitoring system health, handling failures gracefully, and optimizing costs. These cross-cutting concerns apply to every component in the serving stack.
 
-## Observability and Distributed Tracing
+### Observability
 
-Observability is crucial for understanding system behavior, debugging issues, and optimizing performance. This section covers metrics collection, distributed tracing, and monitoring dashboards.
+In a distributed LLM serving system, a single request might touch the API gateway, tokenizer service, and model runner—without proper observability, debugging issues becomes nearly impossible. Production LLM serving requires three types of observability:
 
-### OpenTelemetry Integration
+**Distributed tracing** with OpenTelemetry tracks requests as they flow through multiple services. Each service creates "spans" that record timing and metadata, linked together by a trace ID that propagates through HTTP headers. When a request is slow, you can see exactly which service contributed the latency.
 
-**Basic OpenTelemetry Setup:**
-```python
-from opentelemetry import trace
-from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor
-from opentelemetry.sdk.resources import Resource
-from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+**Metrics collection** with Prometheus tracks aggregate statistics: request counts, latency histograms, error rates, and resource utilization. Unlike traces (which are sampled), metrics capture every request, making them essential for alerting and SLO monitoring. Key metrics for LLM serving include requests per second by model, latency percentiles (p50, p95, p99), active request count, and GPU utilization.
 
-def setup_tracing(service_name: str = "llm-serving"):
-    """Setup OpenTelemetry tracing"""
-    resource = Resource.create({"service.name": service_name})
-    
-    provider = TracerProvider(resource=resource)
-    processor = BatchSpanProcessor(OTLPSpanExporter(
-        endpoint="http://localhost:4317",
-        insecure=True
-    ))
-    provider.add_span_processor(processor)
-    
-    trace.set_tracer_provider(provider)
-    
-    # Instrument FastAPI
-    FastAPIInstrumentor.instrument()
-    HTTPXClientInstrumentor.instrument()
-    
-    return trace.get_tracer(__name__)
+**Structured logging** captures detailed information about individual requests in a machine-parseable format (typically JSON). Unlike traditional logs, structured logs can be queried and aggregated—for example, finding all requests for a specific user that took longer than 5 seconds.
 
-# Usage
-tracer = setup_tracing("llm-serving")
+The complete implementation of all three is available in `code/basic/observability.py`.
 
-@app.post("/generate")
-async def generate(request: GenerationRequest):
-    """Generate with tracing"""
-    with tracer.start_as_current_span("generate_request") as span:
-        span.set_attribute("model", request.model)
-        span.set_attribute("prompt_length", len(request.prompt))
-        
-        # Tokenize
-        with tracer.start_as_current_span("tokenize"):
-            tokens = await tokenize(request.prompt)
-        
-        # Model inference
-        with tracer.start_as_current_span("model_inference") as inference_span:
-            start_time = time.time()
-            result = await run_model(request.model, tokens)
-            latency = time.time() - start_time
-            
-            inference_span.set_attribute("latency_ms", latency * 1000)
-            inference_span.set_attribute("tokens_generated", result["tokens"])
-        
-        # Detokenize
-        with tracer.start_as_current_span("detokenize"):
-            text = await detokenize(result["token_ids"])
-        
-        span.set_attribute("response_length", len(text))
-        
-        return {"text": text}
-```
+### Reliability and Fault Tolerance
 
-### Metrics Collection
+**Cold start mitigation.** LLM inference has significant cold start latency—loading a model and warming up the GPU can take 30-60 seconds. Two strategies help: warmup on startup (sending dummy requests through the model immediately after loading) and keep-alive requests (periodic dummy requests to prevent the model from going cold during idle periods).
 
-**Prometheus Metrics:**
-```python
-from prometheus_client import Counter, Histogram, Gauge, start_http_server
+**Autoscaling.** Request-based autoscaling adjusts replica count based on traffic. Key parameters include target RPS, scale-up threshold (typically 120% of target), scale-down threshold (typically 50% of target), and cooldown period. For LLM serving, be conservative with scale-down—spinning up a new GPU instance takes minutes, so it's better to have slightly excess capacity than to be caught short.
 
-# Define metrics
-request_count = Counter(
-    'llm_requests_total',
-    'Total number of requests',
-    ['model', 'status']
-)
-
-request_latency = Histogram(
-    'llm_request_latency_seconds',
-    'Request latency in seconds',
-    ['model'],
-    buckets=[0.1, 0.5, 1.0, 2.0, 5.0, 10.0]
-)
-
-active_requests = Gauge(
-    'llm_active_requests',
-    'Number of active requests',
-    ['model']
-)
-
-gpu_utilization = Gauge(
-    'llm_gpu_utilization_percent',
-    'GPU utilization percentage',
-    ['gpu_id']
-)
-
-# Instrument endpoints
-@app.post("/generate")
-async def generate(request: GenerationRequest):
-    active_requests.labels(model=request.model).inc()
-    
-    start_time = time.time()
-    try:
-        result = await handle_generation(request)
-        request_count.labels(model=request.model, status="success").inc()
-        return result
-    except Exception as e:
-        request_count.labels(model=request.model, status="error").inc()
-        raise
-    finally:
-        latency = time.time() - start_time
-        request_latency.labels(model=request.model).observe(latency)
-        active_requests.labels(model=request.model).dec()
-
-# Start metrics server
-start_http_server(8000)  # Metrics available at http://localhost:8000/metrics
-```
-
-### Distributed Tracing
-
-**End-to-End Tracing:**
-```python
-from opentelemetry import trace
-from opentelemetry.propagate import inject, extract
-
-async def traced_request(request: GenerationRequest, headers: dict):
-    """Handle request with distributed tracing"""
-    tracer = trace.get_tracer(__name__)
-    
-    # Extract trace context from headers
-    context = extract(headers)
-    
-    with tracer.start_as_current_span("llm_serving_request", context=context) as span:
-        span.set_attribute("model", request.model)
-        span.set_attribute("prompt_length", len(request.prompt))
-        
-        # Tokenize service call
-        with tracer.start_as_current_span("tokenizer_service") as tokenize_span:
-            tokenizer_headers = {}
-            inject(tokenizer_headers)
-            
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    "http://tokenizer:8001/tokenize",
-                    json={"text": request.prompt},
-                    headers=tokenizer_headers
-                )
-                tokens = response.json()["tokens"]
-                tokenize_span.set_attribute("num_tokens", len(tokens))
-        
-        # Model runner call
-        with tracer.start_as_current_span("model_runner") as model_span:
-            model_headers = {}
-            inject(model_headers)
-            
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    f"http://model-{request.model}:8002/generate",
-                    json={"tokens": tokens},
-                    headers=model_headers
-                )
-                result = response.json()
-                model_span.set_attribute("tokens_generated", result["tokens_generated"])
-        
-        return result
-```
-
-### Logging
-
-**Structured Logging:**
-```python
-import logging
-import json
-from datetime import datetime
-
-class StructuredLogger:
-    def __init__(self, name: str):
-        self.logger = logging.getLogger(name)
-        self.logger.setLevel(logging.INFO)
-        
-        handler = logging.StreamHandler()
-        formatter = logging.Formatter('%(message)s')
-        handler.setFormatter(formatter)
-        self.logger.addHandler(handler)
-    
-    def log_request(self, request_id: str, model: str, latency_ms: float, error: bool = False):
-        """Log request with structured format"""
-        log_entry = {
-            "timestamp": datetime.utcnow().isoformat(),
-            "level": "ERROR" if error else "INFO",
-            "request_id": request_id,
-            "model": model,
-            "latency_ms": latency_ms,
-            "error": error
-        }
-        self.logger.info(json.dumps(log_entry))
-    
-    def log_metric(self, metric_name: str, value: float, tags: dict = None):
-        """Log metric"""
-        log_entry = {
-            "timestamp": datetime.utcnow().isoformat(),
-            "type": "metric",
-            "metric": metric_name,
-            "value": value,
-            "tags": tags or {}
-        }
-        self.logger.info(json.dumps(log_entry))
-
-logger = StructuredLogger("llm-serving")
-```
-
-## Fault Tolerance and Cost Optimization
-
-Production systems must handle failures gracefully and optimize costs. This section covers cold start handling, autoscaling, request queuing, and cost optimization strategies.
-
-### Handling Cold Starts
-
-**Warmup Strategy:**
-```python
-class ModelWarmup:
-    def __init__(self, model_runner: ModelRunner):
-        self.model_runner = model_runner
-        self.warmed_up = False
-    
-    async def warmup(self):
-        """Warmup model with dummy requests"""
-        if self.warmed_up:
-            return
-        
-        print("Warming up model...")
-        dummy_prompts = ["warmup"] * 10
-        
-        # Run warmup requests
-        for prompt in dummy_prompts:
-            try:
-                await self.model_runner.generate_async([prompt], max_tokens=1)
-            except Exception as e:
-                print(f"Warmup error: {e}")
-        
-        self.warmed_up = True
-        print("Model warmed up")
-
-# Pre-warm on startup
-@app.on_event("startup")
-async def startup():
-    warmup = ModelWarmup(model_runner)
-    await warmup.warmup()
-```
-
-**Keep-Alive Strategy:**
-```python
-class KeepAliveManager:
-    def __init__(self, model_runner: ModelRunner, keepalive_interval: int = 300):
-        self.model_runner = model_runner
-        self.keepalive_interval = keepalive_interval
-        self.running = False
-    
-    async def keepalive_loop(self):
-        """Periodic keepalive requests"""
-        self.running = True
-        while self.running:
-            await asyncio.sleep(self.keepalive_interval)
-            try:
-                await self.model_runner.generate_async(["keepalive"], max_tokens=1)
-            except Exception as e:
-                print(f"Keepalive error: {e}")
-    
-    def start(self):
-        """Start keepalive loop"""
-        asyncio.create_task(self.keepalive_loop())
-    
-    def stop(self):
-        """Stop keepalive loop"""
-        self.running = False
-```
-
-### Autoscaling
-
-**Request-Based Autoscaling:**
-```python
-class Autoscaler:
-    def __init__(self, min_replicas: int = 1, max_replicas: int = 10, target_rps: int = 100):
-        self.min_replicas = min_replicas
-        self.max_replicas = max_replicas
-        self.target_rps = target_rps
-        self.current_replicas = min_replicas
-        self.request_queue = []
-    
-    def record_request(self):
-        """Record incoming request"""
-        self.request_queue.append(time.time())
-        # Keep only last minute
-        cutoff = time.time() - 60
-        self.request_queue = [t for t in self.request_queue if t > cutoff]
-    
-    def get_current_rps(self) -> float:
-        """Get current requests per second"""
-        if not self.request_queue:
-            return 0.0
-        return len(self.request_queue) / 60.0
-    
-    def should_scale_up(self) -> bool:
-        """Check if should scale up"""
-        current_rps = self.get_current_rps()
-        if current_rps > self.target_rps * 1.2:  # 20% over target
-            if self.current_replicas < self.max_replicas:
-                return True
-        return False
-    
-    def should_scale_down(self) -> bool:
-        """Check if should scale down"""
-        current_rps = self.get_current_rps()
-        if current_rps < self.target_rps * 0.5:  # 50% under target
-            if self.current_replicas > self.min_replicas:
-                return True
-        return False
-    
-    async def scale(self):
-        """Scale replicas"""
-        if self.should_scale_up():
-            self.current_replicas += 1
-            await self.add_replica()
-        elif self.should_scale_down():
-            self.current_replicas -= 1
-            await self.remove_replica()
-    
-    async def add_replica(self):
-        """Add a new replica"""
-        # Implementation depends on deployment platform
-        print(f"Scaling up to {self.current_replicas} replicas")
-    
-    async def remove_replica(self):
-        """Remove a replica"""
-        print(f"Scaling down to {self.current_replicas} replicas")
-```
-
-### Request Queuing
-
-**Queue with Backpressure:**
-```python
-import asyncio
-from collections import deque
-
-class RequestQueue:
-    def __init__(self, max_size: int = 1000):
-        self.queue = asyncio.Queue(maxsize=max_size)
-        self.max_size = max_size
-    
-    async def enqueue(self, request: dict) -> bool:
-        """Enqueue request, return False if queue is full"""
-        try:
-            await asyncio.wait_for(self.queue.put(request), timeout=0.1)
-            return True
-        except asyncio.TimeoutError:
-            return False  # Queue full
-    
-    async def dequeue(self) -> dict:
-        """Dequeue request"""
-        return await self.queue.get()
-    
-    def size(self) -> int:
-        """Get queue size"""
-        return self.queue.qsize()
-    
-    def is_full(self) -> bool:
-        """Check if queue is full"""
-        return self.queue.qsize() >= self.max_size
-
-# Worker pool
-class WorkerPool:
-    def __init__(self, num_workers: int, queue: RequestQueue, model_runner: ModelRunner):
-        self.num_workers = num_workers
-        self.queue = queue
-        self.model_runner = model_runner
-        self.workers = []
-    
-    async def worker(self, worker_id: int):
-        """Worker that processes requests"""
-        while True:
-            try:
-                request = await self.queue.dequeue()
-                result = await self.model_runner.generate_async([request["prompt"]])
-                # Send result back
-                await request["response_queue"].put(result)
-            except Exception as e:
-                print(f"Worker {worker_id} error: {e}")
-    
-    def start(self):
-        """Start worker pool"""
-        for i in range(self.num_workers):
-            worker = asyncio.create_task(self.worker(i))
-            self.workers.append(worker)
-    
-    def stop(self):
-        """Stop worker pool"""
-        for worker in self.workers:
-            worker.cancel()
-```
+**Backpressure.** When traffic exceeds capacity, a bounded request queue provides backpressure—when the queue is full, new requests are rejected immediately with a 503 error rather than timing out after a long wait. This gives clients a clear signal to retry later or route to a different backend.
 
 ### Cost Optimization
 
-**Spot Instance Usage:**
-```python
-class SpotInstanceManager:
-    def __init__(self, spot_ratio: float = 0.5):
-        self.spot_ratio = spot_ratio
-        self.spot_instances = []
-        self.on_demand_instances = []
-    
-    def allocate_instances(self, total_instances: int):
-        """Allocate mix of spot and on-demand instances"""
-        num_spot = int(total_instances * self.spot_ratio)
-        num_ondemand = total_instances - num_spot
-        
-        # Allocate spot instances (cheaper but can be preempted)
-        for i in range(num_spot):
-            instance = self.create_spot_instance()
-            self.spot_instances.append(instance)
-        
-        # Allocate on-demand instances (reliable)
-        for i in range(num_ondemand):
-            instance = self.create_ondemand_instance()
-            self.on_demand_instances.append(instance)
-    
-    def handle_preemption(self, instance_id: str):
-        """Handle spot instance preemption"""
-        # Remove preempted instance
-        self.spot_instances = [i for i in self.spot_instances if i.id != instance_id]
-        
-        # Replace with on-demand if needed
-        if len(self.spot_instances) < int(len(self.on_demand_instances) * self.spot_ratio):
-            new_spot = self.create_spot_instance()
-            self.spot_instances.append(new_spot)
-```
+GPU instances are expensive, so cost optimization matters. **Spot instances** (or preemptible VMs) cost 60-90% less than on-demand but can be terminated with short notice—a typical strategy uses 50% spot instances for baseline capacity, with on-demand instances absorbing traffic when spot instances are preempted. **Model selection** routes cost-sensitive requests to smaller, cheaper models; a 7B model might cost half as much per token as a 13B model, and for many use cases the quality difference doesn't justify the cost.
 
-**Model Selection for Cost:**
-```python
-class CostOptimizedRouter:
-    def __init__(self):
-        self.models = {
-            "llama-2-7b": {"cost_per_token": 0.001, "latency_ms": 100},
-            "llama-2-13b": {"cost_per_token": 0.002, "latency_ms": 200},
-            "mistral-7b": {"cost_per_token": 0.0015, "latency_ms": 150}
-        }
-    
-    def route(self, request: dict) -> str:
-        """Route to cost-optimized model"""
-        cost_sensitive = request.get("cost_sensitive", False)
-        latency_budget = request.get("latency_budget_ms", 1000)
-        
-        if cost_sensitive:
-            # Select cheapest model within latency budget
-            available = [
-                (model, config) for model, config in self.models.items()
-                if config["latency_ms"] <= latency_budget
-            ]
-            if available:
-                return min(available, key=lambda x: x[1]["cost_per_token"])[0]
-        
-        # Default to fastest
-        return min(self.models.items(), key=lambda x: x[1]["latency_ms"])[0]
-```
+The implementation of warmup, autoscaling, request queuing, and cost-optimized routing is available in `code/basic/fault_tolerance.py`.
 
-## Local Kubernetes Setup with k3d for GPU Model Serving
+## Deploying LLM Serving on Kubernetes
 
-While production deployments often use managed Kubernetes services, setting up a local Kubernetes cluster is invaluable for development, testing, and learning. This section covers setting up a GPU-enabled Kubernetes cluster using k3d (k3s in Docker), which provides a lightweight, production-like environment that runs entirely in Docker containers.
+The concepts we've covered so far—routing, load balancing, canary deployments, observability, and fault tolerance—are platform-agnostic patterns. You could implement them on bare metal servers, with Docker Compose, or on any cloud platform. However, Kubernetes has emerged as the dominant platform for production LLM serving because it provides native primitives for many of these patterns:
 
-### Why k3d for Local Development?
+| Platform-agnostic Concept | Kubernetes Implementation |
+|---------|---------------------------------------------|
+| Load Balancing | Services, Ingress Controllers |
+| Autoscaling | Horizontal Pod Autoscaler (HPA), KEDA |
+| Health Checks | Liveness/Readiness Probes |
+| Canary Deployments | Ingress traffic splitting, Argo Rollouts |
+| Observability | Prometheus Operator, OpenTelemetry Collector |
+| Fault Tolerance | Pod restart policies, PodDisruptionBudgets |
+| Resource Management | Resource requests/limits, GPU scheduling |
 
-**Advantages:**
+Rather than implementing these patterns from scratch, Kubernetes lets you declare your desired state and handles the implementation details. This is why production LLM serving stacks like vLLM Production Stack and llm-d are built on Kubernetes.
 
-- **Lightweight:** Runs in Docker, no need for VMs or complex setup
-- **Fast setup:** Create a cluster in minutes
-- **Real Kubernetes API:** Fully compatible with standard Kubernetes manifests
-- **GPU support:** Can expose host GPUs to containers
-- **Multi-node:** Easy to create multi-node clusters for testing
-- **No root required:** Runs in user space (with proper Docker permissions)
+In this section, we'll first set up a local Kubernetes environment using k3d for development and testing, then deploy a production-ready LLM serving stack using llm-d. Along the way, we'll see how the concepts from the previous sections map to concrete Kubernetes resources.
 
-**Use cases:**
+### Local Development with k3d
 
-- Local development and testing of GPU workloads
-- Learning Kubernetes concepts
-- Prototyping production deployments
-- CI/CD pipeline testing
+k3d wraps k3s (a lightweight Kubernetes distribution) inside Docker containers, giving you a fully functional Kubernetes cluster in minutes. It's lightweight (no VMs needed), supports GPU passthrough, and produces manifests that work unchanged on production clusters. This makes it ideal for developing and testing LLM serving configurations before deploying to production.
 
-### Prerequisites
+The complete k3d setup scripts are available in `code/k3d/`. Here we'll walk through the key steps.
+
+#### Prerequisites
 
 Before setting up k3d, ensure your system has the following:
 
