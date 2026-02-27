@@ -358,11 +358,12 @@ Effective benchmarking is the foundation of performance optimization. Without ac
 
 Throughout this book, we've covered the current state of distributed AI: DDP and FSDP for training, vLLM and SGLang for inference, Slurm for job scheduling, and production serving stacks. But the field is rapidly evolving. The final chapter explores emerging trends and future directions: MoE scaling, hybrid edge-cloud architectures, advanced parallelism strategies, and cost optimization techniques. Understanding where the field is heading will help you position yourself for the next wave of distributed AI innovations.
 
+
 ## References
 
 __Performance Benchmarking Tools__
 
-- genai-bench: \url{https://github.com/sgl-project/sglang/tree/main/benchmark/genai_bench}
+- genai-bench: \url{https://github.com/sgl-project/genai-bench}
 - PyTorch Profiler: \url{https://pytorch.org/tutorials/recipes/recipes/profiler_recipe.html}
 - NVIDIA Nsight Systems: \url{https://developer.nvidia.com/nsight-systems}
 - NVIDIA GenAI-Perf: \url{https://docs.nvidia.com/deeplearning/triton-inference-server/user-guide/docs/perf_analyzer/genai-perf/README.html}
@@ -387,3 +388,4 @@ __Papers and Standards__
 
 <!-- include: exercises/torch.md if include_math -->
 <!-- include: exercises/torch.md if include_torch -->
+
