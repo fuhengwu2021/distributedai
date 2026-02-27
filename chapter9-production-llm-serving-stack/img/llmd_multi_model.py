@@ -22,7 +22,7 @@ from math4ai import configure_math_fonts
 # Configure matplotlib for math expressions
 configure_math_fonts()
 
-fig, ax = plt.subplots(figsize=(7, 7))
+fig, ax = plt.subplots(figsize=(6, 5))
 ax.set_xlim(0.5, 9.5)
 ax.set_ylim(0, 9)
 ax.set_aspect('equal')
@@ -158,14 +158,14 @@ legend_items = [
 
 for x, y, color, label in legend_items:
     box = FancyBboxPatch(
-        (x - 0.2, y - 0.12), 0.25, 0.25,
+        (x - 0.2, y - 0.012), 0.25, 0.25,
         boxstyle="round,pad=0.01,rounding_size=0.03",
         facecolor=color,
         edgecolor=border_color,
         linewidth=1
     )
     ax.add_patch(box)
-    ax.text(x + 0.2, y, label, ha='left', va='center', fontsize=11)
+    ax.text(x + 0.12, y+0.1, label, ha='left', va='center', fontsize=11)
 
 # Tight layout and save
 plt.tight_layout(pad=0.1)
