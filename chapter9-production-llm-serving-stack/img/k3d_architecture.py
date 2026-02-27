@@ -85,7 +85,7 @@ ax.add_patch(server_box)
 ax.text(3.35, 6.9, 'Control Plane (server-0)', ha='center', va='center', 
         fontsize=14, fontweight='bold')
 ax.text(3.35, 6.55, 'k3s-cuda:v1.33.6-cuda-12.2.0', ha='center', va='center', 
-        fontsize=14, style='italic', color='#666666')
+        fontsize=14, style='italic', color='black')
 
 # Control plane services
 services = ['kube-apiserver', 'kube-scheduler', 'etcd', 'kubelet']
@@ -109,7 +109,7 @@ ax.add_patch(agent_box)
 ax.text(8.65, 6.9, 'Worker Node (agent-0)', ha='center', va='center', 
         fontsize=14, fontweight='bold')
 ax.text(8.65, 6.55, 'k3s-cuda:v1.33.6-cuda-12.2.0', ha='center', va='center', 
-        fontsize=14, style='italic', color='#666666')
+        fontsize=14, style='italic', color='black')
 
 # Worker services
 worker_services = ['kubelet', 'kube-proxy', 'containerd']
@@ -128,8 +128,8 @@ workload_box = FancyBboxPatch(
 ax.add_patch(workload_box)
 ax.text(9.65, 5.75, 'Workloads', ha='center', va='center', 
         fontsize=14, fontweight='bold', color='#7B1FA2')
-ax.text(9.65, 5.45, 'vLLM pods', ha='center', va='center', fontsize=14, color='#666666')
-ax.text(9.65, 5.2, 'SGLang pods', ha='center', va='center', fontsize=14, color='#666666')
+ax.text(9.65, 5.45, 'vLLM pods', ha='center', va='center', fontsize=14, color='black')
+ax.text(9.65, 5.2, 'SGLang pods', ha='center', va='center', fontsize=14, color='black')
 
 # GPU passthrough indicator
 ax.text(3.58, 4.2, '--gpus=all', ha='center', va='center', 
@@ -165,7 +165,7 @@ gpu_positions = [1.2, 2.2, 3.2, 4.2, 5.2, 6.2]
 for i, (gpu, x_pos) in enumerate(zip(gpus, gpu_positions)):
     if gpu == '...':
         ax.text(x_pos, gpu_y, '...', ha='center', va='center', 
-                fontsize=14, fontweight='bold', color='#666666')
+                fontsize=14, fontweight='bold', color='black')
     else:
         gpu_rect = FancyBboxPatch(
             (x_pos - gpu_width/2, gpu_y - gpu_height/2), gpu_width, gpu_height,

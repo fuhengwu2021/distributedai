@@ -18,6 +18,7 @@ import os
 import sys
 
 # Add shared directory to path for math4ai imports
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'shared'))
 from math4ai import configure_math_fonts
 
 # Configure matplotlib for math expressions
@@ -50,7 +51,7 @@ def draw_box(ax, x, y, width, height, label, sublabel=None, color='white'):
     
     if sublabel:
         ax.text(x, y + 0.15, label, ha='center', va='center', fontsize=13, fontweight='bold')
-        ax.text(x, y - 0.2, sublabel, ha='center', va='center', fontsize=13, style='italic', color='#666666')
+        ax.text(x, y - 0.2, sublabel, ha='center', va='center', fontsize=13, style='italic', color='black')
     else:
         ax.text(x, y, label, ha='center', va='center', fontsize=13, fontweight='bold')
 
@@ -82,8 +83,8 @@ draw_box(ax, 5, 5.5, 2.2, 0.7, 'Model Runner', '(vLLM/SGLang)', color=model_colo
 draw_box(ax, 7.5, 5.5, 2.2, 0.7, 'Model Runner', '(vLLM/SGLang)', color=model_color)
 
 # GPU indicators under model runners
-ax.text(5, 4.95, '[GPU]', ha='center', va='center', fontsize=13, color='#666666')
-ax.text(7.5, 4.95, '[GPU]', ha='center', va='center', fontsize=13, color='#666666')
+ax.text(5, 4.95, '[GPU]', ha='center', va='center', fontsize=13, color='black')
+ax.text(7.5, 4.95, '[GPU]', ha='center', va='center', fontsize=13, color='black')
 
 # Arrows to monitoring (dashed lines from all services)
 for x in [2.5, 5, 7.5]:
@@ -104,7 +105,7 @@ descriptions = [
 ]
 
 for x, y, text in descriptions:
-    ax.text(x, y, text, ha='center', va='center', fontsize=13, color='#888888', style='italic')
+    ax.text(x, y, text, ha='center', va='center', fontsize=13, color='black', style='italic')
 
 # Add a legend box
 legend_y = 2.25
@@ -129,7 +130,7 @@ for x, y, color, label in legend_items:
 # Data flow annotation
 ax.annotate('', xy=(9, 7), xytext=(9, 5.5),
             arrowprops=dict(arrowstyle='<->', color='#666666', lw=1.5))
-ax.text(9.3, 6.25, 'Request\nFlow', ha='left', va='center', fontsize=13, color='#666666')
+ax.text(9.3, 6.25, 'Request\nFlow', ha='left', va='center', fontsize=13, color='black')
 
 # Tight layout and save
 plt.tight_layout(pad=0.1)

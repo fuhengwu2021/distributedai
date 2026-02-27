@@ -378,6 +378,7 @@ k3d cluster delete mycluster-gpu
 docker rmi k3s-cuda:<your-tag>  # optional, removes the custom image
 ```
 
+
 ### Multi-Model and Multi-Engine Serving
 
 Once you have a single model running, the natural next step is serving multiple models through a unified API. Production deployments rarely serve just one model---you might have different models for different tasks (a small model for simple queries, a larger one for complex reasoning), or you might want to A/B test different models or inference engines.
@@ -399,8 +400,15 @@ For production deployments, you'll want to add authentication (API keys or OAuth
 
 ## Kubernetes Deployment with llm-d
 
-In the previous section, we built a local k3d cluster to experiment with vLLM deployments. While this approach offers flexibility and deep understanding of the underlying components, production deployments at scale often benefit from standardized solutions that handle the operational complexity of distributed inference. This is where llm-d[^llmd] comes in---an open-source project that provides production-ready Helm charts and deployment patterns for running LLM inference on Kubernetes with modern accelerators.
+In the previous section, we built a local k3d cluster to experiment with vLLM deployments. While this approach offers flexibility and deep understanding of the underlying components, production deployments at scale often benefit from standardized solutions that handle the operational complexity of distributed inference.
 
+Several Kubernetes-native frameworks exist for LLM serving. **KServe**[^kserve] provides enterprise-grade model serving with traffic governance (canary releases, A/B testing) and multi-model hosting, but requires Istio or Knative as dependencies. **KubeAI**[^kubeai] offers a lightweight operator with scale-from-zero and prefix-aware load balancing, requiring no external dependencies---ideal for simpler deployments. **vLLM production-stack**[^vllm-stack] is the official vLLM deployment solution with LMCache integration for KV cache sharing across instances.
+
+This chapter focuses on **llm-d**[^llmd] because it provides a "batteries-included" deployment framework that assembles well-tested components (vLLM, Envoy, NIXL) into a cohesive system, offers production-ready Helm charts with minimal configuration, and supports advanced features like disaggregated prefill/decode and high-speed data transfer over InfiniBand RDMA. The choice between these frameworks depends on your specific requirements: KServe for enterprise traffic governance, KubeAI for lightweight zero-dependency deployments, vLLM production-stack for official vLLM support with KV cache sharing, and llm-d for deployments that need disaggregated inference or high-speed interconnects. A detailed comparison between the manual k3d approach and llm-d is provided in Table @tbl:k3d-llmd-comparison.
+
+[^kserve]: KServe: \url{https://kserve.github.io/website/}
+[^kubeai]: KubeAI: \url{https://www.kubeai.org/}
+[^vllm-stack]: vLLM production-stack: \url{https://docs.vllm.ai/en/stable/deployment/integrations/production-stack.html}
 [^llmd]: llm-d project: \url{https://github.com/llm-d/llm-d}
 
 ### What is llm-d?
@@ -422,9 +430,7 @@ Think of llm-d as a "batteries-included" deployment framework that assembles bes
 
 **Variant Autoscaling.** Traditional Kubernetes autoscaling (HPA) scales based on CPU or memory utilization, but LLM workloads need smarter scaling. llm-d's variant autoscaler measures the actual capacity of each model server instance---how many tokens per second it can generate given current memory pressure. It then analyzes recent traffic patterns: the mix of request sizes, quality-of-service requirements, and arrival rates. Based on this analysis, it calculates the optimal mix of prefill servers, decode servers, and instances reserved for latency-tolerant batch requests. This enables true SLO-level efficiency, scaling up before latency degrades rather than after.
 
-### Hardware Support
-
-One of llm-d's strengths is its broad hardware compatibility. The project directly tests and validates deployments on NVIDIA GPUs (A100, L4, and newer), AMD GPUs (MI250 and newer), Google TPUs (v5e and newer), and Intel Data Center GPU Max series (Ponte Vecchio). This multi-vendor support is increasingly important as organizations seek to avoid lock-in and optimize costs across different cloud providers.
+__Hardware Support:__ One of llm-d's strengths is its broad hardware compatibility. The project directly tests and validates deployments on NVIDIA GPUs (A100, L4, and newer), AMD GPUs (MI250 and newer), Google TPUs (v5e and newer), and Intel Data Center GPU Max series (Ponte Vecchio). This multi-vendor support is increasingly important as organizations seek to avoid lock-in and optimize costs across different cloud providers.
 
 ### Deployment Architecture
 
@@ -467,8 +473,6 @@ The key is to monitor your metrics and let them guide your evolution. Watch KV c
 
 ### Multi-Model Serving with llm-d
 
-![llm-d multi-model serving architecture.](img/llmd_multi_model.png){#fig:llmd-multi-model width=80%}
-
 Figure \ref{fig:llmd-multi-model} illustrates how llm-d handles multi-model deployments. The architecture mirrors what we built manually with k3d, but with production-grade components: the Inference Gateway replaces our custom API gateway, InferencePool handles model-aware routing, and ModelService instances wrap vLLM pods with intelligent load balancing and prefix-cache awareness.
 
 The `code/llmd/llm-d-multi-model/` directory contains complete deployment configurations for this pattern. Each model gets its own ModelService with a Helm values file specifying the model artifact location, GPU requirements, and replica count. The InferencePool automatically discovers these ModelService instances and routes requests based on the `model` field---no manual service mapping required. When a client requests `meta-llama/Llama-3.2-1B-Instruct`, the gateway knows exactly which backend to forward to.
@@ -479,7 +483,11 @@ One limitation worth noting: llm-d follows a "vLLM-first" design philosophy. The
 
 However, you can work around this limitation by layering a custom API gateway on top of llm-d's infrastructure. The `code/llmd/llm-d-multi-engine/` directory demonstrates this approach: both vLLM and SGLang are deployed as separate ModelService instances within llm-d's Kubernetes setup, and a custom gateway routes requests based on both the `model` field and an `owned_by` field specifying the engine. This hybrid approach gives you the best of both worlds---llm-d's production-grade Kubernetes orchestration and monitoring, combined with the flexibility to compare or migrate between inference engines. The tradeoff is that you lose llm-d's intelligent routing features (prefix-cache awareness, load prediction) for the SGLang backend, since those require deep vLLM integration.
 
+![llm-d multi-model serving architecture.](img/llmd_multi_model.png){#fig:llmd-multi-model width=80%}
+
 ### Comparing k3d and llm-d Approaches
+
+::: {width=85%}
 
 | Feature | k3d (Manual) | llm-d (Production) |
 |---------|--------------|---------------------|
@@ -490,6 +498,10 @@ However, you can work around this limitation by layering a custom API gateway on
 | **Scaling** | Manual pod management | HPA-ready, autoscaling support |
 | **Multi-Model** | Manual service mapping | Automatic discovery |
 | **Production Features** | Limited | Full production stack |
+
+Table: Comparison of k3d and llm-d deployment approaches {#tbl:k3d-llmd-comparison}
+
+:::
 
 The k3d approach we explored earlier is valuable for learning and local development---you understand exactly what each component does because you built it yourself. But for production deployments serving real traffic, llm-d's battle-tested configurations and intelligent routing provide a more robust foundation. The transition is straightforward: the concepts are identical, only the implementation details change.## Summary
 

@@ -51,7 +51,7 @@ ax.text(5, 8.25, 'Client Applications', ha='center', va='center',
 ax.annotate('', xy=(5, 7.1), xytext=(5, 8.0),
             arrowprops=dict(arrowstyle='->', color=border_color, lw=1.5))
 ax.text(5.6, 7.55, "HTTP Request with 'model' field", ha='left', va='center',
-        fontsize=11, style='italic', color='#666666')
+        fontsize=11, style='italic', color='black')
 
 # Inference Gateway box
 gateway_box = FancyBboxPatch(
@@ -73,7 +73,7 @@ gateway_features = [
 ]
 for i, feature in enumerate(gateway_features):
     ax.text(5, 6.35 - i * 0.28, f"• {feature}", ha='center', va='center',
-            fontsize=10, color='#424242')
+            fontsize=10, color='black')
 
 # Arrow from Gateway to Pool
 ax.annotate('', xy=(5, 4.6), xytext=(5, 5.5),
@@ -99,7 +99,7 @@ pool_features = [
 ]
 for i, feature in enumerate(pool_features):
     ax.text(5, 3.85 - i * 0.28, f"• {feature}", ha='center', va='center',
-            fontsize=10, color='#424242')
+            fontsize=10, color='black')
 
 # Arrows from Pool to Services
 ax.annotate('', xy=(2.75, 2.1), xytext=(3.5, 3.0),
@@ -119,13 +119,13 @@ ax.add_patch(service1_box)
 ax.text(2.55, 1.9, 'ModelService 1', ha='center', va='center',
         fontsize=11, fontweight='bold', color='#2E7D32')
 ax.text(2.55, 1.55, '(Llama-3.2-1B)', ha='center', va='center',
-        fontsize=10, color='#666666')
+        fontsize=10, color='black')
 ax.text(2.55, 1.2, 'vLLM Pods (2x)', ha='center', va='center',
-        fontsize=10, color='#888888')
+        fontsize=10, color='black')
 ax.text(2.55, 0.85, '• Intelligent load balancing', ha='center', va='center',
-        fontsize=9, color='#888888')
+        fontsize=9, color='black')
 ax.text(2.55, 0.55, '• Prefix cache aware routing', ha='center', va='center',
-        fontsize=9, color='#888888')
+        fontsize=9, color='black')
 
 # ModelService 2 box
 service2_box = FancyBboxPatch(
@@ -139,13 +139,13 @@ ax.add_patch(service2_box)
 ax.text(7.45, 1.9, 'ModelService 2', ha='center', va='center',
         fontsize=11, fontweight='bold', color='#2E7D32')
 ax.text(7.45, 1.55, '(Qwen2.5-0.5B)', ha='center', va='center',
-        fontsize=10, color='#666666')
+        fontsize=10, color='black')
 ax.text(7.45, 1.2, 'vLLM Pods (2x)', ha='center', va='center',
-        fontsize=10, color='#888888')
+        fontsize=10, color='black')
 ax.text(7.45, 0.85, '• Intelligent load balancing', ha='center', va='center',
-        fontsize=9, color='#888888')
+        fontsize=9, color='black')
 ax.text(7.45, 0.55, '• Prefix cache aware routing', ha='center', va='center',
-        fontsize=9, color='#888888')
+        fontsize=9, color='black')
 
 # Legend
 legend_y = 8.7

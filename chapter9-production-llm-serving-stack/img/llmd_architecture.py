@@ -60,7 +60,7 @@ ax.add_patch(proxy_box)
 ax.text(2.1, 6.3, 'Envoy Proxy', ha='center', va='center', 
         fontsize=11, fontweight='bold')
 ax.text(2.1, 5.9, '(Entry Point)', ha='center', va='center', 
-        fontsize=12, style='italic', color='#666666')
+        fontsize=12, style='italic', color='black')
 
 # Inference Gateway box
 gateway_box = FancyBboxPatch(
@@ -74,7 +74,7 @@ ax.add_patch(gateway_box)
 ax.text(5.9, 6.3, 'Inference Gateway', ha='center', va='center', 
         fontsize=11, fontweight='bold')
 ax.text(5.9, 5.9, '(IGW Scheduler)', ha='center', va='center', 
-        fontsize=12, style='italic', color='#666666')
+        fontsize=12, style='italic', color='black')
 
 # Arrow from Proxy to Gateway
 ax.annotate('', xy=(4.5, 6.1), xytext=(3.2, 6.1),
@@ -92,9 +92,9 @@ ax.add_patch(prefill_box)
 ax.text(2.0, 4.1, 'Prefill Server', ha='center', va='center', 
         fontsize=11, fontweight='bold', color='#7B1FA2')
 ax.text(2.0, 3.7, '(vLLM)', ha='center', va='center', 
-        fontsize=12, color='#666666')
+        fontsize=12, color='black')
 ax.text(2.0, 3.35, 'Prompt Processing', ha='center', va='center', 
-        fontsize=11, style='italic', color='#888888')
+        fontsize=11, style='italic', color='black')
 
 # Decode Server 1 box
 decode1_box = FancyBboxPatch(
@@ -108,9 +108,9 @@ ax.add_patch(decode1_box)
 ax.text(5.0, 4.1, 'Decode Server 1', ha='center', va='center', 
         fontsize=11, fontweight='bold', color='#7B1FA2')
 ax.text(5.0, 3.7, '(vLLM)', ha='center', va='center', 
-        fontsize=12, color='#666666')
+        fontsize=12, color='black')
 ax.text(5.0, 3.35, 'Token Generation', ha='center', va='center', 
-        fontsize=11, style='italic', color='#888888')
+        fontsize=11, style='italic', color='black')
 
 # Decode Server 2 box
 decode2_box = FancyBboxPatch(
@@ -124,9 +124,9 @@ ax.add_patch(decode2_box)
 ax.text(8.0, 4.1, 'Decode Server 2', ha='center', va='center', 
         fontsize=11, fontweight='bold', color='#7B1FA2')
 ax.text(8.0, 3.7, '(vLLM)', ha='center', va='center', 
-        fontsize=12, color='#666666')
+        fontsize=12, color='black')
 ax.text(8.0, 3.35, 'Token Generation', ha='center', va='center', 
-        fontsize=11, style='italic', color='#888888')
+        fontsize=11, style='italic', color='black')
 
 # Arrows from Gateway to servers (IGW routes to all servers)
 # Gateway box is at (4.5, 5.5) with size (2.8, 1.2), so bottom center is (5.9, 5.5)
@@ -159,7 +159,7 @@ ax.add_patch(storage_box)
 ax.text(5.0, 1.6, 'KV Cache Storage', ha='center', va='center', 
         fontsize=11, fontweight='bold', color='#F57F17')
 ax.text(5.0, 1.15, '(NIXL / NVMe)', ha='center', va='center', 
-        fontsize=12, style='italic', color='#666666')
+        fontsize=12, style='italic', color='black')
 
 # Arrows from servers to storage
 ax.annotate('', xy=(3.5, 2.0), xytext=(2.0, 3.0),
@@ -173,7 +173,7 @@ ax.annotate('', xy=(6.5, 2.0), xytext=(8.0, 3.0),
 
 # Request flow annotation
 ax.text(7.5, 6.1, 'Requests', ha='left', va='center', 
-        fontsize=12, color='#666666')
+        fontsize=12, color='black')
 ax.annotate('', xy=(1.0, 6.1), xytext=(0.5, 6.1),
             arrowprops=dict(arrowstyle='->', color='#1976D2', lw=2))
 

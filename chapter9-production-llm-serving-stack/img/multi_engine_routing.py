@@ -50,9 +50,9 @@ ax.text(5, 7.05, 'Client Applications', ha='center', va='center',
 ax.annotate('', xy=(5, 5.9), xytext=(5, 6.8),
             arrowprops=dict(arrowstyle='->', color=border_color, lw=1.5))
 ax.text(5.6, 6.35, "HTTP Request with 'model'", ha='left', va='center',
-        fontsize=11, style='italic', color='#666666')
+        fontsize=11, style='italic', color='black')
 ax.text(5.6, 6.05, "and 'owned_by' fields", ha='left', va='center',
-        fontsize=11, style='italic', color='#666666')
+        fontsize=11, style='italic', color='black')
 
 # API Gateway box
 gateway_box = FancyBboxPatch(
@@ -75,7 +75,7 @@ gateway_features = [
 ]
 for i, feature in enumerate(gateway_features):
     ax.text(5, 5.15 - i * 0.28, f"• {feature}", ha='center', va='center',
-            fontsize=11, color='#424242')
+            fontsize=11, color='black')
 
 # Arrows from Gateway to Services
 ax.annotate('', xy=(3.0, 2.6), xytext=(3.5, 4.0),
@@ -95,15 +95,15 @@ ax.add_patch(vllm_box)
 ax.text(2.75, 2.35, 'vLLM Service', ha='center', va='center',
         fontsize=11, fontweight='bold', color='#2E7D32')
 ax.text(2.75, 2.0, '(Qwen2.5-0.5B)', ha='center', va='center',
-        fontsize=10, color='#666666')
+        fontsize=10, color='black')
 ax.text(2.75, 1.65, 'Pod: vllm-qwen-0.5b', ha='center', va='center',
-        fontsize=10, color='#888888')
+        fontsize=10, color='black')
 ax.text(2.75, 1.35, 'Service: vllm-qwen-0.5b:8000', ha='center', va='center',
-        fontsize=10, color='#888888')
+        fontsize=10, color='black')
 ax.text(2.75, 1.0, 'owned_by: "vllm"', ha='center', va='center',
         fontsize=11, fontweight='bold', color='#2E7D32')
 ax.text(2.75, 0.65, 'Image: vllm/vllm-openai:v0.12.0', ha='center', va='center',
-        fontsize=10, style='italic', color='#888888')
+        fontsize=10, style='italic', color='black')
 
 # SGLang Service box
 sglang_box = FancyBboxPatch(
@@ -117,15 +117,15 @@ ax.add_patch(sglang_box)
 ax.text(7.25, 2.35, 'SGLang Service', ha='center', va='center',
         fontsize=11, fontweight='bold', color='#E65100')
 ax.text(7.25, 2.0, '(Qwen2.5-0.5B)', ha='center', va='center',
-        fontsize=10, color='#666666')
+        fontsize=10, color='black')
 ax.text(7.25, 1.65, 'Pod: sglang-qwen-0.5b', ha='center', va='center',
-        fontsize=10, color='#888888')
+        fontsize=10, color='black')
 ax.text(7.25, 1.35, 'Service: sglang-qwen-0.5b:8000', ha='center', va='center',
-        fontsize=10, color='#888888')
+        fontsize=10, color='black')
 ax.text(7.25, 1.0, 'owned_by: "sglang"', ha='center', va='center',
         fontsize=11, fontweight='bold', color='#E65100')
 ax.text(7.25, 0.65, 'Image: lmsysorg/sglang:v0.5.6', ha='center', va='center',
-        fontsize=10, style='italic', color='#888888')
+        fontsize=10, style='italic', color='black')
 
 # Legend
 legend_y = 7.6
