@@ -233,34 +233,59 @@ Figure~\ref{fig:slurm-env-vars} illustrates this mapping visually. Your training
 
 ![SLURM to PyTorch environment variable mapping.](img/slurm_env_vars_mapping.png){#fig:slurm-env-vars .block width=85% align=center}
 
-## PyTorch Distributed Training with Slurm
+## Launching Distributed Training Frameworks with SLURM {#sec:slurm-frameworks}
 
-This section provides an overview of different distributed training frameworks and their integration with SLURM. For hands-on examples with complete code, see [Section 9: Hands-on: Complete Distributed Training Workflow](#9-hands-on-complete-distributed-training-workflow).
-
-Figure~\ref{fig:multi-node-training} illustrates how SLURM orchestrates multi-node distributed training. SLURM launches processes across allocated nodes, each process binds to a specific GPU, and NCCL handles the AllReduce communication for gradient synchronization. The environment variables set by SLURM enable each process to identify its global rank, local rank, and the master address for establishing the process group.
+With the SLURM basics covered, we now turn to the practical question: how do you launch different distributed training frameworks on a SLURM cluster? Each framework has its own launcher and initialization pattern, but they all rely on the same SLURM environment variables we discussed above.
 
 ![Multi-node distributed training with SLURM.](img/multi_node_training.png){#fig:multi-node-training .block width=90% align=center}
 
+Figure~\ref{fig:multi-node-training} illustrates the common pattern: SLURM allocates nodes and GPUs, launches processes across the cluster, and sets environment variables that each framework reads to establish distributed communication. The differences lie in how each framework wraps this process.
 
-### PyTorch DDP (Distributed Data Parallel) {#sec:slurm-ddp-overview}
+The table below summarizes the key differences in SLURM integration:
 
-PyTorch DDP is the simplest and most widely used approach for distributed training. It replicates the entire model on each GPU, distributes data across processes, and synchronizes gradients via AllReduce during the backward pass. Because each GPU holds a complete copy of the model, DDP works best when your model fits comfortably in a single GPU's memory. The training loop remains almost identical to single-GPU code—you wrap your model with `DistributedDataParallel`, use a `DistributedSampler` for your dataloader, and PyTorch handles the gradient synchronization transparently. DDP integrates seamlessly with SLURM through `torchrun`, which reads the environment variables we discussed above and initializes the process group automatically. For a detailed walkthrough with complete code examples and SLURM batch scripts, see Section~\ref{sec:slurm-ddp-example}.
+| Framework | Launcher | Distributed Init | SLURM Env Handling |
+|-----------|----------|------------------|-----------------------|
+| DDP | `torchrun` or `srun` | Manual | Export to `RANK`, `WORLD_SIZE`, etc. |
+| FSDP | `torchrun` | Manual | Same as DDP |
+| DeepSpeed | `python` | Automatic | Reads SLURM vars directly |
+| Megatron-LM | `torchrun` | Automatic | Reads SLURM vars directly |
 
-### PyTorch FSDP (Fully Sharded Data Parallel) {#sec:slurm-fsdp-overview}
+"Manual" initialization means you call `dist.init_process_group()` explicitly in your training script and handle environment variable setup in your SLURM batch script. "Automatic" means the framework handles distributed initialization internally—DeepSpeed via `deepspeed.init_distributed()` and Megatron-LM through its own launcher infrastructure—reading SLURM environment variables without requiring explicit setup code.
 
-When models grow too large to fit in a single GPU's memory, FSDP offers an elegant solution by sharding model parameters, gradients, and optimizer states across all participating GPUs. Unlike DDP where each GPU holds the full model, FSDP distributes the model itself—each GPU stores only a fraction of the parameters and gathers the full parameters on-demand during forward and backward passes. This dramatically reduces per-GPU memory requirements, enabling training of models that would otherwise be impossible. FSDP also supports CPU offloading for even larger models, though this trades memory savings for slower training speed. The SLURM integration mirrors DDP: you use `torchrun` to launch processes, and FSDP handles the sharding and communication internally. Section~\ref{sec:slurm-fsdp-example} provides complete examples showing how to configure FSDP with SLURM.
+For detailed explanations of each framework's concepts and internals, refer to the earlier chapters: DDP in Chapter~\ref{chap:distributed-training-with-pytorch-ddp}, FSDP in Chapter~\ref{chap:fsdp-memory-efficient-distributed-training}, and DeepSpeed in Chapter~\ref{chap:deepspeed-zero-and-advanced-optimization}. Here we focus specifically on the SLURM launch patterns and provide complete working examples.
 
-### DeepSpeed ZeRO-3 with CPU Offload {#sec:slurm-deepspeed-overview}
+### DDP with SLURM {#sec:slurm-ddp-example}
 
-DeepSpeed's ZeRO (Zero Redundancy Optimizer) takes memory optimization further with its Stage 3 configuration, which partitions parameters, gradients, and optimizer states across GPUs—similar to FSDP but with additional optimizations and flexibility. DeepSpeed's CPU offloading capability allows training models that exceed total GPU memory by spilling optimizer states and even parameters to CPU RAM and NVMe storage. A key advantage of DeepSpeed is its tight integration with HuggingFace Transformers: you can often enable distributed training by simply adding a DeepSpeed configuration file and changing your launch command. DeepSpeed handles distributed initialization automatically, reading SLURM environment variables without requiring explicit `torch.distributed` setup in your code. This makes it particularly attractive for researchers who want advanced memory optimization without deep distributed systems expertise. See Section~\ref{sec:slurm-deepspeed-example} for configuration examples and SLURM scripts.
+As covered in Chapter~\ref{chap:distributed-training-with-pytorch-ddp}, PyTorch DDP replicates the entire model on each GPU, distributes data across processes, and synchronizes gradients via AllReduce during the backward pass. Because each GPU holds a complete copy of the model, DDP works best when your model fits comfortably in a single GPU's memory. Here we focus on the SLURM-specific launch patterns.
 
-### Megatron-LM Training with SLURM {#sec:slurm-megatron-overview}
+The training script structure is straightforward (full version in `code/train_ddp.py`):
 
-For training the largest language models—tens or hundreds of billions of parameters—Megatron-LM provides NVIDIA's production-grade framework combining multiple parallelism strategies. Megatron-LM supports tensor parallelism (splitting individual layers across GPUs), pipeline parallelism (distributing layers across pipeline stages), sequence/context parallelism (for handling very long sequences), and data parallelism—all composable in a single training run. This multi-dimensional parallelism is essential when models are so large that no single parallelism strategy suffices. Megatron-LM also includes highly optimized kernels, FP8 training support, and efficient checkpointing for fault tolerance. The framework is designed for large clusters and integrates naturally with SLURM's multi-node job management. Section~\ref{sec:slurm-megatron-example} walks through the setup process, from installation to launching training jobs on SLURM.
+```python
+import torch
+import torch.distributed as dist
+import torch.nn as nn
+from torch.nn.parallel import DistributedDataParallel as DDP
 
-### Using Slurm's Built-in MPI Support
+def main():
+    dist.init_process_group(backend='nccl')
+    rank = dist.get_rank()
+    
+    device = torch.device(f'cuda:{rank % torch.cuda.device_count()}')
+    model = nn.Linear(10, 1).to(device)
+    model = DDP(model, device_ids=[rank % torch.cuda.device_count()])
+    
+    for epoch in range(10):
+        # ... training code ...
+        if rank == 0:
+            print(f"Epoch {epoch} completed")
+    
+    dist.destroy_process_group()
 
-Slurm can automatically set up the process group via MPI:
+if __name__ == '__main__':
+    main()
+```
+
+The SLURM batch script sets up the environment and launches via `torchrun` (full version in `code/train_ddp.sh`):
 
 ```bash
 #!/bin/bash
@@ -268,22 +293,330 @@ Slurm can automatically set up the process group via MPI:
 #SBATCH --gres=gpu:1
 #SBATCH --ntasks-per-node=1
 
-# Slurm automatically sets up MPI environment
+export MASTER_ADDR=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)
+export MASTER_PORT=29500
+
+srun torchrun \
+    --nproc_per_node=1 \
+    --nnodes=$SLURM_JOB_NUM_NODES \
+    --node_rank=$SLURM_NODEID \
+    --master_addr=$MASTER_ADDR \
+    --master_port=$MASTER_PORT \
+    code/train_ddp.py
+```
+
+Alternatively, you can use SLURM's built-in MPI support without `torchrun`:
+
+```bash
+#!/bin/bash
+#SBATCH --nodes=2
+#SBATCH --gres=gpu:1
+#SBATCH --ntasks-per-node=1
+
+export MASTER_ADDR=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)
+export MASTER_PORT=29500
+export WORLD_SIZE=$SLURM_NTASKS
+export RANK=$SLURM_PROCID
+export LOCAL_RANK=$SLURM_LOCALID
+
 srun python code/train_ddp.py
 ```
 
-In your Python code:
+This approach requires your Python code to use `init_method='env://'`, which reads `RANK`, `WORLD_SIZE`, `MASTER_ADDR`, and `MASTER_PORT` from environment variables.
+
+### FSDP with SLURM {#sec:slurm-fsdp-example}
+
+As discussed in Chapter~\ref{chap:fsdp-memory-efficient-distributed-training}, FSDP shards model parameters, gradients, and optimizer states across GPUs, dramatically reducing per-GPU memory requirements for large models. The SLURM launch pattern is identical to DDP—you use `torchrun` the same way. The difference is in the Python code where you wrap the model with `FullyShardedDataParallel` instead of `DistributedDataParallel`.
+
+Training script structure (full version in `code/train_fsdp.py`):
 
 ```python
-import os
+import torch
 import torch.distributed as dist
+from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+from torch.distributed.fsdp import CPUOffload
+from torch.distributed.fsdp.wrap import size_based_auto_wrap_policy
 
-# Use environment variables set by Slurm
-dist.init_process_group(
-    backend='nccl',
-    init_method='env://',  # Use environment variables
-)
+def main():
+    dist.init_process_group(backend='nccl')
+    rank = dist.get_rank()
+    
+    model = MyLargeModel()
+    model = FSDP(
+        model,
+        auto_wrap_policy=size_based_auto_wrap_policy,
+        cpu_offload=CPUOffload(offload_params=True),
+    )
+    
+    # Training loop...
+
+if __name__ == '__main__':
+    main()
 ```
+
+SLURM batch script (full version in `code/train_fsdp.sh`):
+
+```bash
+#!/bin/bash
+#SBATCH --job-name=fsdp-training
+#SBATCH --nodes=2
+#SBATCH --gres=gpu:1
+#SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task=28
+#SBATCH --mem=200G
+
+export MASTER_ADDR=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)
+export MASTER_PORT=29500
+
+srun torchrun \
+    --nproc_per_node=1 \
+    --nnodes=$SLURM_JOB_NUM_NODES \
+    --node_rank=$SLURM_NODEID \
+    --master_addr=$MASTER_ADDR \
+    --master_port=$MASTER_PORT \
+    code/train_fsdp.py
+```
+
+### DeepSpeed with SLURM {#sec:slurm-deepspeed-example}
+
+As covered in Chapter~\ref{chap:deepspeed-zero-and-advanced-optimization}, DeepSpeed's ZeRO optimizer provides three stages of memory optimization: ZeRO-1 partitions optimizer states, ZeRO-2 adds gradient partitioning, and ZeRO-3 further partitions model parameters themselves. ZeRO-3 is conceptually similar to FSDP—both shard parameters across GPUs—but DeepSpeed offers additional features like CPU and NVMe offloading that can push the memory boundary even further. The example here uses ZeRO-3 with CPU offloading, but you can easily switch to ZeRO-1 or ZeRO-2 by changing `"stage": 3` to `1` or `2` in the configuration file if you don't need full parameter sharding.
+
+Unlike DDP and FSDP where you explicitly call `dist.init_process_group()` and use `torchrun` as the launcher, DeepSpeed takes a different approach. It handles distributed initialization internally via `deepspeed.init_distributed()`, reading SLURM environment variables directly without requiring a separate launcher. This design simplifies the user experience—you just run `python train.py` with the appropriate environment variables set, and DeepSpeed figures out the distributed topology automatically.
+
+The training script structure reflects this simplicity (full version in `code/deepspeed/train.py`):
+
+```python
+import torch
+import deepspeed
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+def main():
+    deepspeed.init_distributed()
+    
+    model = AutoModelForCausalLM.from_pretrained("gpt2")
+    tokenizer = AutoTokenizer.from_pretrained("gpt2")
+    
+    model_engine, optimizer, _, _ = deepspeed.initialize(
+        model=model,
+        model_parameters=model.parameters(),
+        config="ds_zero3_offload.json"
+    )
+    
+    for epoch in range(10):
+        # ... training code ...
+        model_engine.backward(loss)
+        model_engine.step()
+
+if __name__ == "__main__":
+    main()
+```
+
+Notice that the script doesn't import `torch.distributed` or call `init_process_group()`—DeepSpeed handles all of that internally. The `deepspeed.initialize()` call returns a `model_engine` that wraps your model with ZeRO optimization, and you use `model_engine.backward()` and `model_engine.step()` instead of the standard PyTorch optimizer methods.
+
+The configuration file controls ZeRO behavior (`code/deepspeed/ds_zero3_offload.json`):
+
+```json
+{
+  "train_batch_size": 2,
+  "gradient_accumulation_steps": 1,
+  "train_micro_batch_size_per_gpu": 1,
+  "fp16": { "enabled": true },
+  "zero_optimization": {
+    "stage": 3,
+    "offload_param": { "device": "cpu", "pin_memory": true },
+    "offload_optimizer": { "device": "cpu", "pin_memory": true }
+  },
+  "optimizer": {
+    "type": "AdamW",
+    "params": { "lr": 5e-5, "weight_decay": 0.01 }
+  }
+}
+```
+
+The `stage: 3` setting enables full parameter sharding, and the `offload_param` and `offload_optimizer` sections configure CPU offloading—essential for training models larger than your total GPU memory. The `pin_memory: true` option uses pinned (page-locked) CPU memory for faster CPU-GPU transfers.
+
+The SLURM batch script requires more setup than DDP because we need to manually export the environment variables that DeepSpeed expects (`code/deepspeed/run.slurm`):
+
+```bash
+#!/bin/bash
+#SBATCH --job-name=deepspeed-zero3
+#SBATCH --nodes=2
+#SBATCH --gres=gpu:1
+#SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=200G
+
+# Replace with your conda path and environment name
+source ~/miniconda3/etc/profile.d/conda.sh
+conda activate research
+
+export MASTER_ADDR=127.0.0.1
+export MASTER_PORT=29500
+export WORLD_SIZE=$SLURM_NTASKS
+
+export NCCL_DEBUG=WARN
+export NCCL_SOCKET_IFNAME=^docker,lo
+export GLOO_SOCKET_IFNAME=eth0
+
+srun --chdir="$SLURM_SUBMIT_DIR" --label \
+    bash -c "
+        source ~/miniconda3/etc/profile.d/conda.sh
+        conda activate research
+        export CUDA_VISIBLE_DEVICES=\$SLURM_LOCALID
+        export LOCAL_RANK=\$SLURM_LOCALID
+        export RANK=\$SLURM_PROCID
+        cd \"$SLURM_SUBMIT_DIR\"
+        python train.py --deepspeed --deepspeed_config ds_zero3_offload.json
+    "
+```
+
+The script structure deserves some explanation. We set `MASTER_ADDR`, `MASTER_PORT`, and `WORLD_SIZE` at the job level, then use `srun` to launch a bash subshell on each node. Inside that subshell, we set the per-process variables (`CUDA_VISIBLE_DEVICES`, `LOCAL_RANK`, `RANK`) from SLURM's task-specific environment variables. The `--label` flag prefixes each line of output with the task ID, making it easier to debug multi-node issues.
+
+A few practical considerations when running DeepSpeed on SLURM clusters. DeepSpeed requires the `LOCAL_RANK` environment variable, which you must explicitly export from `SLURM_LOCALID`—unlike `torchrun` which sets this automatically. If you're using virtual nodes for testing (as described earlier), remember to map node names to GPU indices appropriately—for example, `node6` should use GPU 6. IPv6 can cause connection issues on some clusters; setting `NCCL_SOCKET_IFNAME` and `GLOO_SOCKET_IFNAME` to exclude problematic interfaces (like `^docker,lo`) often resolves this. Finally, remember to replace the conda path and environment name in the script with your own setup.
+
+### Megatron-LM with SLURM {#sec:slurm-megatron-example}
+
+As introduced in Chapter~\ref{chap:megatron-lm-and-model-parallelism}, Megatron-LM provides NVIDIA's production-grade framework combining tensor parallelism, pipeline parallelism, sequence/context parallelism, and data parallelism—all composable in a single training run. This multi-dimensional parallelism is essential for training the largest language models where no single parallelism strategy suffices.
+
+**Prerequisites:**
+
+1. **Install Megatron-LM from source** (required for `megatron.training` module):
+   ```bash
+   conda activate research
+   git clone https://github.com/NVIDIA/Megatron-LM.git
+   cd Megatron-LM
+   pip install --no-build-isolation .[mlm,dev]
+   ```
+   
+   **Note**: The PyPI package `megatron-core` only includes `megatron.core`, not `megatron.training`. Since `pretrain_gpt.py` requires `megatron.training`, you must install from source.
+
+2. **Copy training scripts** to your working directory:
+   - `pretrain_gpt.py` - Main training script
+   - `gpt_builders.py` - Model builder utilities
+   - `model_provider.py` - Model provider functions
+
+SLURM batch script (`code/megatron/run.slurm`):
+
+```bash
+#!/bin/bash
+#SBATCH --job-name=megatron-gpt
+#SBATCH --nodes=2
+#SBATCH --gres=gpu:1
+#SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=200G
+#SBATCH --time=4:00:00
+#SBATCH --output=logs/train_%j_%N.out
+#SBATCH --error=logs/train_%j_%N.err
+
+source ~/miniconda3/etc/profile.d/conda.sh
+conda activate research
+
+SCRIPT_DIR="${SLURM_SUBMIT_DIR:-$(dirname "$(readlink -f "$0")")}"
+cd "$SCRIPT_DIR"
+mkdir -p logs
+
+PRETRAIN_SCRIPT="${SCRIPT_DIR}/pretrain_gpt.py"
+
+export MASTER_ADDR=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)
+export MASTER_PORT=${MASTER_PORT:-6000}
+export WORLD_SIZE=$SLURM_NTASKS
+
+export NCCL_DEBUG=WARN
+export NCCL_SOCKET_IFNAME=^docker,lo
+export NCCL_IB_DISABLE=0
+export CUDA_DEVICE_MAX_CONNECTIONS=1
+export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
+
+# Model and training configuration
+NUM_LAYERS=32; HIDDEN_SIZE=4096; NUM_ATTENTION_HEADS=32
+TP_SIZE=1; CP_SIZE=1; PP_SIZE=1
+MICRO_BATCH_SIZE=1; GLOBAL_BATCH_SIZE=128
+
+srun --chdir="$SCRIPT_DIR" --label \
+    bash -c "
+        source ~/miniconda3/etc/profile.d/conda.sh
+        conda activate research
+        export CUDA_VISIBLE_DEVICES=\$SLURM_LOCALID
+        export LOCAL_RANK=\$SLURM_LOCALID
+        export RANK=\$SLURM_PROCID
+        
+        torchrun --nproc_per_node=1 --nnodes=\$SLURM_JOB_NUM_NODES \\
+            --node_rank=\$SLURM_NODEID --master_addr=\"$MASTER_ADDR\" \\
+            --master_port=\"$MASTER_PORT\" \"$PRETRAIN_SCRIPT\" \\
+            --use-mcore-models --num-layers $NUM_LAYERS \\
+            --hidden-size $HIDDEN_SIZE --num-attention-heads $NUM_ATTENTION_HEADS \\
+            --tensor-model-parallel-size $TP_SIZE --pipeline-model-parallel-size $PP_SIZE \\
+            --micro-batch-size $MICRO_BATCH_SIZE --global-batch-size $GLOBAL_BATCH_SIZE \\
+            --bf16 --mock-data --tokenizer-type NullTokenizer --vocab-size 128256
+    "
+```
+
+**Important notes:**
+
+- **Installation requirement**: Must install from source to get `megatron.training` module
+- **Parallelism configuration**: Adjust `TP_SIZE`, `PP_SIZE`, `CP_SIZE` based on your hardware and model size
+- **Mock data**: The example uses mock data (`--mock-data`). For real training, provide data paths and tokenizer
+
+**Checkpoint File Size Analysis:**
+
+When training with Megatron-LM, checkpoint files can be quite large. For an 8B parameter model, you might see checkpoint directories like:
+
+```
+code/megatron/checkpoints/gpt_8b/iter_0000010/
+27G     __0_0.distcp
+27G     __0_1.distcp
+27G     __1_0.distcp
+27G     __1_1.distcp
+24K     common.pt
+4.0K    metadata.json
+```
+
+**Why are checkpoints so large?**
+
+- **Model parameters (bf16)**: 8.03B × 2 bytes = 16.06 GB
+- **Optimizer states (Adam, fp32)**: 8.03B × 8 bytes = 64.24 GB (momentum + variance)
+- **Theoretical total**: ~80 GB
+- **Actual size**: ~108 GB (includes distributed checkpoint overhead)
+
+The additional overhead comes from distributed optimizer sharding (`--use-distributed-optimizer`), file format metadata, and alignment padding for efficient parallel I/O. Each rank saves its own shard (`__0_0.distcp`, `__0_1.distcp`, etc.) to enable parallel save/load operations.
+
+**Tips for managing checkpoint size:**
+- Use `--save-interval` to control checkpoint frequency
+- Implement checkpoint rotation to keep only recent checkpoints
+- Use distributed storage (e.g., shared filesystem) for checkpoint directories
+
+**Checkpoint Format Conversion:**
+
+Megatron-LM checkpoints are saved in a distributed format (`.distcp` files) that requires Megatron-LM to load. For use with other frameworks or standalone PyTorch models, you can convert checkpoints to standard formats using the provided conversion script (`code/megatron/convert_megatron_checkpoint.py`):
+
+```bash
+# Convert Megatron checkpoint to standard PyTorch format
+python code/megatron/convert_megatron_checkpoint.py \
+    --checkpoint-dir code/megatron/checkpoints/gpt_8b/iter_0000010 \
+    --output-dir exported_checkpoint \
+    --format pytorch \
+    --num-layers 32 --hidden-size 4096 --num-attention-heads 32 \
+    --vocab-size 128256 --max-position-embeddings 2048 \
+    --use-mcore-models --bf16
+```
+
+The exported PyTorch checkpoint is completely independent and does NOT require Megatron-LM to load:
+
+```python
+import torch
+checkpoint = torch.load('exported_checkpoint/model.pt', map_location='cpu')
+print(checkpoint['model_config'])
+state_dict = checkpoint['model_state_dict']
+```
+
+**Key Benefits of Conversion:**
+
+- **Standalone**: No Megatron-LM required to load the checkpoint
+- **Smaller size**: Exported checkpoints only contain model weights (no optimizer state)
+- **Compatible**: Can be loaded by other frameworks (vLLM, SGLang, etc.)
+
+For production HuggingFace format conversion, consider using [Megatron-Bridge](https://github.com/NVIDIA-NeMo/Megatron-Bridge) for complete format conversion with layer name mapping and tensor reshaping.
 
 ## Advanced Slurm Features for Training
 
@@ -491,646 +824,6 @@ srun -N 1 --gres=gpu:1 nvidia-smi -L
 - **Check for deadlocks**: Look for processes waiting on barriers
 - **Verify data loading**: Ensure all ranks can access data
 - **Check logs**: Review both stdout and stderr from all ranks
-
-## Hands-on: Complete Distributed Training Workflow {#sec:slurm-hands-on}
-
-This section provides hands-on examples for running distributed training with different frameworks on SLURM clusters. All code examples are available in the `code/` directory. The complete Python training script is in `code/train_ddp.py` and the SLURM batch script is in `code/train_ddp.sh`.
-
-### PyTorch DDP Example {#sec:slurm-ddp-example}
-
-**Method 1: Using `torch.distributed.launch`**
-
-The following shows the essential structure of a DDP training script (full version in `code/train_ddp.py`):
-
-```python
-# train_ddp.py
-import torch
-import torch.distributed as dist
-import torch.nn as nn
-from torch.nn.parallel import DistributedDataParallel as DDP
-
-def main():
-    # Initialize process group
-    dist.init_process_group(backend='nccl')
-    rank = dist.get_rank()
-    world_size = dist.get_world_size()
-    
-    # Set device
-    device = torch.device(f'cuda:{rank % torch.cuda.device_count()}')
-    
-    # Create model and wrap with DDP
-    model = nn.Linear(10, 1).to(device)
-    model = DDP(model, device_ids=[rank % torch.cuda.device_count()])
-    
-    # Training loop
-    for epoch in range(10):
-        # ... training code ...
-        if rank == 0:
-            print(f"Epoch {epoch} completed")
-    
-    dist.destroy_process_group()
-
-if __name__ == '__main__':
-    main()
-```
-
-**Slurm batch script** (full version in `code/train_ddp.sh`):
-
-```bash
-#!/bin/bash
-#SBATCH --nodes=2
-#SBATCH --gres=gpu:1
-#SBATCH --ntasks-per-node=1
-
-srun python -m torch.distributed.launch \
-    --nproc_per_node=1 \
-    --nnodes=$SLURM_JOB_NUM_NODES \
-    --node_rank=$SLURM_NODEID \
-    --master_addr=$MASTER_ADDR \
-    --master_port=$MASTER_PORT \
-    code/train_ddp.py
-```
-
-**Method 2: Using `torchrun` (Recommended)**
-
-The `torchrun` launcher is the modern replacement for `torch.distributed.launch`. A complete batch script is in `code/train_ddp.sh`:
-
-```bash
-#!/bin/bash
-#SBATCH --nodes=2
-#SBATCH --gres=gpu:1
-#SBATCH --ntasks-per-node=1
-
-srun torchrun \
-    --nproc_per_node=1 \
-    --nnodes=$SLURM_JOB_NUM_NODES \
-    --node_rank=$SLURM_NODEID \
-    --master_addr=$MASTER_ADDR \
-    --master_port=$MASTER_PORT \
-    code/train_ddp.py
-```
-
-### PyTorch FSDP Example {#sec:slurm-fsdp-example}
-
-FSDP shards model parameters, gradients, and optimizer states across GPUs. The complete training script is in `code/train_fsdp.py` and the SLURM batch script is in `code/train_fsdp.sh`:
-
-```python
-# train_fsdp.py
-import torch
-import torch.distributed as dist
-from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-from torch.distributed.fsdp import CPUOffload
-from torch.distributed.fsdp.wrap import size_based_auto_wrap_policy
-
-def main():
-    dist.init_process_group(backend='nccl')
-    rank = dist.get_rank()
-    
-    # Create model
-    model = MyLargeModel()
-    
-    # Wrap with FSDP
-    model = FSDP(
-        model,
-        auto_wrap_policy=size_based_auto_wrap_policy,
-        cpu_offload=CPUOffload(offload_params=True),
-    )
-    
-    # Training loop
-    # ...
-
-if __name__ == '__main__':
-    main()
-```
-
-**Slurm batch script for FSDP** (full version in `code/train_fsdp.sh`):
-
-```bash
-#!/bin/bash
-#SBATCH --job-name=fsdp-training
-#SBATCH --nodes=2
-#SBATCH --gres=gpu:1
-#SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=28
-#SBATCH --mem=200G
-
-export MASTER_ADDR=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)
-export MASTER_PORT=29500
-
-srun torchrun \
-    --nproc_per_node=1 \
-    --nnodes=$SLURM_JOB_NUM_NODES \
-    --node_rank=$SLURM_NODEID \
-    --master_addr=$MASTER_ADDR \
-    --master_port=$MASTER_PORT \
-    code/train_fsdp.py
-```
-
-### DeepSpeed ZeRO-3 Example {#sec:slurm-deepspeed-example}
-
-DeepSpeed ZeRO-3 enables training models larger than GPU memory by sharding parameters, gradients, and optimizer states across GPUs, with optional CPU offloading for even larger models.
-
-**Key features:**
-- Automatic distributed setup (no manual `torch.distributed` initialization needed)
-- ZeRO-3 shards parameters, gradients, and optimizer states
-- CPU offload enables training models larger than total GPU memory
-- Works seamlessly with HuggingFace models
-
-**Training script** (`code/deepspeed/train.py`):
-
-```python
-import torch
-import deepspeed
-from transformers import AutoModelForCausalLM, AutoTokenizer
-
-def main():
-    # Initialize distributed (DeepSpeed handles this internally)
-    deepspeed.init_distributed()
-    
-    # Load model and tokenizer
-    model = AutoModelForCausalLM.from_pretrained("gpt2")
-    tokenizer = AutoTokenizer.from_pretrained("gpt2")
-    
-    # Initialize DeepSpeed engine
-    model_engine, optimizer, _, _ = deepspeed.initialize(
-        model=model,
-        model_parameters=model.parameters(),
-        config="ds_zero3_offload.json"
-    )
-    
-    # Training loop
-    for epoch in range(10):
-        # ... training code ...
-        model_engine.backward(loss)
-        model_engine.step()
-
-if __name__ == "__main__":
-    main()
-```
-
-**DeepSpeed configuration** (`code/deepspeed/ds_zero3_offload.json`):
-
-```json
-{
-  "train_batch_size": 2,
-  "gradient_accumulation_steps": 1,
-  "train_micro_batch_size_per_gpu": 1,
-
-  "fp16": {
-    "enabled": true,
-    "loss_scale": 0,
-    "loss_scale_window": 1000,
-    "initial_scale_power": 16
-  },
-
-  "zero_optimization": {
-    "stage": 3,
-    "offload_param": {
-      "device": "cpu",
-      "pin_memory": true
-    },
-    "offload_optimizer": {
-      "device": "cpu",
-      "pin_memory": true
-    },
-    "overlap_comm": false,
-    "contiguous_gradients": true,
-    "sub_group_size": 1e9,
-    "reduce_bucket_size": "auto",
-    "stage3_prefetch_bucket_size": "auto",
-    "stage3_param_persistence_threshold": "auto",
-    "stage3_max_live_parameters": 1e9,
-    "stage3_max_reuse_distance": 1e9,
-    "stage3_gather_16bit_weights_on_model_save": "auto"
-  },
-
-  "optimizer": {
-    "type": "AdamW",
-    "params": {
-      "lr": 5e-5,
-      "betas": [0.9, 0.999],
-      "eps": 1e-8,
-      "weight_decay": 0.01
-    }
-  },
-
-  "scheduler": {
-    "type": "WarmupLR",
-    "params": {
-      "warmup_min_lr": "auto",
-      "warmup_max_lr": "auto",
-      "warmup_num_steps": "auto"
-    }
-  },
-
-  "wall_clock_breakdown": false
-}
-```
-
-**SLURM batch script** (`code/deepspeed/run.slurm`):
-
-```bash
-#!/bin/bash
-#SBATCH --job-name=deepspeed-zero3
-#SBATCH --nodes=2
-#SBATCH --gres=gpu:1
-#SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=8
-#SBATCH --mem=200G
-#SBATCH --time=4:00:00
-#SBATCH --output=logs/train_%j_%N.out
-#SBATCH --error=logs/train_%j_%N.err
-
-# Activate conda environment
-source ~/miniconda3/etc/profile.d/conda.sh
-conda activate research
-
-# Distributed setup
-export MASTER_ADDR=127.0.0.1  # For single physical node with virtual nodes
-export MASTER_PORT=29500
-export WORLD_SIZE=$SLURM_NTASKS
-
-# NCCL settings
-export NCCL_DEBUG=WARN
-export NCCL_SOCKET_IFNAME=^docker,lo
-export GLOO_SOCKET_IFNAME=eth0
-
-# Launch training
-srun --chdir="$SLURM_SUBMIT_DIR" --label \
-    bash -c "
-        source ~/miniconda3/etc/profile.d/conda.sh
-        conda activate research
-        export CUDA_VISIBLE_DEVICES=\$SLURM_LOCALID
-        export LOCAL_RANK=\$SLURM_LOCALID
-        export RANK=\$SLURM_PROCID
-        cd \"$SLURM_SUBMIT_DIR\"
-        python train.py --deepspeed --deepspeed_config ds_zero3_offload.json
-    "
-```
-
-**Usage:**
-
-```bash
-# Submit job
-cd chapter8-running-distributed-training-with-slurm/code/deepspeed
-sbatch run.slurm
-
-# Monitor job
-squeue -u $USER
-
-# Check logs
-tail -f logs/train_*.out
-```
-
-**Key differences from DDP/FSDP:**
-
-1. **No manual distributed setup**: DeepSpeed handles distributed initialization internally
-2. **Direct Python execution**: Run `python train.py` directly, not through `torchrun`
-3. **SLURM environment variables**: The script reads `SLURM_PROCID`, `SLURM_NTASKS`, etc.
-4. **CPU offload support**: Can train models larger than GPU memory by offloading to CPU
-5. **Automatic optimizer creation**: Can specify optimizer in config file
-
-**Important notes:**
-
-- DeepSpeed requires `LOCAL_RANK` environment variable (set from `SLURM_LOCALID`)
-- GPU mapping: For virtual nodes, map node name to GPU number (e.g., `node6` → GPU 6)
-- IPv6 resolution: Set `NCCL_SOCKET_IFNAME` and `GLOO_SOCKET_IFNAME` to avoid IPv6 issues
-- Conda activation: Ensure conda environment is activated on each compute node via `srun`
-
-### Megatron-LM Example {#sec:slurm-megatron-example}
-
-Megatron-LM is NVIDIA's framework for training large language models with advanced parallelism strategies including tensor parallelism (TP), pipeline parallelism (PP), context parallelism (CP), and data parallelism (DP).
-
-**Key features:**
-- **Multiple parallelism strategies**: Tensor, pipeline, context, and data parallelism
-- **Efficient memory management**: Optimized for large model training
-- **Production-ready**: Used by NVIDIA for training state-of-the-art models
-- **Flexible configuration**: Supports various model architectures (GPT, BERT, T5, etc.)
-- **Built-in optimizations**: FP8 support, activation recomputation, gradient accumulation
-
-**Prerequisites:**
-
-1. **Install Megatron-LM from source** (required for `megatron.training` module):
-   ```bash
-   conda activate research
-   git clone https://github.com/NVIDIA/Megatron-LM.git
-   cd Megatron-LM
-   pip install --no-build-isolation .[mlm,dev]
-   ```
-   
-   **Note**: The PyPI package `megatron-core` only includes `megatron.core`, not `megatron.training`. 
-   Since `pretrain_gpt.py` requires `megatron.training`, you must install from source.
-
-2. **Copy training scripts** to your working directory:
-   - `pretrain_gpt.py` - Main training script
-   - `gpt_builders.py` - Model builder utilities
-   - `model_provider.py` - Model provider functions
-
-**SLURM batch script** (`code/megatron/run.slurm`):
-
-```bash
-#!/bin/bash
-#SBATCH --job-name=megatron-gpt
-#SBATCH --nodes=2                    # 2 nodes (one GPU per node)
-#SBATCH --gres=gpu:1                # 1 GPU per node
-#SBATCH --ntasks-per-node=1         # 1 task per node
-#SBATCH --cpus-per-task=8
-#SBATCH --mem=200G
-#SBATCH --time=4:00:00
-#SBATCH --output=logs/train_%j_%N.out
-#SBATCH --error=logs/train_%j_%N.err
-
-# Activate conda environment
-if [ -f ~/miniconda3/etc/profile.d/conda.sh ]; then
-    source ~/miniconda3/etc/profile.d/conda.sh
-elif [ -f ~/anaconda3/etc/profile.d/conda.sh ]; then
-    source ~/anaconda3/etc/profile.d/conda.sh
-fi
-
-conda activate research || {
-    echo "ERROR: Failed to activate conda environment 'research'"
-    exit 1
-}
-
-# Get the directory where this script is located
-SCRIPT_DIR="${SLURM_SUBMIT_DIR:-$(dirname "$(readlink -f "$0")")}"
-cd "$SCRIPT_DIR"
-mkdir -p logs
-
-# Use pretrain_gpt.py from the same directory
-PRETRAIN_SCRIPT="${SCRIPT_DIR}/pretrain_gpt.py"
-
-# Distributed training setup
-export MASTER_ADDR=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)
-export MASTER_PORT=${MASTER_PORT:-6000}
-export WORLD_SIZE=$SLURM_NTASKS
-
-# NCCL settings
-export NCCL_DEBUG=WARN
-export NCCL_SOCKET_IFNAME=^docker,lo
-export NCCL_IB_DISABLE=0
-export CUDA_DEVICE_MAX_CONNECTIONS=1
-export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
-
-# Training configuration
-CHECKPOINT_PATH="${CHECKPOINT_PATH:-${SCRIPT_DIR}/checkpoints/gpt_8b}"
-TENSORBOARD_LOGS_PATH="${TENSORBOARD_LOGS_PATH:-${SCRIPT_DIR}/tensorboard_logs/gpt_8b}"
-DATA_CACHE_PATH="${DATA_CACHE_PATH:-${SCRIPT_DIR}/data_cache}"
-
-# Model configuration
-NUM_LAYERS=${NUM_LAYERS:-32}
-HIDDEN_SIZE=${HIDDEN_SIZE:-4096}
-FFN_HIDDEN_SIZE=${FFN_HIDDEN_SIZE:-14336}
-NUM_ATTENTION_HEADS=${NUM_ATTENTION_HEADS:-32}
-SEQ_LENGTH=${SEQ_LENGTH:-2048}
-
-# Parallelism configuration
-TP_SIZE=${TP_SIZE:-1}      # Tensor parallelism
-CP_SIZE=${CP_SIZE:-1}       # Context parallelism
-PP_SIZE=${PP_SIZE:-1}       # Pipeline parallelism
-
-# Training hyperparameters
-MICRO_BATCH_SIZE=${MICRO_BATCH_SIZE:-1}
-GLOBAL_BATCH_SIZE=${GLOBAL_BATCH_SIZE:-128}
-LR=${LR:-0.00015}
-MIN_LR=${MIN_LR:-0.00001}
-
-# Use mock data for demonstration
-USE_MOCK_DATA=${USE_MOCK_DATA:-1}
-
-# Launch training with torchrun
-srun --chdir="$SCRIPT_DIR" --label \
-    bash -c "
-        source ~/miniconda3/etc/profile.d/conda.sh 2>/dev/null || \
-            source ~/anaconda3/etc/profile.d/conda.sh 2>/dev/null
-        conda activate research
-        
-        # Set CUDA_VISIBLE_DEVICES
-        export CUDA_VISIBLE_DEVICES=\$SLURM_LOCALID
-        export LOCAL_RANK=\$SLURM_LOCALID
-        export RANK=\$SLURM_PROCID
-        
-        cd \"$SCRIPT_DIR\"
-        
-        # Launch with torchrun
-        torchrun \\
-            --nproc_per_node=1 \\
-            --nnodes=\$SLURM_JOB_NUM_NODES \\
-            --node_rank=\$SLURM_NODEID \\
-            --master_addr=\"$MASTER_ADDR\" \\
-            --master_port=\"$MASTER_PORT\" \\
-            \"$PRETRAIN_SCRIPT\" \\
-            --use-mcore-models \\
-            --num-layers $NUM_LAYERS \\
-            --hidden-size $HIDDEN_SIZE \\
-            --ffn-hidden-size $FFN_HIDDEN_SIZE \\
-            --num-attention-heads $NUM_ATTENTION_HEADS \\
-            --group-query-attention \\
-            --num-query-groups 8 \\
-            --seq-length $SEQ_LENGTH \\
-            --max-position-embeddings $SEQ_LENGTH \\
-            --position-embedding-type rope \\
-            --micro-batch-size $MICRO_BATCH_SIZE \\
-            --global-batch-size $GLOBAL_BATCH_SIZE \\
-            --train-samples 1000000 \\
-            --lr $LR \\
-            --min-lr $MIN_LR \\
-            --lr-decay-style cosine \\
-            --tensor-model-parallel-size $TP_SIZE \\
-            --context-parallel-size $CP_SIZE \\
-            --pipeline-model-parallel-size $PP_SIZE \\
-            --sequence-parallel \\
-            --use-distributed-optimizer \\
-            --bf16 \\
-            --mock-data \\
-            --tokenizer-type NullTokenizer \\
-            --vocab-size 128256 \\
-            --save \"$CHECKPOINT_PATH\" \\
-            --load \"$CHECKPOINT_PATH\" \\
-            --tensorboard-dir \"$TENSORBOARD_LOGS_PATH\"
-    "
-```
-
-**Usage:**
-
-```bash
-# Submit job
-cd chapter8-running-distributed-training-with-slurm/code/megatron
-sbatch run.slurm
-
-# Monitor job
-squeue -u $USER
-
-# Check logs
-tail -f logs/train_*.out
-```
-
-**Key differences from DDP/FSDP/DeepSpeed:**
-
-1. **Multiple parallelism strategies**: Supports tensor, pipeline, context, and data parallelism simultaneously
-2. **torchrun launcher**: Uses `torchrun` for distributed initialization (like DDP/FSDP)
-3. **Model architecture**: Designed specifically for transformer-based language models
-4. **Advanced features**: Built-in support for FP8, MoE (Mixture of Experts), and other cutting-edge techniques
-5. **Production optimizations**: Includes many production-ready optimizations out of the box
-
-**Important notes:**
-
-- **Installation requirement**: Must install from source to get `megatron.training` module
-- **Script dependencies**: Requires `pretrain_gpt.py`, `gpt_builders.py`, and `model_provider.py` in the same directory
-- **Parallelism configuration**: Adjust `TP_SIZE`, `PP_SIZE`, `CP_SIZE` based on your hardware and model size
-- **Mock data**: The example uses mock data (`--mock-data`). For real training, provide data paths and tokenizer
-- **Memory requirements**: Large models may require adjusting batch sizes and sequence lengths
-
-**Checkpoint File Size Analysis:**
-
-When training with Megatron-LM, checkpoint files can be quite large. For an 8B parameter model, you might see checkpoint directories like:
-
-```
-code/megatron/checkpoints/gpt_8b/iter_0000010/
-27G     __0_0.distcp
-27G     __0_1.distcp
-27G     __1_0.distcp
-27G     __1_1.distcp
-24K     common.pt
-4.0K    metadata.json
-```
-
-**Why are checkpoints so large?**
-
-**Theoretical size calculation:**
-- **Model parameters (bf16)**: 8.03B × 2 bytes = 16.06 GB
-- **Optimizer states (Adam, fp32)**: 8.03B × 8 bytes = 64.24 GB
-  - Momentum (exp_avg): 4 bytes/param
-  - Variance (exp_avg_sq): 4 bytes/param
-- **Theoretical total**: 80.30 GB
-- **Actual size**: ~108 GB (4 files × 27 GB)
-
-**Additional overhead (~27.70 GB) explained:**
-
-1. **Distributed optimizer sharding:**
-   - Using `--use-distributed-optimizer` shards parameters and optimizer states across multiple ranks
-   - Each rank saves its own shard, which may include some redundancy for efficient loading
-
-2. **File format overhead:**
-   - PyTorch distributed checkpoint format includes metadata
-   - Index and mapping information for distributed loading
-   - Alignment and padding for efficient I/O
-
-3. **Shard structure:**
-   - `__0_0.distcp`: rank 0, shard 0
-   - `__0_1.distcp`: rank 0, shard 1
-   - `__1_0.distcp`: rank 1, shard 0
-   - `__1_1.distcp`: rank 1, shard 1
-   - Each rank has multiple shards to enable parallel save/load operations
-
-**Is this normal?**
-
-Yes, this is expected behavior:
-- 8B model + Adam optimizer ≈ 80GB is the theoretical minimum
-- Distributed checkpoints have additional overhead for parallel I/O
-- Optimizer states are typically 4× larger than model parameters (fp32 vs bf16)
-- The distributed checkpoint format enables efficient multi-node checkpointing and resuming
-
-**Tips for managing checkpoint size:**
-- Use `--save-interval` to control checkpoint frequency
-- Consider using optimizer state offloading if available
-- For production, implement checkpoint rotation to keep only recent checkpoints
-- Use distributed storage (e.g., shared filesystem) for checkpoint directories
-
-**Checkpoint Format Conversion:**
-
-Megatron-LM checkpoints are saved in a distributed format (`.distcp` files) that requires Megatron-LM to load. For use with other frameworks or standalone PyTorch models, you can convert checkpoints to standard formats.
-
-**Converting to PyTorch Format:**
-
-Use the provided conversion script (`code/megatron/convert_megatron_checkpoint.py`):
-
-```bash
-# Convert Megatron checkpoint to standard PyTorch format
-python code/megatron/convert_megatron_checkpoint.py \
-    --checkpoint-dir code/megatron/checkpoints/gpt_8b/iter_0000010 \
-    --output-dir exported_checkpoint \
-    --format pytorch \
-    --num-layers 32 \
-    --hidden-size 4096 \
-    --num-attention-heads 32 \
-    --vocab-size 128256 \
-    --max-position-embeddings 2048 \
-    --use-mcore-models \
-    --bf16
-```
-
-**Converting to HuggingFace Format:**
-
-```bash
-# Convert to HuggingFace format (simplified)
-python code/megatron/convert_megatron_checkpoint.py \
-    --checkpoint-dir code/megatron/checkpoints/gpt_8b/iter_0000010 \
-    --output-dir huggingface_checkpoint \
-    --format huggingface \
-    --num-layers 32 \
-    --hidden-size 4096 \
-    --num-attention-heads 32 \
-    --vocab-size 128256 \
-    --max-position-embeddings 2048 \
-    --use-mcore-models \
-    --bf16
-```
-
-**Using Converted Checkpoints:**
-
-The exported PyTorch checkpoint is **completely independent** and does NOT require Megatron-LM to load:
-
-```python
-import torch
-
-# Load checkpoint - NO MEGATRON NEEDED!
-checkpoint = torch.load('exported_checkpoint/model.pt', map_location='cpu')
-
-# View model configuration
-print(checkpoint['model_config'])
-
-# Access state dict
-state_dict = checkpoint['model_state_dict']
-print(f"Total keys: {len(state_dict)}")
-print(f"First key: {list(state_dict.keys())[0]}")
-```
-
-**Checkpoint Structure:**
-
-The exported checkpoint contains:
-
-```python
-{
-    'model_state_dict': {
-        # All model weights in standard PyTorch format
-        'embedding.word_embeddings.weight': tensor(...),
-        'decoder.layers.0.self_attention.linear_proj.weight': tensor(...),
-        # ... etc
-    },
-    'model_config': {
-        'num_layers': 32,
-        'hidden_size': 4096,
-        'num_attention_heads': 32,
-        'vocab_size': 128256,
-        'max_position_embeddings': 2048,
-    }
-}
-```
-
-**Key Benefits of Conversion:**
-
-- ✅ **Standalone**: No Megatron-LM required to load the checkpoint
-- ✅ **Standard format**: Can be used with any PyTorch model
-- ✅ **Smaller size**: Exported checkpoints only contain model weights (no optimizer state)
-- ✅ **Compatible**: Can be loaded by other frameworks (vLLM, SGLang, etc.) with proper model initialization
-
-**Note**: Full HuggingFace format conversion may require additional layer name mapping and tensor reshaping. For production use, consider using tools like [Megatron-Bridge](https://github.com/NVIDIA-NeMo/Megatron-Bridge) for complete format conversion.
-
-**Building a wheel package** (optional):
-
-If you want to create a standalone wheel that includes `megatron.training`, see `code/megatron/BUILD_PACKAGE.md` for instructions on building a custom package.
-
 
 ## References
 
