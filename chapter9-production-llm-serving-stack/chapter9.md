@@ -227,431 +227,156 @@ We'll explore Kubernetes-based LLM serving in two steps. First, we'll set up a l
 
 k3d wraps k3s (a lightweight Kubernetes distribution) inside Docker containers, giving you a fully functional Kubernetes cluster in minutes. It's lightweight (no VMs needed), supports GPU passthrough, and produces manifests that work unchanged on production clusters. This makes it ideal for developing and testing LLM serving configurations before deploying to production.
 
-The complete k3d setup scripts are available in `code/k3d/`. Here we'll walk through the key steps.
-
-#### Prerequisites
-
-Before setting up k3d, ensure your system has the following:
-
-**1. NVIDIA Drivers**
-
-Verify NVIDIA drivers are installed:
+The complete k3d setup scripts are available in `code/k3d/`. The setup involves three main steps: installing prerequisites, building a custom GPU-enabled k3s image, and creating the cluster.
 
 ```bash
-nvidia-smi
+cd code/k3d
+
+# Step 1: Install prerequisites (NVIDIA Container Toolkit, k3d)
+./install-prerequisites.sh
+
+# Step 2: Build custom k3s-cuda image
+./build.sh
+
+# Step 3: Create cluster with GPU support
+./create-cluster.sh
 ```
 
-If not installed, install drivers for your system.
+The `install-prerequisites.sh` script checks for NVIDIA drivers, installs the NVIDIA Container Toolkit, and installs k3d. The `build.sh` script creates a custom k3s image with CUDA and NVIDIA runtime support—necessary because the default k3s image doesn't include GPU support.
 
-**2. NVIDIA Container Toolkit**
+The custom image combines k3s with CUDA and the NVIDIA Container Toolkit. The key files are `code/k3d/Dockerfile` and `code/k3d/device-plugin-daemonset.yaml`. The Dockerfile uses a multi-stage build to copy k3s binaries into an NVIDIA CUDA base image, then installs the container toolkit and configures containerd to use the NVIDIA runtime. The device plugin manifest is automatically deployed when the cluster starts, making GPUs visible to Kubernetes as `nvidia.com/gpu` resources.
 
-The NVIDIA Container Toolkit enables containers to access GPUs:
+Build the image by running `./build.sh` from the `code/k3d/` directory, or manually:
 
 ```bash
-# Add NVIDIA repository
-distribution=$(. /etc/os-release;echo $ID$VERSION_ID)
-curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | \
-  sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
-
-curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
-  sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
-  sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
-
-# Install
-sudo apt-get update
-sudo apt-get install -y nvidia-container-toolkit
-
-# Configure Docker runtime
-sudo nvidia-ctk runtime configure --runtime=docker
-sudo systemctl restart docker
-```
-
-**3. Docker and k3d**
-
-Install Docker (if not already installed) and k3d:
-
-```bash
-# Install k3d
-curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash
-
-# Verify installation
-k3d --version
-```
-
-### Building a Custom GPU-Enabled k3s Image
-
-The default k3s image doesn't include NVIDIA Container Toolkit support. We need to build a custom image that includes both k3s and NVIDIA runtime support.
-
-**Step 1: Create Dockerfile**
-
-Create a Dockerfile that combines k3s with CUDA and NVIDIA Container Toolkit:
-
-```dockerfile
-ARG K3S_TAG="v1.33.6-k3s1"
-ARG CUDA_TAG="12.4.1-base-ubuntu22.04"
-
-FROM rancher/k3s:$K3S_TAG as k3s
-FROM nvcr.io/nvidia/cuda:$CUDA_TAG
-
-# Install the NVIDIA container toolkit
-RUN apt-get update && apt-get install -y curl \
-    && curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg \
-    && curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
-      sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
-      tee /etc/apt/sources.list.d/nvidia-container-toolkit.list \
-    && apt-get update && apt-get install -y nvidia-container-toolkit \
-    && nvidia-ctk runtime configure --runtime=containerd
-
-# Copy k3s binaries
-COPY --from=k3s / / --exclude=/bin
-COPY --from=k3s /bin /bin
-
-# Deploy the nvidia device plugin on startup
-COPY device-plugin-daemonset.yaml /var/lib/rancher/k3s/server/manifests/nvidia-device-plugin-daemonset.yaml
-
-VOLUME /var/lib/kubelet
-VOLUME /var/lib/rancher/k3s
-VOLUME /var/lib/cni
-VOLUME /var/log
-
-ENV PATH="$PATH:/bin/aux"
-
-ENTRYPOINT ["/bin/k3s"]
-CMD ["agent"]
-```
-
-**Step 2: Create NVIDIA Device Plugin Manifest**
-
-Create `device-plugin-daemonset.yaml`:
-
-```yaml
-apiVersion: apps/v1
-kind: DaemonSet
-metadata:
-  name: nvidia-device-plugin-daemonset
-  namespace: kube-system
-spec:
-  selector:
-    matchLabels:
-      name: nvidia-device-plugin-ds
-  updateStrategy:
-    type: RollingUpdate
-  template:
-    metadata:
-      labels:
-        name: nvidia-device-plugin-ds
-    spec:
-      tolerations:
-      - key: nvidia.com/gpu
-        operator: Exists
-        effect: NoSchedule
-      priorityClassName: "system-node-critical"
-      containers:
-      - image: nvcr.io/nvidia/k8s-device-plugin:v0.17.3
-        name: nvidia-device-plugin-ctr
-        env:
-        - name: FAIL_ON_INIT_ERROR
-          value: "false"
-        securityContext:
-          allowPrivilegeEscalation: false
-          capabilities:
-            drop: ["ALL"]
-        volumeMounts:
-        - name: device-plugin
-          mountPath: /var/lib/kubelet/device-plugins
-      volumes:
-      - name: device-plugin
-        hostPath:
-          path: /var/lib/kubelet/device-plugins
-      nodeSelector:
-        accelerator: nvidia-tesla-k80
-```
-
-**Step 3: Build the Custom Image**
-
-Build the image using Docker BuildKit (required for the `--exclude` flag):
-
-```bash
-# Enable BuildKit
+cd code/k3d
 export DOCKER_BUILDKIT=1
-
-# Build the image
-docker build \
-  --build-arg K3S_TAG=v1.33.6-k3s1 \
-  --build-arg CUDA_TAG=12.2.0-base-ubuntu22.04 \
-  -t k3s-cuda:v1.33.6-cuda-12.2.0 \
-  .
-
-# Verify the image
-docker images | grep k3s-cuda
+docker build -t k3s-cuda:v1.33.6-cuda-12.2.0 .
 ```
 
-I can see:
-
-```
-k3s-cuda v1.33.6-cuda-12.2.0-working   f2cb1b953c67   1 days ago     833MB
-```
-
-**Note:** If you encounter issues with the `--exclude` flag, ensure Docker BuildKit is enabled. You may need to install `docker buildx`:
-
-```bash
-# Install buildx
-docker buildx version || docker plugin install --grant-all-permissions moby/buildx
-
-# Use buildx for building (recommended)
-docker buildx build \
-  --build-arg K3S_TAG=v1.33.6-k3s1 \
-  --build-arg CUDA_TAG=12.2.0-base-ubuntu22.04 \
-  -t k3s-cuda:v1.33.6-cuda-12.2.0 \
-  --load .
-
-# Note: CUDA 12.4.1 also works, but 12.2.0 is tested and recommended
-```
+The build requires Docker BuildKit for the `--exclude` flag in the multi-stage copy. If you encounter issues, ensure `docker buildx` is available.
 
 ### Creating a 2-Node GPU Cluster
 
-**Architecture Overview:**
+Figure \ref{fig:k3d-architecture} shows the architecture of a k3d GPU cluster. The host machine runs Docker Engine, which contains the k3d network with two nodes: a control plane (server-0) running Kubernetes control plane services, and a worker node (agent-0) running application workloads like vLLM pods. Both nodes use the custom k3s-cuda image and have GPU passthrough via `--gpus=all`. The NVIDIA device plugin runs as a DaemonSet, exposing physical GPUs to Kubernetes as `nvidia.com/gpu` resources.
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                          Host Machine (Linux)                                │
-│                                                                               │
-│  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │                    Docker Engine                                     │   │
-│  │                                                                       │   │
-│  │  ┌───────────────────────────────────────────────────────────────┐ │   │
-│  │  │         k3d Network: k3d-mycluster-gpu                          │ │   │
-│  │  │                                                                 │ │   │
-│  │  │  ┌─────────────────────────────────────────────────────────┐  │ │   │
-│  │  │  │  Control Plane Node (Server-0)                           │  │ │   │
-│  │  │  │  Container: k3d-mycluster-gpu-server-0                    │  │ │   │
-│  │  │  │  Image: k3s-cuda:v1.33.6-cuda-12.2.0                      │  │ │   │
-│  │  │  │  ┌───────────────────────────────────────────────────┐  │  │ │   │
-│  │  │  │  │  Kubernetes Control Plane Services                  │  │  │ │   │
-│  │  │  │  │  ├─ kube-apiserver (port 6443)                      │  │  │ │   │
-│  │  │  │  │  ├─ kube-controller-manager                         │  │  │ │   │
-│  │  │  │  │  ├─ kube-scheduler                                  │  │  │ │   │
-│  │  │  │  │  ├─ etcd (state storage)                           │  │  │ │   │
-│  │  │  │  │  └─ kubelet (node agent)                           │  │  │ │   │
-│  │  │  │  │                                                     │  │  │ │   │
-│  │  │  │  │  ┌─────────────────────────────────────────────┐  │  │  │ │   │
-│  │  │  │  │  │  kube-system Namespace                       │  │  │  │ │   │
-│  │  │  │  │  │  ├─ nvidia-device-plugin-daemonset           │  │  │  │ │   │
-│  │  │  │  │  │  │   └─ Discovers & exposes GPUs to K8s     │  │  │  │ │   │
-│  │  │  │  │  │  ├─ local-path-provisioner                    │  │  │  │ │   │
-│  │  │  │  │  │  └─ coredns (DNS)                             │  │  │  │ │   │
-│  │  │  │  │  └─────────────────────────────────────────────┘  │  │  │ │   │
-│  │  │  │  └───────────────────────────────────────────────────┘  │  │ │   │
-│  │  │  │                                                          │  │ │   │
-│  │  │  │  GPU Access: --gpus=all (shared with host)              │  │ │   │
-│  │  │  │  Volume Mount: /raid/models → /models (optional)        │  │ │   │
-│  │  │  └─────────────────────────────────────────────────────────┘  │ │   │
-│  │  │                                                                 │ │   │
-│  │  │  ┌─────────────────────────────────────────────────────────┐  │ │   │
-│  │  │  │  Worker Node (Agent-0)                                  │  │ │   │
-│  │  │  │  Container: k3d-mycluster-gpu-agent-0                    │  │ │   │
-│  │  │  │  Image: k3s-cuda:v1.33.6-cuda-12.2.0                    │  │ │   │
-│  │  │  │  ┌───────────────────────────────────────────────────┐  │  │ │   │
-│  │  │  │  │  Kubernetes Worker Services                       │  │  │ │   │
-│  │  │  │  │  ├─ kubelet (connects to API server)              │  │  │ │   │
-│  │  │  │  │  ├─ kube-proxy (network proxy)                    │  │  │ │   │
-│  │  │  │  │  └─ containerd (container runtime)               │  │  │ │   │
-│  │  │  │  │                                                     │  │  │ │   │
-│  │  │  │  │  ┌─────────────────────────────────────────────┐  │  │  │ │   │
-│  │  │  │  │  │  Workload Pods (default namespace)         │  │  │  │ │   │
-│  │  │  │  │  │  ├─ vLLM pods (with GPU requests)           │  │  │  │ │   │
-│  │  │  │  │  │  ├─ gpu-test pods                            │  │  │  │ │   │
-│  │  │  │  │  │  └─ Other application pods                   │  │  │  │ │   │
-│  │  │  │  │  └─────────────────────────────────────────────┘  │  │  │ │   │
-│  │  │  │  │                                                     │  │  │ │   │
-│  │  │  │  │  ┌─────────────────────────────────────────────┐  │  │  │ │   │
-│  │  │  │  │  │  kube-system Namespace                     │  │  │  │ │   │
-│  │  │  │  │  │  ├─ nvidia-device-plugin-daemonset           │  │  │  │ │   │
-│  │  │  │  │  │  │   └─ Reports GPU capacity to API server   │  │  │  │ │   │
-│  │  │  │  │  │  └─ local-path-provisioner                  │  │  │  │ │   │
-│  │  │  │  │  └─────────────────────────────────────────────┘  │  │  │ │   │
-│  │  │  │  └───────────────────────────────────────────────────┘  │  │ │   │
-│  │  │  │                                                          │  │ │   │
-│  │  │  │  GPU Access: --gpus=all (shared with host)              │  │ │   │
-│  │  │  │  Volume Mount: /raid/models → /models (optional)        │  │ │   │
-│  │  │  └─────────────────────────────────────────────────────────┘  │ │   │
-│  │  │                                                                 │ │   │
-│  │  │  Network: Docker bridge network                                │ │   │
-│  │  │  ├─ Server-0: 172.18.0.2 (API: 6443)                         │ │   │
-│  │  │  └─ Agent-0:  172.18.0.3 (connects to Server-0)               │ │   │
-│  │  └───────────────────────────────────────────────────────────────┘ │   │
-│  └─────────────────────────────────────────────────────────────────────┘   │
-│                                                                               │
-│  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │                    Physical GPU Resources                              │   │
-│  │  ┌──────┐  ┌──────┐  ┌──────┐  ┌──────┐  ┌──────┐  ┌──────┐         │   │
-│  │  │ GPU0 │  │ GPU1 │  │ GPU2 │  │ GPU3 │  │ GPU4 │  │ GPU5 │  ...    │   │
-│  │  └──────┘  └──────┘  └──────┘  └──────┘  └──────┘  └──────┘         │   │
-│  │     │         │         │         │         │         │              │   │
-│  │     └─────────┴─────────┴─────────┴─────────┴─────────┘              │   │
-│  │                    │                                                  │   │
-│  │                    ▼                                                  │   │
-│  │         NVIDIA Device Plugin (DaemonSet)                               │   │
-│  │         Discovers GPUs and exposes as nvidia.com/gpu resource          │   │
-│  └─────────────────────────────────────────────────────────────────────┘   │
-│                                                                               │
-│  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │                    Host Filesystem                                   │   │
-│  │  /raid/models/  (mounted into containers as /models)                 │   │
-│  │  ├─ Llama-3.2-1B-Instruct/                                           │   │
-│  │  ├─ Phi-tiny-MoE-instruct/                                           │   │
-│  │  └─ ... (other models)                                                │   │
-│  └─────────────────────────────────────────────────────────────────────┘   │
-│                                                                               │
-│  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │                    kubectl Access                                    │   │
-│  │  ~/.kube/config → k3d-mycluster-gpu                                  │   │
-│  │  Server: https://127.0.0.1:6443 (via k3d proxy)                     │   │
-│  └─────────────────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────────────────┘
+![k3d GPU cluster architecture showing host machine, Docker Engine, k3d network with control plane and worker nodes, GPU passthrough, and volume mounts.](img/k3d_architecture.png){#fig:k3d-architecture}
 
-Key Components:
-├─ Control Plane Node: Manages cluster state, schedules pods, exposes API
-├─ Worker Node: Runs application workloads (vLLM pods, etc.)
-├─ NVIDIA Device Plugin: Discovers GPUs and makes them available to K8s
-├─ Volume Mounts: Optional model directory sharing between host and containers
-└─ Network: Docker bridge network connecting all nodes
-```
-
-**Step 1: Create the Cluster**
-
-**Important:** You must use the custom `k3s-cuda` image built in the previous section. This image provides GPU support for the Kubernetes cluster nodes.
-
-Create a 2-node cluster (1 control-plane + 1 worker) with GPU support:
+The `create-cluster.sh` script creates a 2-node cluster (1 control-plane + 1 worker) with GPU passthrough. You can also create the cluster manually with custom options:
 
 ```bash
-# Option 1: Use all available GPUs
+# Basic cluster with all GPUs
 k3d cluster create mycluster-gpu \
   --image k3s-cuda:v1.33.6-cuda-12.2.0 \
   --gpus=all \
-  --servers 1 \
-  --agents 1
+  --servers 1 --agents 1
 
-# Option 2: Use all GPUs + mount model directory (for vLLM deployment)
+# With model directory mounted
 k3d cluster create mycluster-gpu \
   --image k3s-cuda:v1.33.6-cuda-12.2.0 \
   --gpus=all \
-  --servers 1 \
-  --agents 1 \
-  --volume /raid/models:/models
+  --servers 1 --agents 1 \
+  --volume /path/to/models:/models
 
-# Option 3: Use specific GPUs (e.g., GPU 4 and 5)
+# With specific GPUs only
 k3d cluster create mycluster-gpu \
   --image k3s-cuda:v1.33.6-cuda-12.2.0 \
-  --gpus "device=4,5" \
-  --servers 1 \
-  --agents 1
-
-# Note: CUDA version can be 12.2.0 or 12.4.1 (both tested and working)
-# The --image flag uses the k3s-cuda image you built in Step 3 above
+  --gpus "device=0,1" \
+  --servers 1 --agents 1
 ```
 
-**Step 2: Configure kubectl**
-
-Set up kubeconfig to access the cluster:
+After creation, k3d automatically configures kubectl. Verify the cluster:
 
 ```bash
-# Merge k3d kubeconfig
-k3d kubeconfig merge mycluster-gpu --kubeconfig-merge-default
-
-# Verify access
-export KUBECONFIG=$HOME/.kube/config
 kubectl get nodes
+# NAME                         STATUS   ROLES           AGE   VERSION
+# k3d-mycluster-gpu-server-0   Ready    control-plane   30s   v1.33.6+k3s1
+# k3d-mycluster-gpu-agent-0    Ready    <none>          25s   v1.33.6+k3s1
+
+kubectl describe nodes | grep nvidia.com/gpu
 ```
 
-**Note:** If you see errors like `The connection to the server localhost:8080 was refused`, the kubeconfig may have an incorrect server address. Fix it:
+You should see `nvidia.com/gpu: N` in the output, where N is the number of GPUs. To test GPU access end-to-end, use the provided test script:
 
 ```bash
-# Check current server address
-kubectl config view -o jsonpath='{.clusters[?(@.name=="k3d-mycluster-gpu")].cluster.server}'
-
-# If it shows 0.0.0.0, update to 127.0.0.1
-KUBE_SERVER=$(kubectl config view -o jsonpath='{.clusters[?(@.name=="k3d-mycluster-gpu")].cluster.server}')
-kubectl config set-cluster k3d-mycluster-gpu --server=$(echo $KUBE_SERVER | sed 's/0.0.0.0/127.0.0.1/')
-
-# Verify again
-kubectl get nodes
+cd code/k3d
+./verify-gpu.sh
 ```
 
-You should see both nodes:
+This runs a test pod that executes `nvidia-smi` inside the cluster, confirming that GPUs are accessible to Kubernetes workloads.
 
-```
-NAME                         STATUS   ROLES           AGE   VERSION
-k3d-mycluster-gpu-server-0   Ready    control-plane   30s   v1.33.6+k3s1
-k3d-mycluster-gpu-agent-0    Ready    <none>          25s   v1.33.6+k3s1
-```
+### Deploying vLLM on k3d
 
-**Step 3: Verify GPU Visibility**
+With the GPU cluster ready, deploying vLLM is straightforward. The `code/k3d/vllm/` directory contains ready-to-use deployment manifests for different models.
 
-The NVIDIA device plugin is automatically deployed by the custom k3s image (via the manifest in `/var/lib/rancher/k3s/server/manifests/`). Check if GPUs are visible to Kubernetes:
+**Quick Start:**
 
 ```bash
-# Wait for device plugin to be ready (it should start automatically)
-kubectl wait --for=condition=ready pod -l name=nvidia-device-plugin-ds -n kube-system --timeout=120s
+cd code/k3d/vllm
 
-# Verify device plugin pods are running
-kubectl get pods -n kube-system | grep nvidia
+# For gated models (like Llama), create a Hugging Face token secret first
+kubectl create secret generic hf-token-secret --from-literal=token="$HF_TOKEN"
 
-# Check GPU resources on nodes
-kubectl describe node k3d-mycluster-gpu-server-0 | grep nvidia.com/gpu
-kubectl describe node k3d-mycluster-gpu-agent-0 | grep nvidia.com/gpu
+# Deploy Llama-3.2-1B (requires ~8GB GPU memory)
+kubectl apply -f llama-3.2-1b.yaml
+
+# Or deploy Phi-tiny-MoE (smaller, good for testing)
+./deploy-phi-tiny-moe.sh
 ```
 
-You should see output like:
-
-```
-Capacity:
-  nvidia.com/gpu:  8
-Allocatable:
-  nvidia.com/gpu:  8
-```
-
-**Step 4: Test GPU Access**
-
-Create a simple test pod to verify GPU access:
-
-```yaml
-apiVersion: v1
-kind: Pod
-metadata:
-  name: gpu-test
-spec:
-  restartPolicy: OnFailure
-  runtimeClassName: nvidia
-  containers:
-  - name: cuda
-    image: nvidia/cuda:12.2.0-base-ubuntu22.04
-    command: ["nvidia-smi"]
-    resources:
-      limits:
-        nvidia.com/gpu: 1
-```
-
-Apply and verify:
+The deployment manifests handle GPU resource requests, health probes, model caching, and service exposure. Monitor the deployment:
 
 ```bash
-kubectl apply -f gpu-test.yaml
-kubectl wait --for=condition=Ready pod/gpu-test --timeout=60s
-kubectl logs gpu-test
+kubectl get pods -l app=vllm -w
+kubectl logs -l app=vllm --follow
 ```
 
-You should see `nvidia-smi` output showing GPU information.
+Once running, test the OpenAI-compatible API:
 
-### Deploying vLLM with Official Image and Hugging Face Models
+```bash
+kubectl port-forward svc/vllm-llama-32-1b-service 8000:8000 &
 
-This section demonstrates deploying vLLM using the official `vllm/vllm-openai:latest` Docker image with models downloaded from Hugging Face. This is the recommended approach for production deployments as it uses the official, tested vLLM image.
+curl http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "meta-llama/Llama-3.2-1B-Instruct",
+    "messages": [{"role": "user", "content": "Hello!"}],
+    "max_tokens": 50
+  }'
+```
 
-**Prerequisites:**
+**Key Configuration Options:**
 
-- GPU-enabled Kubernetes cluster (as set up in previous sections)
-- Access to Hugging Face (for model downloads)
-- Optional: Hugging Face token for gated models
+The vLLM deployment manifests demonstrate important configuration patterns:
 
+- **GPU Memory**: `--gpu-memory-utilization 0.2` reserves 20% of GPU memory, allowing multiple models on shared GPUs
+- **Health Probes**: Long `initialDelaySeconds` (120-180s) accounts for model loading time
+- **Model Caching**: Host volume mounts (`/models`) cache downloaded models across pod restarts
+- **Shared Memory**: `/dev/shm` mount required for tensor parallel inference
+
+For larger models or multi-GPU setups, adjust `--tensor-parallel-size` and GPU resource limits. See `code/k3d/README.md` for detailed configuration and troubleshooting.
+
+### Cleanup
+
+```bash
+k3d cluster delete mycluster-gpu
+docker rmi k3s-cuda:v1.33.6-cuda-12.2.0  # optional
+```
+
+### Additional k3d Examples
+
+The `code/k3d/` directory contains additional examples:
+
+- `sglang/`: SGLang deployment manifests
+- `tensorrt/`: TensorRT-LLM deployment
+- `gateway/`: API gateway configuration
+- `manage-cluster-multi-models.sh`: Script for managing multiple model deployments
+
+Refer to `code/k3d/README.md` for comprehensive documentation on all available configurations and deployment patterns.
+
+<!-- The following sections are preserved for reference but the main deployment flow uses code/k3d/ -->
+
+<!--
 **Step 1: Create Persistent Volume Claim (Optional)**
 
 A PVC is used to cache downloaded models, reducing startup time on subsequent deployments:
@@ -1784,6 +1509,7 @@ With a working GPU-enabled Kubernetes cluster, you can:
 5. **Upgrade to llm-d:** Use the cluster to deploy llm-d (covered in the next section)
 
 This local setup provides a safe environment to experiment with production patterns before deploying to cloud Kubernetes services.
+-->
 
 ## Kubernetes Deployment with llm-d
 
