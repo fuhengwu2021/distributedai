@@ -201,7 +201,7 @@ squeue -u $USER          # List your jobs
 scontrol show job <job_id>  # Detailed job info
 ```
 
-![SLURM job state lifecycle.](img/job_lifecycle.png){#fig:job-lifecycle .block width=90% align=center}
+![SLURM job state lifecycle](img/job_lifecycle.png){#fig:job-lifecycle .block width=90% align=center}
 
 Figure~\ref{fig:job-lifecycle} shows the job state transitions. Jobs start in PENDING while waiting for resources, move to RUNNING when allocated, then COMPLETING during cleanup, and finally COMPLETED on success. Jobs can also transition to FAILED (on error), CANCELLED (user intervention), or TIMEOUT (exceeded time limit). Use `squeue` to see current state and `sacct` for historical job information.
 
@@ -216,6 +216,7 @@ When you use `torchrun` or initialize `torch.distributed` with `init_method='env
 ![SLURM to PyTorch environment variable mapping.](img/slurm_env_vars_mapping.png){#fig:slurm-env-vars .block width=85% align=center}
 
 Figure~\ref{fig:slurm-env-vars} shows the mapping between SLURM and PyTorch environment variables. Your training script can either use SLURM variables directly or export them as standard PyTorch variables (`RANK`, `LOCAL_RANK`, `WORLD_SIZE`, `MASTER_ADDR`). The `torchrun` launcher handles this translation automatically when used with SLURM.
+
 
 ## PyTorch Distributed Training with Slurm
 
