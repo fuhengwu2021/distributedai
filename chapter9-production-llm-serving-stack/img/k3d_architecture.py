@@ -26,7 +26,7 @@ fig, ax = plt.subplots(figsize=(10, 8))
 ax.set_xlim(0, 12)
 ax.set_ylim(0, 9)
 ax.set_aspect('equal')
-#ax.axis('off')
+ax.axis('off')
 
 # Colors
 host_color = '#E8EAF6'       # Light indigo
@@ -227,7 +227,7 @@ for x, y, color, label in legend_items:
         linewidth=1
     )
     ax.add_patch(box)
-    ax.text(x + 0.25, y, label, ha='left', va='center', fontsize=14)
+    ax.text(x + 0.1, y, label, ha='left', va='center', fontsize=14)
 
 # Tight layout and save
 plt.tight_layout(pad=0.1)

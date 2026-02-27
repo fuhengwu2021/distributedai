@@ -231,13 +231,10 @@ The complete k3d setup scripts are available in `code/k3d/`. The setup involves 
 
 ```bash
 cd code/k3d
-
 # Step 1: Install prerequisites (NVIDIA Container Toolkit, k3d)
 ./install-prerequisites.sh
-
 # Step 2: Build custom k3s-cuda image
 ./build.sh
-
 # Step 3: Create cluster with GPU support
 ./create-cluster.sh
 ```
@@ -256,31 +253,48 @@ docker build -t k3s-cuda:v1.33.6-cuda-12.2.0 .
 
 The build requires Docker BuildKit for the `--exclude` flag in the multi-stage copy. If you encounter issues, ensure `docker buildx` is available.
 
+The image tag combines two version numbers that you'll need to choose for your environment: the k3s (Kubernetes) version and the CUDA version. The k3s version is flexible—any recent stable release from the `rancher/k3s` Docker Hub repository should work. The CUDA version, however, must be compatible with the NVIDIA driver installed on your host machine.
+
+To find the right CUDA version, run `nvidia-smi` and note the "CUDA Version" shown in the top-right corner—this indicates the maximum CUDA version your driver supports. You can use any CUDA version up to and including that number. For the available CUDA base images, check the `nvidia/cuda` repository on Docker Hub^[NVIDIA CUDA Docker images: \url{https://hub.docker.com/r/nvidia/cuda}] and select a tag matching your needs (e.g., `13.0.0-base-ubuntu24.04` for CUDA 13 on Ubuntu 24.04).
+
+To build with your chosen versions, pass the appropriate build arguments:
+
+```bash
+# Example: check available k3s tags at hub.docker.com/r/rancher/k3s
+# Example: check available CUDA tags at hub.docker.com/r/nvidia/cuda
+docker build \
+  --build-arg K3S_TAG=v1.32.0-k3s1 \
+  --build-arg CUDA_TAG=13.0.0-base-ubuntu24.04 \
+  -t k3s-cuda:v1.32.0-cuda-13.0.0 .
+```
+
+Throughout the rest of this section, we use `<your-tag>` as a placeholder—replace it with whatever tag you chose when building your image.
+
 ### Creating a 2-Node GPU Cluster
 
 Figure \ref{fig:k3d-architecture} shows the architecture of a k3d GPU cluster. The host machine runs Docker Engine, which contains the k3d network with two nodes: a control plane (server-0) running Kubernetes control plane services, and a worker node (agent-0) running application workloads like vLLM pods. Both nodes use the custom k3s-cuda image and have GPU passthrough via `--gpus=all`. The NVIDIA device plugin runs as a DaemonSet, exposing physical GPUs to Kubernetes as `nvidia.com/gpu` resources.
 
-![k3d GPU cluster architecture showing host machine, Docker Engine, k3d network with control plane and worker nodes, GPU passthrough, and volume mounts.](img/k3d_architecture.png){#fig:k3d-architecture}
+![k3d GPU cluster architecture](img/k3d_architecture.png){#fig:k3d-architecture}
 
-The `create-cluster.sh` script creates a 2-node cluster (1 control-plane + 1 worker) with GPU passthrough. You can also create the cluster manually with custom options:
+The `create-cluster.sh` script creates a 2-node cluster (1 control-plane + 1 worker) with GPU passthrough. You can also create the cluster manually with custom options (replace the image tag with the version you built):
 
 ```bash
 # Basic cluster with all GPUs
 k3d cluster create mycluster-gpu \
-  --image k3s-cuda:v1.33.6-cuda-12.2.0 \
+  --image k3s-cuda:<your-tag> \
   --gpus=all \
   --servers 1 --agents 1
 
 # With model directory mounted
 k3d cluster create mycluster-gpu \
-  --image k3s-cuda:v1.33.6-cuda-12.2.0 \
+  --image k3s-cuda:<your-tag> \
   --gpus=all \
   --servers 1 --agents 1 \
   --volume /path/to/models:/models
 
 # With specific GPUs only
 k3d cluster create mycluster-gpu \
-  --image k3s-cuda:v1.33.6-cuda-12.2.0 \
+  --image k3s-cuda:<your-tag> \
   --gpus "device=0,1" \
   --servers 1 --agents 1
 ```
@@ -307,31 +321,34 @@ This runs a test pod that executes `nvidia-smi` inside the cluster, confirming t
 
 ### Deploying vLLM on k3d
 
-With the GPU cluster ready, deploying vLLM is straightforward. The `code/k3d/vllm/` directory contains ready-to-use deployment manifests for different models.
+With the GPU cluster running, we can now deploy vLLM to serve LLM inference. The `code/k3d/vllm/` directory contains ready-to-use Kubernetes manifests for several models, so you don't need to write YAML from scratch.
 
-**Quick Start:**
+If you're deploying a gated model like Llama that requires Hugging Face authentication, first create a Kubernetes secret containing your token:
+
+```bash
+kubectl create secret generic hf-token-secret --from-literal=token="$HF_TOKEN"
+```
+
+Then deploy the model. For a lightweight test, Phi-tiny-MoE works well on smaller GPUs. For a more capable model, Llama-3.2-1B requires approximately 8GB of GPU memory:
 
 ```bash
 cd code/k3d/vllm
 
-# For gated models (like Llama), create a Hugging Face token secret first
-kubectl create secret generic hf-token-secret --from-literal=token="$HF_TOKEN"
-
-# Deploy Llama-3.2-1B (requires ~8GB GPU memory)
+# Option 1: Deploy Llama-3.2-1B
 kubectl apply -f llama-3.2-1b.yaml
 
-# Or deploy Phi-tiny-MoE (smaller, good for testing)
+# Option 2: Deploy Phi-tiny-MoE (smaller, good for testing)
 ./deploy-phi-tiny-moe.sh
 ```
 
-The deployment manifests handle GPU resource requests, health probes, model caching, and service exposure. Monitor the deployment:
+The deployment manifests configure everything needed for production serving: GPU resource requests, health probes with appropriate timeouts for model loading, volume mounts for model caching, and Kubernetes services for network access. You can watch the deployment progress and model loading:
 
 ```bash
 kubectl get pods -l app=vllm -w
 kubectl logs -l app=vllm --follow
 ```
 
-Once running, test the OpenAI-compatible API:
+Model loading typically takes 2-5 minutes depending on model size and whether it's cached locally. Once the pod shows `Running` status and the logs indicate the server is ready, you can test the OpenAI-compatible API by forwarding the service port to your local machine:
 
 ```bash
 kubectl port-forward svc/vllm-llama-32-1b-service 8000:8000 &
@@ -345,34 +362,37 @@ curl http://localhost:8000/v1/chat/completions \
   }'
 ```
 
-**Key Configuration Options:**
+The deployment manifests demonstrate several important configuration patterns worth understanding:
 
-The vLLM deployment manifests demonstrate important configuration patterns:
+- **GPU Memory Allocation**: The `--gpu-memory-utilization 0.2` flag reserves only 20% of GPU memory, which is useful when running multiple models on shared GPUs. Increase this value (up to 0.9) for single-model deployments where you want maximum throughput.
 
-- **GPU Memory**: `--gpu-memory-utilization 0.2` reserves 20% of GPU memory, allowing multiple models on shared GPUs
-- **Health Probes**: Long `initialDelaySeconds` (120-180s) accounts for model loading time
-- **Model Caching**: Host volume mounts (`/models`) cache downloaded models across pod restarts
-- **Shared Memory**: `/dev/shm` mount required for tensor parallel inference
+- **Health Probes**: Kubernetes liveness and readiness probes use long `initialDelaySeconds` values (120-180 seconds) because LLM models take significant time to load into GPU memory. Without this delay, Kubernetes would restart the pod before the model finishes loading.
 
-For larger models or multi-GPU setups, adjust `--tensor-parallel-size` and GPU resource limits. See `code/k3d/README.md` for detailed configuration and troubleshooting.
+- **Model Caching**: Host volume mounts at `/models` persist downloaded model weights across pod restarts, avoiding repeated downloads from Hugging Face.
+
+- **Shared Memory**: The `/dev/shm` mount is required for tensor parallel inference, where vLLM uses shared memory for inter-process communication.
+
+For larger models that don't fit on a single GPU, adjust `--tensor-parallel-size` to shard the model across multiple GPUs, and update the resource limits accordingly. The `code/k3d/README.md` file provides detailed guidance on multi-GPU configurations and troubleshooting common issues.
 
 ### Cleanup
 
+When you're done experimenting, clean up the cluster to free resources:
+
 ```bash
 k3d cluster delete mycluster-gpu
-docker rmi k3s-cuda:v1.33.6-cuda-12.2.0  # optional
+docker rmi k3s-cuda:<your-tag>  # optional, removes the custom image
 ```
 
 ### Additional k3d Examples
 
-The `code/k3d/` directory contains additional examples:
+The `code/k3d/` directory contains additional deployment examples beyond vLLM:
 
-- `sglang/`: SGLang deployment manifests
-- `tensorrt/`: TensorRT-LLM deployment
-- `gateway/`: API gateway configuration
-- `manage-cluster-multi-models.sh`: Script for managing multiple model deployments
+- `sglang/`: Deployment manifests for SGLang, an alternative inference engine with RadixAttention
+- `tensorrt/`: TensorRT-LLM deployment for optimized NVIDIA inference
+- `gateway/`: API gateway configuration for routing and load balancing
+- `manage-cluster-multi-models.sh`: A script demonstrating how to deploy and manage multiple models simultaneously
 
-Refer to `code/k3d/README.md` for comprehensive documentation on all available configurations and deployment patterns.
+These examples follow the same patterns as the vLLM deployment, so once you understand one, the others are straightforward to adapt. Refer to `code/k3d/README.md` for comprehensive documentation on all available configurations.
 
 <!-- The following sections are preserved for reference but the main deployment flow uses code/k3d/ -->
 
