@@ -806,79 +806,87 @@ These produce verbose output showing exactly what NCCL is doing—connection est
 
 ## Best Practices
 
+After working through the examples above, a few patterns emerge that are worth highlighting explicitly.
+
 ### Resource Allocation
 
-- **Always specify resources explicitly**: Don't rely on defaults
-- **Use `--exclusive` for full node**: When you need all resources on a node
-- **Request appropriate memory**: Use `--mem` or `--mem-per-gpu` to avoid OOM
+One common mistake is relying on cluster defaults for resource allocation. Different clusters have different defaults, and what works on your lab cluster may fail silently on a shared HPC system. Always specify resources explicitly in your batch scripts: `--nodes`, `--gres`, `--cpus-per-task`, `--mem`, and `--time`. This makes your scripts portable and self-documenting.
 
-```bash
-srun -N 2 --gres=gpu:1 --mem=200G --cpus-per-task=28 python code/train.py
-```
+When you need guaranteed exclusive access to nodes—common for large-scale training where you want to avoid interference from other jobs—use the `--exclusive` flag. This ensures no other jobs share your allocated nodes, even if you're not using all their resources.
 
-### Multi-Node Communication
-
-- **Use high-speed interconnects**: InfiniBand or high-speed Ethernet for multi-node
-- **Set appropriate NCCL environment variables**:
-
-```bash
-export NCCL_IB_DISABLE=0  # Enable InfiniBand if available
-export NCCL_SOCKET_IFNAME=eth0  # Specify network interface
-export NCCL_DEBUG=INFO  # For debugging
-```
+Memory allocation deserves special attention. GPU out-of-memory errors are obvious, but CPU memory exhaustion can cause silent failures or mysterious crashes. Request enough memory with `--mem` (per node) or `--mem-per-cpu`, and remember that data loading workers consume CPU memory too.
 
 ### Checkpointing Strategy
 
-- **Frequent checkpoints**: Save every N steps, not just at epoch boundaries
-- **Distributed checkpointing**: Use `torch.distributed.checkpoint` for FSDP
-- **Resume capability**: Always implement `--resume` flag in training scripts
+For long training runs, checkpointing strategy can make the difference between losing days of work and seamlessly resuming after an interruption. Save checkpoints at regular step intervals rather than just at epoch boundaries—if your epochs are long, an epoch-based strategy means losing significant progress on failure.
 
-### Error Handling
+When using FSDP, leverage `torch.distributed.checkpoint` for efficient distributed saves that don't require gathering the full model to a single rank. For DeepSpeed and Megatron-LM, use their built-in checkpointing mechanisms which handle sharded state correctly.
 
-- **Handle node failures**: Implement retry logic for transient failures
-- **Validate data loading**: Ensure data is accessible from all nodes
-- **Monitor for deadlocks**: Use timeouts and health checks
+Most importantly, always test your resume logic before starting a long run. Submit a short job, let it checkpoint, cancel it, and verify that resuming produces the same training dynamics. Discovering a bug in your checkpoint loading after losing a week of training is painful.
+
+### Handling Failures
+
+At scale, failures are inevitable. Nodes crash, network connections drop, and jobs get preempted. Design your training pipeline with this in mind.
+
+Implement health checks that detect hung processes—a common failure mode where one rank crashes but others wait indefinitely at a collective operation. PyTorch's `init_process_group` accepts a `timeout` parameter; set it to something reasonable (e.g., 30 minutes) so hung jobs eventually fail rather than consuming resources indefinitely.
+
+Ensure your data loading is robust to transient filesystem issues. Shared filesystems under heavy load can occasionally return errors; wrapping data loading in retry logic with exponential backoff prevents these transient issues from killing your job.
+
+Finally, consider implementing automatic job resubmission for preemptible queues. Many clusters offer lower-priority queues with shorter wait times but the possibility of preemption. A wrapper script that detects preemption and resubmits the job (with `--dependency=singleton` to prevent duplicates) can dramatically improve your effective throughput on busy clusters.
 
 ## Troubleshooting Common Issues
 
+Even with careful setup, things go wrong. This section covers the most common issues you'll encounter and how to diagnose them.
+
 ### Nodes Not Available
 
+Sometimes your job sits in the queue with status `PD` (pending) longer than expected. The first step is checking whether the nodes you're requesting are actually available:
+
 ```bash
-# Check node status
 sinfo -N -l
+```
 
-# Resume down nodes
+This shows each node's state. Common states include `idle` (available), `alloc` (in use), `down` (unavailable), and `drain` (administratively disabled). If nodes are down or drained, you'll need to wait for them to come back or adjust your job to use different nodes.
+
+If you're running a local test cluster (as described in the virtual node setup section), you may need to manually resume nodes after a restart:
+
+```bash
 scontrol update NodeName=node[6-7] State=RESUME
-
-# Drain nodes for maintenance
-scontrol update NodeName=node6 State=DRAIN Reason="maintenance"
 ```
 
 ### GPU Allocation Issues
 
+When jobs fail with GPU-related errors, first verify that SLURM sees the GPUs correctly:
+
 ```bash
-# Check GPU availability
 scontrol show nodes | grep Gres
+```
 
-# Verify GPU mapping
-# Replace $SLURM_PREFIX with your Slurm installation prefix
-cat $SLURM_PREFIX/etc/gres.conf
+This shows the generic resources (including GPUs) configured for each node. If GPUs aren't showing up, check the `gres.conf` file in your SLURM configuration directory. You can also test GPU allocation directly:
 
-# Test GPU allocation
+```bash
 srun -N 1 --gres=gpu:1 nvidia-smi -L
 ```
 
+If this fails, the issue is likely in SLURM's GPU configuration rather than your training script.
+
 ### Communication Errors
 
-- **Check network connectivity**: `srun -N 2 ping -c 3 <other_node>`
-- **Verify NCCL setup**: Set `NCCL_DEBUG=INFO` for detailed logs
-- **Check firewall**: Ensure required ports are open
+Distributed training failures often manifest as NCCL errors or timeouts during collective operations. Start by verifying basic network connectivity between nodes:
+
+```bash
+srun -N 2 bash -c 'echo "$(hostname): $(ping -c 1 node6 | grep time=)"'
+```
+
+If nodes can't reach each other, check firewall rules and network configuration. For NCCL-specific issues, enable detailed logging with `NCCL_DEBUG=INFO` to see exactly where communication fails. Common culprits include incorrect network interface selection (fix with `NCCL_SOCKET_IFNAME`), InfiniBand configuration issues (try `NCCL_IB_DISABLE=1` to fall back to Ethernet), and port conflicts (change `MASTER_PORT` if the default is in use).
 
 ### Job Hanging
 
-- **Check for deadlocks**: Look for processes waiting on barriers
-- **Verify data loading**: Ensure all ranks can access data
-- **Check logs**: Review both stdout and stderr from all ranks
+Perhaps the most frustrating issue is a job that starts but then hangs indefinitely. This typically happens when one rank crashes or gets stuck while others wait at a collective operation.
+
+First, check if all processes are actually running by examining the job's output files and using `squeue -j <job_id>` to see the job state. If the job shows as running but produces no output, try SSHing to the allocated nodes and checking process status with `ps aux | grep python`.
+
+Common causes of hangs include mismatched world sizes (one rank thinks there are more processes than actually launched), data loading issues where one rank can't access a file that others can, and deadlocks from incorrect synchronization in custom code. Setting `TORCH_DISTRIBUTED_DEBUG=DETAIL` and using a reasonable timeout in `init_process_group` helps diagnose these issues—at least the job will fail with an error message rather than hanging forever.
 
 ## References
 
