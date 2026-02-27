@@ -674,47 +674,97 @@ When the signal arrives, the trap handler runs your checkpoint script, giving th
 
 ## Monitoring and Debugging
 
+When training jobs run for hours or days across multiple nodes, effective monitoring becomes essential. You need to know whether your job is actually running, how resources are being utilized, and where to look when things go wrong.
+
 ### Job Monitoring
 
+The most basic monitoring starts with `squeue`, which shows the state of jobs in the queue. Wrapping it with `watch` gives you a live dashboard:
+
 ```bash
-# Watch job queue
-watch -n 1 squeue
+# Watch job queue, refreshing every second
+watch -n 1 squeue -u $USER
 
-# Watch specific job
+# Get detailed information about a specific job
+scontrol show job <job_id>
+
+# Watch a specific job's state changes
 watch -n 1 scontrol show job <job_id>
+```
 
-# View job output in real-time
-tail -f slurm-<job_id>.out
+The `scontrol show job` output includes useful details like the allocated nodes, start time, time limit, and current state. For running jobs, you can check GPU utilization across all allocated nodes:
 
-# Check GPU usage across nodes
+```bash
+# Check GPU usage across all nodes in your allocation
 srun -N 2 nvidia-smi
+
+# Or for a running job, SSH to the nodes and check manually
+scontrol show job <job_id> | grep NodeList
+```
+
+To monitor job output in real-time, use `tail -f` on the output file. By default, SLURM writes output to `slurm-<job_id>.out` in the submission directory:
+
+```bash
+tail -f slurm-<job_id>.out
+```
+
+For long-running jobs, the `sacct` command provides historical information including resource usage:
+
+```bash
+# Show completed jobs with resource usage
+sacct -j <job_id> --format=JobID,JobName,Elapsed,MaxRSS,MaxVMSize,State
+
+# Show all your recent jobs
+sacct -u $USER --starttime=2024-01-01
 ```
 
 ### Logging and Output
 
-Slurm captures stdout and stderr:
+SLURM captures stdout and stderr from your job and writes them to files. You can customize the filenames using special format codes:
 
 ```bash
 #SBATCH --output=train_%j.out    # %j = job ID
-#SBATCH --error=train_%j.err
+#SBATCH --error=train_%j.err     # Separate file for stderr
+#SBATCH --output=train_%j_%N.out # %N = node name (useful for multi-node)
 ```
 
-For distributed training, each rank writes to the same file. Use rank-specific logging:
+One challenge with distributed training is that all ranks write to the same output file by default, making the output interleaved and hard to read. There are several strategies to handle this.
+
+The simplest approach is to use the `--label` flag with `srun`, which prefixes each line with the task ID:
+
+```bash
+srun --label python train.py
+```
+
+For more control, implement rank-specific logging in your Python code:
 
 ```python
 import logging
 import torch.distributed as dist
 
-rank = dist.get_rank() if dist.is_initialized() else 0
-logging.basicConfig(
-    filename=f'train_rank_{rank}.log',
-    level=logging.INFO
-)
+def setup_logging():
+    rank = dist.get_rank() if dist.is_initialized() else 0
+    
+    # Each rank logs to its own file
+    logging.basicConfig(
+        filename=f'train_rank_{rank}.log',
+        level=logging.INFO,
+        format=f'[Rank {rank}] %(asctime)s - %(levelname)s - %(message)s'
+    )
+    
+    # Optionally, only rank 0 logs to console
+    if rank == 0:
+        console = logging.StreamHandler()
+        console.setLevel(logging.INFO)
+        logging.getLogger().addHandler(console)
 ```
+
+This gives you separate log files for each rank, making it much easier to debug rank-specific issues.
 
 ### Profiling Distributed Training
 
-Use PyTorch profiler with Slurm:
+When your training is slower than expected, profiling helps identify where time is being spent. PyTorch's built-in profiler integrates seamlessly with SLURM jobs—you just need to be mindful that multiple ranks are running simultaneously.
+
+The basic approach is to wrap a few training steps with the profiler context manager:
 
 ```python
 from torch.profiler import profile, record_function, ProfilerActivity
@@ -723,14 +773,36 @@ with profile(
     activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
     record_shapes=True,
     profile_memory=True,
+    with_stack=True,
 ) as prof:
-    # Training step
-    output = model(input)
+    # Profile a few training steps
+    for step in range(5):
+        with record_function("forward"):
+            output = model(input)
+        with record_function("backward"):
+            loss.backward()
+        with record_function("optimizer"):
+            optimizer.step()
 
-# Save trace (only on rank 0)
+# Save trace (only on rank 0 to avoid file conflicts)
 if dist.get_rank() == 0:
     prof.export_chrome_trace("trace.json")
+    print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=10))
 ```
+
+The `record_function` context managers add named regions to your trace, making it easier to identify which phase of training is the bottleneck. The `with_stack=True` option captures Python call stacks, which helps trace performance issues back to specific lines of code.
+
+The exported trace file can be viewed in Chrome's `chrome://tracing` or in TensorBoard (see Section~\ref{sec:profiling-visualization} for detailed instructions on trace visualization). For distributed training, pay particular attention to communication operations in the trace. If you see `ncclAllReduce` or similar collective operations dominating your profile, you likely have a communication bottleneck. Common remedies include increasing batch size to improve the computation-to-communication ratio, using gradient accumulation to reduce synchronization frequency, or enabling communication-computation overlap if your framework supports it.
+
+When the profiler doesn't give you enough information about communication issues, NCCL provides its own debugging output. Add these environment variables to your SLURM script:
+
+```bash
+export NCCL_DEBUG=INFO        # Detailed NCCL logging
+export NCCL_DEBUG_SUBSYS=ALL  # All subsystems
+export TORCH_DISTRIBUTED_DEBUG=DETAIL  # PyTorch distributed debugging
+```
+
+These produce verbose output showing exactly what NCCL is doing—connection establishment, ring topology, bandwidth measurements, and any errors. This level of detail is invaluable when debugging hangs or unexpected slowdowns, but the output volume makes it impractical for production runs. Enable these flags selectively when investigating specific issues.
 
 ## Best Practices
 
