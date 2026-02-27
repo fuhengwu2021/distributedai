@@ -207,16 +207,31 @@ Figure~\ref{fig:job-lifecycle} shows the job state transitions. Jobs start in PE
 
 ### Understanding SLURM Environment Variables
 
-When SLURM launches your job, it automatically populates environment variables that map directly to distributed training concepts. Understanding this mapping is key to writing portable training scripts that work across different cluster configurations.
+When SLURM launches your job, it automatically populates environment variables that your training script can read to configure distributed communication. Understanding these variables is essential for writing portable code that works across different cluster configurations.
 
-`SLURM_JOB_NODELIST` contains the list of allocated nodes in compressed format (e.g., `node[6-7]`). `SLURM_JOB_NUM_NODES` gives the count of nodes. For process-level information, `SLURM_NTASKS` is the total number of tasks (equivalent to world size in distributed training), `SLURM_PROCID` is the global rank (0 to NTASKS-1), `SLURM_LOCALID` is the local rank within a node (0 to tasks-per-node-1), and `SLURM_NODEID` is the node index (0 to NUM_NODES-1).
+At the job level, SLURM provides variables describing the overall allocation. `SLURM_JOB_ID` gives a unique identifier useful for naming log files and checkpoints. `SLURM_JOB_NAME` contains the name you specified with `--job-name` (or defaults to the script name). `SLURM_JOB_NODELIST` lists allocated nodes in compressed format—for example, `node[6-7]` or `gpu-node-[001-004]`—while `SLURM_JOB_NUM_NODES` gives the count. `SLURM_SUBMIT_DIR` records the directory from which you submitted the job, useful for locating config files or data relative to your submission location.
 
-When you use `torchrun` or initialize `torch.distributed` with `init_method='env://'`, PyTorch reads these variables (or the `RANK`, `LOCAL_RANK`, `WORLD_SIZE` variables you derive from them) and configures the process group automatically. This abstraction means your training code doesn't need to know the specifics of SLURM—it just reads standard environment variables that any launcher can provide.
+For distributed training, the process-level variables are most critical. Each task launched by SLURM receives `SLURM_PROCID`, a globally unique rank from 0 to NTASKS-1 that identifies this process among all processes in the job. `SLURM_LOCALID` gives the local rank within the current node (0 to tasks-per-node-1), which you typically use for GPU binding—process with `SLURM_LOCALID=0` uses GPU 0 on that node, and so on. `SLURM_NODEID` identifies which node this process runs on (0 to NUM_NODES-1), and `SLURM_NTASKS` provides the total task count, equivalent to world size in distributed training terminology. `SLURM_TASKS_PER_NODE` indicates how many tasks run on each node, though this may vary across nodes in heterogeneous allocations.
+
+Resource-related variables help you tune performance. `SLURM_CPUS_PER_TASK` tells you how many CPU cores are available per task—useful for setting `num_workers` in your DataLoader. `SLURM_GPUS_ON_NODE` reports the GPU count on the current node, and `SLURM_MEM_PER_NODE` gives the memory allocation in MB. When you request GPUs with `--gres=gpu:N`, SLURM's GRES plugin automatically sets `CUDA_VISIBLE_DEVICES` to expose only your allocated GPUs, preventing conflicts with other jobs on the same node.
+
+For establishing network communication, `SLURM_LAUNCH_NODE_IPADDR` provides the IP address of the launching node, and `SLURM_STEP_NODELIST` lists nodes participating in the current job step when using `srun` within an allocation.
+
+The mapping from SLURM to PyTorch distributed training is straightforward: `SLURM_PROCID` becomes `RANK`, `SLURM_LOCALID` becomes `LOCAL_RANK`, and `SLURM_NTASKS` becomes `WORLD_SIZE`. The `MASTER_ADDR`—the address where rank 0 listens for connections—is typically derived from `SLURM_JOB_NODELIST` by extracting the first node's hostname. A typical setup script exports these translations:
+
+```bash
+export MASTER_ADDR=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)
+export MASTER_PORT=29500
+export WORLD_SIZE=$SLURM_NTASKS
+export RANK=$SLURM_PROCID
+export LOCAL_RANK=$SLURM_LOCALID
+```
+
+Once these variables are set, `torchrun` or `torch.distributed.init_process_group(init_method='env://')` reads them and configures the process group automatically. This abstraction is powerful: your training code doesn't need to know whether it's running under SLURM, launched by `torchrun` on a single machine, or orchestrated by a cloud provider. The same script works everywhere because it relies on standard environment variables rather than SLURM-specific APIs.
+
+Figure~\ref{fig:slurm-env-vars} illustrates this mapping visually. Your training script can either read SLURM variables directly or use the exported PyTorch-standard variables (`RANK`, `LOCAL_RANK`, `WORLD_SIZE`, `MASTER_ADDR`). The `torchrun` launcher handles this translation automatically when used with SLURM. Note that SLURM provides many additional environment variables for specialized use cases—for a complete reference, consult the `srun` man page or the official SLURM documentation.[^slurm]
 
 ![SLURM to PyTorch environment variable mapping.](img/slurm_env_vars_mapping.png){#fig:slurm-env-vars .block width=85% align=center}
-
-Figure~\ref{fig:slurm-env-vars} shows the mapping between SLURM and PyTorch environment variables. Your training script can either use SLURM variables directly or export them as standard PyTorch variables (`RANK`, `LOCAL_RANK`, `WORLD_SIZE`, `MASTER_ADDR`). The `torchrun` launcher handles this translation automatically when used with SLURM.
-
 
 ## PyTorch Distributed Training with Slurm
 
