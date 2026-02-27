@@ -4423,14 +4423,35 @@ Once you've built your distributed training and inference systems, you need to k
 
 5. **Deploy with llm-d:** Deploy a production LLM serving stack on Kubernetes using llm-d Helm charts, configure prefill/decode disaggregation, and monitor performance.
 
-## Further Reading
+## References
 
-- OpenTelemetry: https://opentelemetry.io/
-- Envoy Proxy: https://www.envoyproxy.io/
-- Prometheus: https://prometheus.io/
-- FastAPI: https://fastapi.tiangolo.com/
-- vLLM: https://github.com/vllm-project/vllm
-- llm-d: https://github.com/llm-d/llm-d - Production-ready Kubernetes deployment for LLM inference
-- llm-d Documentation: https://www.llm-d.ai/ - Complete guides and well-lit paths
-- Inference Gateway: https://github.com/kserve/inference-gateway - Request scheduler and balancer
-- https://github.com/vllm-project/production-stack.git
+__LLM Serving Frameworks__
+
+- vLLM GitHub: \url{https://github.com/vllm-project/vllm}
+- vLLM Production Stack: \url{https://github.com/vllm-project/production-stack}
+- SGLang GitHub: \url{https://github.com/sgl-project/sglang}
+
+__Kubernetes and llm-d__
+
+- llm-d GitHub: \url{https://github.com/llm-d/llm-d}
+- llm-d Documentation: \url{https://www.llm-d.ai/}
+- Inference Gateway: \url{https://github.com/kserve/inference-gateway}
+- k3d (k3s in Docker): \url{https://k3d.io/}
+- NVIDIA Device Plugin for Kubernetes: \url{https://github.com/NVIDIA/k8s-device-plugin}
+
+__Observability and Monitoring__
+
+- OpenTelemetry: \url{https://opentelemetry.io/}
+- Prometheus: \url{https://prometheus.io/}
+- Grafana: \url{https://grafana.com/}
+
+__API Gateway and Routing__
+
+- Envoy Proxy: \url{https://www.envoyproxy.io/}
+- FastAPI: \url{https://fastapi.tiangolo.com/}
+- Kubernetes Gateway API: \url{https://gateway-api.sigs.k8s.io/}
+
+__Tutorials and Guides__
+
+- vLLM Kubernetes Deployment: \url{https://docs.vllm.ai/en/stable/deployment/k8s/}
+- NVIDIA Container Toolkit: \url{https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/}
