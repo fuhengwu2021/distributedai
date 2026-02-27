@@ -478,24 +478,18 @@ A few practical considerations when running DeepSpeed on SLURM clusters. DeepSpe
 
 As introduced in Chapter~\ref{chap:megatron-lm-and-model-parallelism}, Megatron-LM provides NVIDIA's production-grade framework combining tensor parallelism, pipeline parallelism, sequence/context parallelism, and data parallelism—all composable in a single training run. This multi-dimensional parallelism is essential for training the largest language models where no single parallelism strategy suffices.
 
-**Prerequisites:**
+Before diving into the SLURM script, there's an important installation consideration (also covered in Chapter~\ref{chap:megatron-lm-and-model-parallelism}). Unlike PyTorch's built-in DDP and FSDP, Megatron-LM requires installation from source to get the full training infrastructure. The PyPI package `megatron-core` only includes `megatron.core` (the model building blocks), but the training scripts like `pretrain_gpt.py` require `megatron.training` which is only available when you install from the GitHub repository:
 
-1. **Install Megatron-LM from source** (required for `megatron.training` module):
-   ```bash
-   conda activate research
-   git clone https://github.com/NVIDIA/Megatron-LM.git
-   cd Megatron-LM
-   pip install --no-build-isolation .[mlm,dev]
-   ```
-   
-   **Note**: The PyPI package `megatron-core` only includes `megatron.core`, not `megatron.training`. Since `pretrain_gpt.py` requires `megatron.training`, you must install from source.
+```bash
+conda activate research  # Replace with your environment name
+git clone https://github.com/NVIDIA/Megatron-LM.git
+cd Megatron-LM
+pip install --no-build-isolation .[mlm,dev]
+```
 
-2. **Copy training scripts** to your working directory:
-   - `pretrain_gpt.py` - Main training script
-   - `gpt_builders.py` - Model builder utilities
-   - `model_provider.py` - Model provider functions
+You'll also need to copy the training scripts (`pretrain_gpt.py`, `gpt_builders.py`, `model_provider.py`) to your working directory, as these aren't installed as part of the package.
 
-SLURM batch script (`code/megatron/run.slurm`):
+With the prerequisites in place, let's look at the SLURM batch script (`code/megatron/run.slurm`):
 
 ```bash
 #!/bin/bash
@@ -509,6 +503,7 @@ SLURM batch script (`code/megatron/run.slurm`):
 #SBATCH --output=logs/train_%j_%N.out
 #SBATCH --error=logs/train_%j_%N.err
 
+# Replace with your conda path and environment name
 source ~/miniconda3/etc/profile.d/conda.sh
 conda activate research
 
@@ -552,15 +547,14 @@ srun --chdir="$SCRIPT_DIR" --label \
     "
 ```
 
-**Important notes:**
+The script structure follows the same pattern as DeepSpeed: set job-level environment variables, then use `srun` to launch a bash subshell that sets per-process variables and invokes `torchrun`. The model configuration variables (`NUM_LAYERS`, `HIDDEN_SIZE`, etc.) define an 8B parameter GPT model, while the parallelism variables (`TP_SIZE`, `PP_SIZE`, `CP_SIZE`) control how the model is distributed—adjust these based on your hardware and model size. The example uses mock data (`--mock-data`) for demonstration; for real training, you'd provide actual data paths and a proper tokenizer. Remember to replace the conda path and environment name in the script with your own setup before submitting:
 
-- **Installation requirement**: Must install from source to get `megatron.training` module
-- **Parallelism configuration**: Adjust `TP_SIZE`, `PP_SIZE`, `CP_SIZE` based on your hardware and model size
-- **Mock data**: The example uses mock data (`--mock-data`). For real training, provide data paths and tokenizer
+```bash
+cd code/megatron
+sbatch run.slurm
+```
 
-**Checkpoint File Size Analysis:**
-
-When training with Megatron-LM, checkpoint files can be quite large. For an 8B parameter model, you might see checkpoint directories like:
+One thing you'll notice when training with Megatron-LM is that checkpoint files can be quite large. For an 8B parameter model, you might see checkpoint directories like this:
 
 ```
 code/megatron/checkpoints/gpt_8b/iter_0000010/
@@ -572,26 +566,13 @@ code/megatron/checkpoints/gpt_8b/iter_0000010/
 4.0K    metadata.json
 ```
 
-**Why are checkpoints so large?**
+Why so large? The math is straightforward: model parameters in bf16 consume 8.03B × 2 bytes = 16.06 GB, while Adam optimizer states in fp32 require 8.03B × 8 bytes = 64.24 GB (4 bytes each for momentum and variance). That's already ~80 GB theoretically, and the actual size of ~108 GB includes additional overhead from distributed optimizer sharding, file format metadata, and alignment padding for efficient parallel I/O. Each rank saves its own shard (`__0_0.distcp`, `__0_1.distcp`, etc.) to enable parallel save/load operations across the cluster.
 
-- **Model parameters (bf16)**: 8.03B × 2 bytes = 16.06 GB
-- **Optimizer states (Adam, fp32)**: 8.03B × 8 bytes = 64.24 GB (momentum + variance)
-- **Theoretical total**: ~80 GB
-- **Actual size**: ~108 GB (includes distributed checkpoint overhead)
+To manage checkpoint storage, consider using `--save-interval` to control how frequently checkpoints are saved, implementing checkpoint rotation to keep only recent checkpoints, and using a distributed filesystem that can handle the I/O load.
 
-The additional overhead comes from distributed optimizer sharding (`--use-distributed-optimizer`), file format metadata, and alignment padding for efficient parallel I/O. Each rank saves its own shard (`__0_0.distcp`, `__0_1.distcp`, etc.) to enable parallel save/load operations.
-
-**Tips for managing checkpoint size:**
-- Use `--save-interval` to control checkpoint frequency
-- Implement checkpoint rotation to keep only recent checkpoints
-- Use distributed storage (e.g., shared filesystem) for checkpoint directories
-
-**Checkpoint Format Conversion:**
-
-Megatron-LM checkpoints are saved in a distributed format (`.distcp` files) that requires Megatron-LM to load. For use with other frameworks or standalone PyTorch models, you can convert checkpoints to standard formats using the provided conversion script (`code/megatron/convert_megatron_checkpoint.py`):
+Another practical consideration is checkpoint format conversion. Megatron-LM saves checkpoints in a distributed format (`.distcp` files) that requires Megatron-LM to load. If you want to use your trained model with other frameworks like vLLM or SGLang for inference, or simply load it with vanilla PyTorch, you'll need to convert the checkpoint. The provided conversion script (`code/megatron/convert_megatron_checkpoint.py`) handles this:
 
 ```bash
-# Convert Megatron checkpoint to standard PyTorch format
 python code/megatron/convert_megatron_checkpoint.py \
     --checkpoint-dir code/megatron/checkpoints/gpt_8b/iter_0000010 \
     --output-dir exported_checkpoint \
@@ -601,7 +582,7 @@ python code/megatron/convert_megatron_checkpoint.py \
     --use-mcore-models --bf16
 ```
 
-The exported PyTorch checkpoint is completely independent and does NOT require Megatron-LM to load:
+The exported checkpoint is completely standalone—no Megatron-LM required to load it:
 
 ```python
 import torch
@@ -610,13 +591,7 @@ print(checkpoint['model_config'])
 state_dict = checkpoint['model_state_dict']
 ```
 
-**Key Benefits of Conversion:**
-
-- **Standalone**: No Megatron-LM required to load the checkpoint
-- **Smaller size**: Exported checkpoints only contain model weights (no optimizer state)
-- **Compatible**: Can be loaded by other frameworks (vLLM, SGLang, etc.)
-
-For production HuggingFace format conversion, consider using [Megatron-Bridge](https://github.com/NVIDIA-NeMo/Megatron-Bridge) for complete format conversion with layer name mapping and tensor reshaping.
+The converted checkpoint contains only model weights (no optimizer state), making it significantly smaller and compatible with any PyTorch-based inference framework. For production HuggingFace format conversion with proper layer name mapping and tensor reshaping, consider using [Megatron-Bridge](https://github.com/NVIDIA-NeMo/Megatron-Bridge).
 
 ## Advanced Slurm Features for Training
 
