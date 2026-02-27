@@ -103,6 +103,7 @@ This mapping ensures that when a job requests `--gres=gpu:1` on node6, SLURM set
 
 Figure~\ref{fig:virtual-node-setup} shows the virtual node setup. Two slurmd daemons (node6 and node7) run on the same physical machine but listen on different ports. Each virtual node is mapped to a specific GPU through `gres.conf`, allowing you to test multi-node distributed training code locally.
 
+
 ### Quick Setup and Verification
 
 The provided setup script automates the configuration process—creating directories, generating configuration files, and starting the SLURM daemons:
