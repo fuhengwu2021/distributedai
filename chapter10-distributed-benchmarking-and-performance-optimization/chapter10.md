@@ -358,38 +358,32 @@ Effective benchmarking is the foundation of performance optimization. Without ac
 
 Throughout this book, we've covered the current state of distributed AI: DDP and FSDP for training, vLLM and SGLang for inference, Slurm for job scheduling, and production serving stacks. But the field is rapidly evolving. The final chapter explores emerging trends and future directions: MoE scaling, hybrid edge-cloud architectures, advanced parallelism strategies, and cost optimization techniques. Understanding where the field is heading will help you position yourself for the next wave of distributed AI innovations.
 
+## References
 
+__Performance Benchmarking Tools__
+
+- genai-bench: \url{https://github.com/sgl-project/sglang/tree/main/benchmark/genai_bench}
+- PyTorch Profiler: \url{https://pytorch.org/tutorials/recipes/recipes/profiler_recipe.html}
+- NVIDIA Nsight Systems: \url{https://developer.nvidia.com/nsight-systems}
+- NVIDIA GenAI-Perf: \url{https://docs.nvidia.com/deeplearning/triton-inference-server/user-guide/docs/perf_analyzer/genai-perf/README.html}
+- NVIDIA NIM Benchmarking: \url{https://docs.nvidia.com/nim/benchmarking/llm/latest/index.html}
+- IBM FMWork: \url{https://github.com/IBM/fmwork}
+
+__Accuracy Benchmarking__
+
+- GLUE Benchmark: \url{https://gluebenchmark.com/}
+- MMLU Benchmark: \url{https://github.com/hendrycks/test}
+- HumanEval (Code Generation): \url{https://github.com/openai/human-eval}
+- HELM (Holistic Evaluation): \url{https://crfm.stanford.edu/helm/}
+- Hugging Face Evaluate: \url{https://huggingface.co/docs/evaluate/}
+- GenAI-Bench (Text-to-Visual): \url{https://linzhiqiu.github.io/papers/genai_bench/}
+- NVIDIA NeMo Evaluator: \url{https://github.com/NVIDIA-NeMo/Evaluator}
+
+__Papers and Standards__
+
+- MLPerf Inference Benchmark: \url{https://arxiv.org/abs/1911.02549}
+- LLM-Inference-Bench: \url{https://arxiv.org/abs/2411.00136}
+- MLCommons: \url{https://mlcommons.org/}
 
 <!-- include: exercises/torch.md if include_math -->
 <!-- include: exercises/torch.md if include_torch -->
-
-## Further Reading
-
-__Performance Benchmarking:__
-
-- genai-bench Documentation: https://github.com/sgl-project/genai-bench
-- PyTorch Profiler: https://pytorch.org/tutorials/recipes/recipes/profiler_recipe.html
-- Nsight Systems: https://developer.nvidia.com/nsight-systems
-- MLPerf: https://mlcommons.org/en/inference-edge-21/
-- Amdahl's Law: https://en.wikipedia.org/wiki/Amdahl%27s_law
-- [MLPerf Inference Benchmark](https://arxiv.org/pdf/1911.02549)
-- [LLM-Inference-Bench: Inference Benchmarking of Large Language Models on AI Accelerators](https://arxiv.org/html/2411.00136v1)
-- [Meta-Metrics and Best Practices for System-Level Inference Performance Benchmarking](https://arxiv.org/html/2508.10251)
-- https://github.com/IBM/fmwork
-- https://docs.nvidia.com/deeplearning/triton-inference-server/user-guide/docs/perf_analyzer/genai-perf/README.html 
-
-
-
-__Accuracy Benchmarking:__
-
-- GenAI-Bench (Text-to-Visual Evaluation): https://linzhiqiu.github.io/papers/genai_bench/
-- GLUE Benchmark: https://gluebenchmark.com/
-- MMLU Benchmark: https://github.com/hendrycks/test
-- HumanEval (Code Generation): https://github.com/openai/human-eval
-- HELM (Holistic Evaluation): https://crfm.stanford.edu/helm/
-- Hugging Face Evaluate: https://huggingface.co/docs/evaluate/
-- https://github.com/NVIDIA-NeMo/Evaluator
-- https://huggingface.co/blog/nvidia/nemotron-3-nano-evaluation-recipe
-- https://docs.nvidia.com/nim/benchmarking/llm/latest/index.html
-
-
