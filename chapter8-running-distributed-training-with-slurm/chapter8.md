@@ -890,18 +890,34 @@ Common causes of hangs include mismatched world sizes (one rank thinks there are
 
 ## References
 
-- [Slurm Documentation](https://slurm.schedmd.com/)
-- [PyTorch Distributed Training](https://pytorch.org/tutorials/beginner/dist_overview.html)
-- [PyTorch FSDP](https://pytorch.org/tutorials/intermediate/FSDP_tutorial.html)
-- [Single-Node Slurm Cluster Docker](https://github.com/minyang-chen/single-node-slurm-cluster-docker) - Fully dockerized single-node Slurm cluster with GPU support
-- [ZenFlow: Enabling Stall-Free Offloading Training via Asynchronous Updates](https://arxiv.org/html/2505.12242v3) - Importance-aware offloading framework that decouples GPU and CPU updates to eliminate GPU stalls
-- [Domino: Eliminating Communication in LLM Training via Generic Tensor Slicing and Overlapping](https://arxiv.org/html/2409.15241v1) - Generic approach to hide communication behind computation in tensor parallelism training
-- [Optimizing Language Model Training: A Practical Guide to SLURM](https://medium.com/@viktorciroski/optimizing-language-model-training-a-practical-guide-to-slurm-a6621d3c1bf2) - Practical guide to using SLURM for fine-tuning large language models across multiple GPUs
-- [DeepOps & SLURM: Your GPU Cluster Guide](https://arxiv.org/pdf/2405.00030) - Research paper on distributed training (check arXiv for latest version)
-- [Deploy an Auto-Scaling HPC Cluster with Slurm on GCP](https://codelabs.developers.google.com/codelabs/hpc-slurm-on-gcp#0) - Step-by-step guide to deploying Slurm clusters on Google Cloud Platform
-- [Slurm Workload Manager (Official GitHub Repository)](https://github.com/SchedMD/slurm) - Official source code repository for Slurm maintained by SchedMD
-- [Running Multiple Worker Daemons in Slurm](https://stackoverflow.com/questions/40695348/running-multiple-worker-daemons-slurm) - Stack Overflow discussion on configuring multiple slurmd daemons on a single machine
-- [Megatron-Bridge](https://github.com/NVIDIA-NeMo/Megatron-Bridge) - Bidirectional converter for interoperability between Hugging Face and Megatron checkpoints, featuring production-ready recipes for popular models
-- [DeepOps](https://github.com/NVIDIA/deepops) - Open-source tools for deploying and managing GPU-accelerated clusters using Kubernetes and Slurm
+__SLURM Documentation and Tools__
+
+- SLURM Workload Manager Documentation: \url{https://slurm.schedmd.com/}
+- SLURM GitHub Repository: \url{https://github.com/SchedMD/slurm}
+- Single-Node SLURM Cluster Docker: \url{https://github.com/minyang-chen/single-node-slurm-cluster-docker}
+- DeepOps (GPU Cluster Deployment): \url{https://github.com/NVIDIA/deepops}
+
+__PyTorch Distributed Training__
+
+- PyTorch Distributed Overview: \url{https://pytorch.org/tutorials/beginner/dist_overview.html}
+- PyTorch FSDP Tutorial: \url{https://pytorch.org/tutorials/intermediate/FSDP_tutorial.html}
+- PyTorch Distributed Checkpoint: \url{https://pytorch.org/docs/stable/distributed.checkpoint.html}
+
+__DeepSpeed and Megatron-LM__
+
+- DeepSpeed Documentation: \url{https://www.deepspeed.ai/}
+- DeepSpeed GitHub: \url{https://github.com/microsoft/DeepSpeed}
+- Megatron-LM GitHub: \url{https://github.com/NVIDIA/Megatron-LM}
+- Megatron-Bridge (Checkpoint Conversion): \url{https://github.com/NVIDIA-NeMo/Megatron-Bridge}
+
+__Tutorials and Guides__
+
+- Optimizing Language Model Training with SLURM (Medium, 2024): \url{https://medium.com/@viktorciroski/optimizing-language-model-training-a-practical-guide-to-slurm-a6621d3c1bf2}
+- Deploy an Auto-Scaling HPC Cluster with SLURM on GCP: \url{https://codelabs.developers.google.com/codelabs/hpc-slurm-on-gcp}
+
+__Research__
+
+- ZenFlow: Enabling Stall-Free Offloading Training via Asynchronous Updates (2025): \url{https://arxiv.org/abs/2505.12242}
+- Domino: Eliminating Communication in LLM Training via Generic Tensor Slicing and Overlapping (2024): \url{https://arxiv.org/abs/2409.15241}
 
 
