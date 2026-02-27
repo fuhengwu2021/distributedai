@@ -12,8 +12,8 @@ from figure_utils import save_figure
 
 fig, ax = plt.subplots(figsize=(10, 4))
 ax.set_axis_off()
-ax.set_xlim(0, 10)
-ax.set_ylim(0, 4.5)
+ax.set_xlim(0.2, 9.1)
+ax.set_ylim(0.2, 4.5)
 
 # Colors
 pending_color = "#fff3cd"
@@ -40,8 +40,8 @@ for x, y, label, color, desc in states:
                                    facecolor=color, edgecolor="black", linewidth=1.5)
     ax.add_patch(box)
     ax.text(x + 0.9, y + 1.0, label, ha="center", va="center", 
-            fontsize=10, fontweight="bold")
-    ax.text(x + 0.9, y + 0.4, desc, ha="center", va="center", fontsize=8)
+            fontsize=13, fontweight="bold")
+    ax.text(x + 0.9, y + 0.4, desc, ha="center", va="center", fontsize=12)
 
 # Arrows between main states
 for i in range(3):
@@ -63,28 +63,28 @@ for x, y, label, color, desc in alt_states:
                                    facecolor=color, edgecolor="black", linewidth=1)
     ax.add_patch(box)
     ax.text(x + 0.9, y + 0.65, label, ha="center", va="center", 
-            fontsize=9, fontweight="bold")
-    ax.text(x + 0.9, y + 0.25, desc, ha="center", va="center", fontsize=7)
+            fontsize=12, fontweight="bold")
+    ax.text(x + 0.9, y + 0.25, desc, ha="center", va="center", fontsize=13)
 
 # Arrows to alternative states
 # RUNNING -> FAILED
 ax.annotate("", xy=(5.8, 1.4), xytext=(5.8, 2.2),
-            arrowprops=dict(arrowstyle="->", color="#dc3545", lw=1.5))
+            arrowprops=dict(arrowstyle="-|>", color="#dc3545", lw=1.5))
 
 # RUNNING -> CANCELLED
 ax.annotate("", xy=(8.0, 1.4), xytext=(4.5, 2.5),
-            arrowprops=dict(arrowstyle="->", color="#6c757d", lw=1.2,
-                           connectionstyle="arc3,rad=-0.3"))
+            arrowprops=dict(arrowstyle="-|>", color="#6c757d", lw=1.2,
+                           connectionstyle="arc3,rad=-0.013"))
 
 # RUNNING -> TIMEOUT
 ax.annotate("", xy=(3.6, 1.4), xytext=(3.6, 2.2),
-            arrowprops=dict(arrowstyle="->", color="#856404", lw=1.2))
+            arrowprops=dict(arrowstyle="-|>", color="#856404", lw=1.2))
 
 # sbatch annotation
-ax.text(0.3, 3.8, "sbatch/srun", ha="left", va="center", fontsize=9, 
+ax.text(0.3, 4.4, "sbatch/srun", ha="left", va="center", fontsize=12, 
         family="monospace", style="italic")
-ax.annotate("", xy=(1.4, 3.6), xytext=(1.4, 3.8),
-            arrowprops=dict(arrowstyle="->", color=arrow_color, lw=1.5))
+ax.annotate("", xy=(1.4, 3.7), xytext=(1.4, 4.4),
+            arrowprops=dict(arrowstyle="-|>", color=arrow_color, lw=1.5))
 
 plt.tight_layout()
 save_figure(__file__)
