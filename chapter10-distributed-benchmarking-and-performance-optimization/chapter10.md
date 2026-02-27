@@ -28,45 +28,62 @@ This chapter addresses these questions through systematic benchmarking and perfo
 We'll cover the complete benchmarking lifecycle: methodology and metrics that matter, profiling tools for training and inference, accuracy evaluation to ensure optimizations don't degrade model quality, network diagnostics for communication bottlenecks, and scaling efficiency analysis. By the end of this chapter, you'll be able to systematically identify performance bottlenecks, make data-driven optimization decisions, and validate that your distributed systems are running at peak efficiency.
 
 
-## Benchmarking Methodology and Metrics
+## Why Benchmarking Matters
 
 Benchmarking distributed AI systems is fundamentally different from benchmarking single-device workloads. The complexity arises from multiple dimensions: multiple GPUs, network communication, synchronization overhead, and system-level interactions. A rigorous benchmarking methodology is essential for making informed decisions about system design and optimization.
 
-### Why Benchmarking Matters
+**Key Reasons for Benchmarking:**
 
-**Key Reasons:**
+- **Performance Validation:** Ensure systems meet latency and throughput requirements before production deployment
+- **Optimization Guidance:** Identify bottlenecks to prioritize optimization efforts—is it compute, memory, or communication?
+- **Cost Analysis:** Understand resource utilization to optimize cloud costs and hardware investments
+- **Fair Comparison:** Compare different systems, frameworks, and configurations on equal footing
+- **Regression Detection:** Catch performance regressions early in CI/CD pipelines before they reach production
+- **Capacity Planning:** Predict how systems will behave under increased load or with additional resources
 
-- **Performance Validation:** Ensure systems meet latency and throughput requirements
-- **Optimization Guidance:** Identify bottlenecks to prioritize optimization efforts
-- **Cost Analysis:** Understand resource utilization to optimize costs
-- **Comparison:** Fairly compare different systems, frameworks, and configurations
-- **Regression Detection:** Catch performance regressions in CI/CD pipelines
+**The Cost of Poor Benchmarking:**
 
-### Core Metrics for Distributed Systems
+Without rigorous benchmarking, teams often make decisions based on intuition or incomplete data:
 
-**Throughput Metrics:**
+- Choosing the wrong inference engine because benchmarks didn't reflect production workloads
+- Over-provisioning hardware due to inaccurate scaling predictions
+- Missing optimization opportunities because bottlenecks weren't properly identified
+- Deploying models that fail SLA requirements under real traffic patterns
 
-- **Samples per Second (Training):** Number of training samples processed per second
-- **Tokens per Second (Inference):** Number of tokens generated per second
-- **Requests per Second (Serving):** Number of API requests handled per second
-- **GPU Utilization:** Percentage of time GPUs are actively computing
+The techniques in this chapter help avoid these pitfalls by establishing systematic, reproducible measurement practices.
 
-**Latency Metrics:**
 
-- **P50 (Median):** 50th percentile latency
-- **P95:** 95th percentile latency (captures tail latency)
-- **P99:** 99th percentile latency (worst-case scenarios)
-- **Time to First Token (TTFT):** Latency for first output in inference
-- **Time per Token (TPT):** Average time between tokens
+## Core Metrics for Distributed Systems
 
-**Efficiency Metrics:**
+Understanding which metrics matter—and how to measure them correctly—is the foundation of effective benchmarking.
 
-- **Scaling Efficiency:** How well performance scales with number of devices
-- **Memory Efficiency:** Memory utilization vs available memory
+### Throughput Metrics
+
+- **Samples per Second (Training):** Number of training samples processed per second across all GPUs
+- **Tokens per Second (Inference):** Number of tokens generated per second, critical for LLM serving
+- **Requests per Second (Serving):** Number of API requests handled per second at the system level
+- **GPU Utilization:** Percentage of time GPUs are actively computing vs waiting
+
+### Latency Metrics
+
+- **P50 (Median):** 50th percentile latency—typical user experience
+- **P95:** 95th percentile latency—captures most tail latency issues
+- **P99:** 99th percentile latency—worst-case scenarios affecting 1% of requests
+- **Time to First Token (TTFT):** Latency until first output token in streaming inference
+- **Time per Output Token (TPOT):** Average time between consecutive output tokens
+
+![Latency Distribution: Left shows histogram with P50/P95/P99 percentile lines and color-coded regions. Right shows CDF with percentile markers demonstrating tail latency.](img/latency_distribution.png)
+
+### Efficiency Metrics
+
+- **Scaling Efficiency:** How well performance scales with number of devices (ideal = 100%)
+- **Memory Efficiency:** Memory utilization vs available memory, including fragmentation
 - **Communication Overhead:** Time spent on synchronization vs computation
-- **Cost per Token/Request:** Economic efficiency metric
+- **Cost per Token/Request:** Economic efficiency metric combining performance and cost
 
 ### Benchmarking Methodology
+
+A rigorous benchmarking methodology ensures reproducible, meaningful results.
 
 **1. Warmup Phase:**
 ```python
@@ -108,6 +125,8 @@ def benchmark_with_warmup(model, dataloader, num_warmup=10, num_iterations=100):
 - Document hardware configuration
 - Version control benchmark scripts
 - Record system state (driver versions, CUDA version, etc.)
+
+![Benchmarking Methodology Flow: Shows the four-phase workflow (Setup, Warmup, Measurement, Analysis) with common pitfalls and best practices for rigorous benchmarking.](img/benchmarking_methodology.png)
 
 ### Common Benchmarking Pitfalls
 
@@ -158,9 +177,11 @@ time_taken = time.time() - start  # ✅
 
 
 
-## Training Benchmarking Tools and Procedures
+## Training Benchmarking
 
 Benchmarking distributed training requires understanding the full pipeline: data loading, forward pass, backward pass, gradient synchronization, and optimizer updates. Each component contributes to overall training time and must be measured separately.
+
+![Training Iteration Breakdown: Left shows stacked bar chart of time per iteration phase across GPU configurations. Right shows percentage distribution highlighting communication overhead growth with scale.](img/training_breakdown.png)
 
 ### PyTorch Profiler
 
@@ -196,9 +217,9 @@ def profile_training_step(model, inputs, targets):
     prof.export_chrome_trace("trace.json")
 ```
 
-**Advanced Profiling:**
+**Advanced Profiling with Schedule:**
 ```python
-# Profile with schedule
+# Profile with schedule for multi-iteration analysis
 with torch.profiler.profile(
     schedule=torch.profiler.schedule(
         wait=1,      # Skip first iteration
@@ -216,7 +237,7 @@ with torch.profiler.profile(
         # Training code
 ```
 
-### Nsight Systems
+### NVIDIA Nsight Systems
 
 **Command Line Usage:**
 ```bash
@@ -237,9 +258,9 @@ nsys stats --report gputrace training_profile.nsys-rep
 - Synchronization points
 - Communication operations (NCCL)
 
-### Custom Benchmarking Script
+### Custom Training Benchmark
 
-**Comprehensive Training Benchmark:**
+**Comprehensive Training Benchmark Class:**
 ```python
 import time
 import torch
@@ -375,6 +396,8 @@ efficiency = calculate_scaling_efficiency(throughput_1, throughput_8, 8)
 print(f"Scaling efficiency: {efficiency:.1f}%")  # 81.25%
 ```
 
+![Scaling Efficiency: Left shows throughput scaling (ideal vs actual) with communication overhead gap. Right shows efficiency percentages by GPU count with color-coded thresholds.](img/scaling_efficiency.png)
+
 **Scaling Efficiency Analysis:**
 
 - **>90%:** Excellent scaling
@@ -384,7 +407,7 @@ print(f"Scaling efficiency: {efficiency:.1f}%")  # 81.25%
 
 
 
-## Inference Benchmarking with genai-bench
+## Inference Benchmarking
 
 Inference benchmarking has unique challenges: variable request patterns, caching effects, and tail latency requirements. genai-bench provides a comprehensive framework for benchmarking inference systems with realistic workloads.
 
@@ -1158,9 +1181,11 @@ def compare_models_statistically(model1_scores, model2_scores):
 
 
 
-## Network Bottleneck Diagnosis
+## Network and Communication Profiling
 
 Network bottlenecks are often the limiting factor in distributed training and inference. Identifying and diagnosing network issues requires understanding communication patterns, measuring bandwidth, and analyzing topology.
+
+![Network Topology: Left shows Ring AllReduce communication pattern. Right illustrates multi-node topology with NVLink (fast, intra-node) vs InfiniBand (slower, inter-node) bandwidth hierarchy.](img/network_topology.png)
 
 ### Network Monitoring Tools
 
@@ -1306,7 +1331,7 @@ def detect_topology():
 
 
 
-## Scaling Efficiency and Optimization
+## Scaling Efficiency Analysis
 
 Scaling efficiency measures how well a system utilizes additional resources. Understanding scaling efficiency helps identify bottlenecks and guide optimization efforts.
 
@@ -1417,6 +1442,7 @@ for i, (data, target) in enumerate(dataloader):
 ```
 
 
+\fancydividerwithicon{code}
 
 ## Hands-On Examples
 
@@ -1658,9 +1684,9 @@ if __name__ == "__main__":
 
 
 
-## Best Practices
+## Best Practices and Common Pitfalls
 
-### 1. Avoiding Incorrect Benchmarking Methods
+### Avoiding Incorrect Benchmarking Methods
 
 **Common Mistakes:**
 
@@ -1697,7 +1723,7 @@ def correct_benchmark(func, num_warmup=10, num_iterations=100):
     }
 ```
 
-### 2. Measuring Variance Correctly
+### Measuring Variance Correctly
 
 **Why Variance Matters:**
 
@@ -1732,7 +1758,7 @@ def measure_with_variance(func, num_runs=5, num_iterations=100):
     }
 ```
 
-### 3. Understanding Warmup Behavior
+### Understanding Warmup Behavior
 
 **Warmup Effects:**
 
@@ -1761,11 +1787,7 @@ def benchmark_with_warmup(func, warmup_iterations=20, measure_iterations=100):
     return times
 ```
 
-
-
-## Use Cases
-
-### Use Case 1: Comparing Inference Engines
+### Use Case: Comparing Inference Engines
 
 **Scenario:** Choose between vLLM, SGLang, and TensorRT-LLM for production
 
@@ -1784,7 +1806,7 @@ SGLang      180 tok/s    0.12s          0.28s          22GB
 TensorRT    200 tok/s    0.10s          0.25s          26GB
 ```
 
-### Use Case 2: Optimizing Multi-Node Clusters
+### Use Case: Optimizing Multi-Node Clusters
 
 **Scenario:** Improve scaling efficiency of 8-node training cluster
 
@@ -1802,44 +1824,6 @@ TensorRT    200 tok/s    0.10s          0.25s          26GB
 
 
 
-## Skills Learned
-
-By the end of this chapter, readers will be able to:
-
-1. **Design reproducible benchmark experiments**
-   - Create benchmark scripts with proper warmup and measurement
-   - Document system configuration and environment
-   - Use version control for benchmark code
-
-2. **Benchmark training workloads**
-   - Use PyTorch profiler and Nsight Systems
-   - Measure per-component timing (forward, backward, communication)
-   - Calculate scaling efficiency
-
-3. **Benchmark inference workloads**
-   - Use genai-bench CLI for realistic inference benchmarks
-   - Configure traffic scenarios and concurrency levels
-   - Generate Excel reports and plots for analysis
-   - Measure latency metrics (TTFT - Time to First Token, E2E - End-to-End, TPOT - Time Per Output Token) with percentiles from experiment results
-
-4. **Benchmark model accuracy and quality**
-   - Use standard benchmarks (GLUE, MMLU, HumanEval) for LLM evaluation
-   - Evaluate text-to-visual models with GenAI-Bench and VQAScore
-   - Compare accuracy across different distributed configurations
-   - Measure accuracy impact of quantization and optimizations
-
-5. **Identify communication bottlenecks**
-   - Use network monitoring tools (iftop, nload)
-   - Test NCCL communication patterns
-   - Analyze topology impact on performance
-
-6. **Optimize distributed performance**
-   - Calculate and interpret scaling efficiency
-   - Apply Amdahl's Law to understand limits
-   - Implement optimization strategies based on bottleneck analysis
-
-
-
 ## Summary
 
 This chapter has covered comprehensive benchmarking methodologies for distributed AI systems, covering both performance and accuracy evaluation. Key takeaways:
@@ -1851,6 +1835,15 @@ This chapter has covered comprehensive benchmarking methodologies for distribute
 5. **Scaling efficiency:** Measure and optimize to maximize resource utilization
 6. **Accuracy preservation:** Ensure distributed optimizations don't degrade model quality
 7. **Reproducibility:** Document everything for fair comparisons
+
+**Skills you've gained:**
+
+- Design reproducible benchmark experiments with proper warmup and measurement
+- Benchmark training workloads using PyTorch profiler and Nsight Systems
+- Benchmark inference workloads using genai-bench CLI with traffic scenarios
+- Evaluate model accuracy using standard benchmarks (GLUE, MMLU, HumanEval)
+- Identify communication bottlenecks using network monitoring tools
+- Calculate and interpret scaling efficiency using Amdahl's Law
 
 Effective benchmarking is the foundation of performance optimization and quality assurance. Without accurate measurements, optimization efforts are blind. The tools and techniques covered in this chapter provide a solid foundation for understanding and improving distributed AI system performance while maintaining model accuracy.
 
@@ -1890,7 +1883,6 @@ Throughout this book, we've covered the current state of distributed AI: DDP and
 - https://github.com/NVIDIA-NeMo/Evaluator
 - https://huggingface.co/blog/nvidia/nemotron-3-nano-evaluation-recipe
 - https://docs.nvidia.com/nim/benchmarking/llm/latest/index.html
-
 
 
 
