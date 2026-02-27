@@ -104,29 +104,21 @@ B) To account for variance and ensure reproducible, statistically significant re
 C) To warm up the GPU
 D) To test different model configurations
 
-__15. In genai-bench, what does the `--request-rate` parameter control?__
-
-A) Maximum number of concurrent requests
-B) Target requests per second sent to the server
-C) Total number of requests to send
-D) Timeout for each request
-
-
 ### Short Answer Questions
 
-16. Explain why communication overhead typically increases as you scale to more GPUs in distributed training.
+15. Explain why communication overhead typically increases as you scale to more GPUs in distributed training.
 
 
-17. A benchmark shows P50 latency of 50ms and P99 latency of 500ms. What does this distribution suggest about the system's behavior?
+16. A benchmark shows P50 latency of 50ms and P99 latency of 500ms. What does this distribution suggest about the system's behavior?
 
 
-18. Describe two ways to reduce communication overhead in distributed training without changing the model architecture.
+17. Describe two ways to reduce communication overhead in distributed training without changing the model architecture.
 
 
-19. Why might a quantized model (INT8) show different accuracy on different inference engines (vLLM vs SGLang) even with the same weights?
+18. Why might a quantized model (INT8) show different accuracy on different inference engines (vLLM vs SGLang) even with the same weights?
 
 
-20. What is the difference between "samples per second" in training benchmarks and "tokens per second" in inference benchmarks?
+19. What is the difference between "samples per second" in training benchmarks and "tokens per second" in inference benchmarks?
 
 
 ## Answer Key
@@ -145,19 +137,18 @@ D) Timeout for each request
 12. C - `efficiency = throughput_N / (throughput_1 × N)`
 13. B - GPU interconnect topology
 14. B - Statistical significance and reproducibility
-15. B - Target requests per second
 
 __Short Answer Guidelines:__
 
-16. More GPUs means more gradient synchronization across more nodes, increasing AllReduce communication volume and potentially crossing slower interconnects (PCIe vs NVLink).
+15. More GPUs means more gradient synchronization across more nodes, increasing AllReduce communication volume and potentially crossing slower interconnects (PCIe vs NVLink).
 
-17. High P99/P50 ratio (10x) indicates tail latency issues - most requests are fast but some experience significant delays, possibly due to garbage collection, resource contention, or cold cache effects.
+16. High P99/P50 ratio (10x) indicates tail latency issues - most requests are fast but some experience significant delays, possibly due to garbage collection, resource contention, or cold cache effects.
 
-18. Gradient accumulation (fewer sync points), gradient compression (reduced data volume), overlapping communication with computation, using faster interconnects.
+17. Gradient accumulation (fewer sync points), gradient compression (reduced data volume), overlapping communication with computation, using faster interconnects.
 
-19. Different quantization implementations, kernel optimizations, and numerical precision handling can cause slight accuracy variations even with identical weights.
+18. Different quantization implementations, kernel optimizations, and numerical precision handling can cause slight accuracy variations even with identical weights.
 
-20. Samples/second measures complete training examples processed; tokens/second measures individual token generation rate, which varies with sequence length and batching.
+19. Samples/second measures complete training examples processed; tokens/second measures individual token generation rate, which varies with sequence length and batching.
 
 
 ## Expected Learning Outcomes
