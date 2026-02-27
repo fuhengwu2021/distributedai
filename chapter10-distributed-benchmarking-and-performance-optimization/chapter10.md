@@ -5,7 +5,7 @@
 > If you can't measure it, you can't improve it.
 - Peter Drucker, Management Consultant and Author
 
-__Code Summary__
+**Code Summary**
 
 - `torch.profiler`: PyTorch profiler for performance analysis
 - `torch.utils.benchmark`: PyTorch benchmarking utilities
