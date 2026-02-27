@@ -323,32 +323,29 @@ This runs a test pod that executes `nvidia-smi` inside the cluster, confirming t
 
 With the GPU cluster running, we can now deploy vLLM to serve LLM inference. The `code/k3d/vllm/` directory contains ready-to-use Kubernetes manifests for several models, so you don't need to write YAML from scratch.
 
-If you're deploying a gated model like Llama that requires Hugging Face authentication, first create a Kubernetes secret containing your token:
+Many popular models on Hugging Face are "gated," meaning you need to accept their license terms and authenticate to download them. Llama models fall into this category. If you're deploying a gated model, first create a Kubernetes secret containing your Hugging Face token:
 
 ```bash
 kubectl create secret generic hf-token-secret --from-literal=token="$HF_TOKEN"
 ```
 
-Then deploy the model. For a lightweight test, Phi-tiny-MoE works well on smaller GPUs. For a more capable model, Llama-3.2-1B requires approximately 8GB of GPU memory:
+Now you can deploy a model. The choice depends on your available GPU memory. Phi-tiny-MoE is a lightweight option that works well for testing on smaller GPUs, while Llama-3.2-1B offers better quality but requires approximately 8GB of GPU memory:
 
 ```bash
 cd code/k3d/vllm
-
-# Option 1: Deploy Llama-3.2-1B
-kubectl apply -f llama-3.2-1b.yaml
-
-# Option 2: Deploy Phi-tiny-MoE (smaller, good for testing)
-./deploy-phi-tiny-moe.sh
+kubectl apply -f llama-3.2-1b.yaml      # or ./deploy-phi-tiny-moe.sh for smaller GPUs
 ```
 
-The deployment manifests configure everything needed for production serving: GPU resource requests, health probes with appropriate timeouts for model loading, volume mounts for model caching, and Kubernetes services for network access. You can watch the deployment progress and model loading:
+The deployment manifests handle the details you'd otherwise need to configure manually: GPU resource requests so Kubernetes schedules the pod on a node with available GPUs, health probes with appropriate timeouts for model loading, volume mounts for caching downloaded weights, and Kubernetes services for network access. Watch the deployment progress with:
 
 ```bash
 kubectl get pods -l app=vllm -w
 kubectl logs -l app=vllm --follow
 ```
 
-Model loading typically takes 2-5 minutes depending on model size and whether it's cached locally. Once the pod shows `Running` status and the logs indicate the server is ready, you can test the OpenAI-compatible API by forwarding the service port to your local machine:
+Model loading typically takes 2-5 minutes depending on model size and whether the weights are already cached locally. The logs will show download progress if the model needs to be fetched from Hugging Face, followed by the model being loaded into GPU memory. Once the pod shows `Running` status and the logs indicate "Uvicorn running on...", the server is ready.
+
+To test the API, forward the service port to your local machine and send a request:
 
 ```bash
 kubectl port-forward svc/vllm-llama-32-1b-service 8000:8000 &
@@ -362,17 +359,15 @@ curl http://localhost:8000/v1/chat/completions \
   }'
 ```
 
-The deployment manifests demonstrate several important configuration patterns worth understanding:
+Looking at the deployment manifests, you'll notice several configuration patterns worth understanding. The `--gpu-memory-utilization 0.2` flag tells vLLM to reserve only 20% of GPU memory, which is conservative but useful when running multiple models on shared GPUs. For single-model deployments where you want maximum throughput, increase this to 0.8 or 0.9.
 
-- **GPU Memory Allocation**: The `--gpu-memory-utilization 0.2` flag reserves only 20% of GPU memory, which is useful when running multiple models on shared GPUs. Increase this value (up to 0.9) for single-model deployments where you want maximum throughput.
+The health probes deserve special attention. Kubernetes uses liveness and readiness probes to determine if a pod is healthy, but LLM models take significant time to load into GPU memory—often several minutes for larger models. The manifests set `initialDelaySeconds` to 120-180 seconds to give the model time to load. Without this delay, Kubernetes would see the health check fail and restart the pod in an endless loop.
 
-- **Health Probes**: Kubernetes liveness and readiness probes use long `initialDelaySeconds` values (120-180 seconds) because LLM models take significant time to load into GPU memory. Without this delay, Kubernetes would restart the pod before the model finishes loading.
+The volume mount at `/models` persists downloaded model weights across pod restarts. This is important because downloading a 7B parameter model from Hugging Face takes considerable time and bandwidth. Once cached, subsequent pod restarts load the model directly from disk.
 
-- **Model Caching**: Host volume mounts at `/models` persist downloaded model weights across pod restarts, avoiding repeated downloads from Hugging Face.
+Finally, the `/dev/shm` mount provides shared memory for tensor parallel inference. When vLLM shards a model across multiple processes or GPUs, it uses shared memory for efficient inter-process communication. Without sufficient shared memory, tensor parallel inference will fail.
 
-- **Shared Memory**: The `/dev/shm` mount is required for tensor parallel inference, where vLLM uses shared memory for inter-process communication.
-
-For larger models that don't fit on a single GPU, adjust `--tensor-parallel-size` to shard the model across multiple GPUs, and update the resource limits accordingly. The `code/k3d/README.md` file provides detailed guidance on multi-GPU configurations and troubleshooting common issues.
+For larger models that don't fit on a single GPU, you can shard the model by setting `--tensor-parallel-size` to the number of GPUs and updating the resource limits accordingly. The `code/k3d/README.md` file provides detailed guidance on multi-GPU configurations and troubleshooting common issues.
 
 ### Cleanup
 
