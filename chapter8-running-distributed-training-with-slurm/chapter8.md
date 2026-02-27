@@ -595,9 +595,13 @@ The converted checkpoint contains only model weights (no optimizer state), makin
 
 ## Advanced Slurm Features for Training
 
+Beyond basic job submission, SLURM offers several advanced features that become invaluable for serious training workflows. This section covers the most useful ones for AI practitioners.
+
 ### Job Arrays for Hyperparameter Tuning
 
-Run multiple training jobs with different hyperparameters. A runnable version is in `code/train_array.sh`:
+When you need to run the same training script with different hyperparameters—a common scenario for hyperparameter search—submitting jobs one by one quickly becomes tedious. SLURM's job arrays let you submit a single script that spawns multiple independent jobs, each with a unique task ID that you can use to select different configurations.
+
+The `#SBATCH --array=0-9` directive tells SLURM to create 10 jobs (indices 0 through 9). Each job receives its index in the `SLURM_ARRAY_TASK_ID` environment variable, which you can use to compute hyperparameters. A runnable version is in `code/train_array.sh`:
 
 ```bash
 #!/bin/bash
@@ -612,21 +616,17 @@ BATCH_SIZE=$((32 * (SLURM_ARRAY_TASK_ID / 4 + 1)))
 python code/train.py --lr $LR --batch_size $BATCH_SIZE
 ```
 
-Submit:
-
-```bash
-sbatch code/train_array.sh
-```
+This example creates a grid search over 4 learning rates and 3 batch sizes (though only 10 of the 12 combinations run). Submit with `sbatch code/train_array.sh`, and SLURM schedules all 10 jobs—they may run in parallel if resources are available, or queue up if not.
 
 ### Interactive Jobs with `salloc`
 
-Allocate resources interactively for debugging:
+While `sbatch` is perfect for production training runs, debugging distributed code often requires interactive access. The `salloc` command allocates resources and gives you a shell where you can run commands directly:
 
 ```bash
 # Allocate 2 nodes, 1 GPU each, for 1 hour
 salloc -N 2 --gres=gpu:1 --time=1:00:00
 
-# Once allocated, run commands
+# Once allocated, run commands interactively
 srun hostname
 srun nvidia-smi
 srun python code/train.py
@@ -635,21 +635,27 @@ srun python code/train.py
 exit
 ```
 
+This workflow is invaluable for debugging—you can run your training script, see it fail, fix the code, and immediately retry without waiting in the queue again. Just remember that your allocation has a time limit, and idle time still counts against your quota.
+
 ### Job Dependencies
 
-Chain jobs so one starts after another completes:
+Real training pipelines often involve multiple stages: data preprocessing, training, evaluation, checkpoint conversion. Rather than manually monitoring each job and submitting the next, you can chain jobs with dependencies:
 
 ```bash
-# Submit first job
+# Submit first job and capture its ID
 JOB1=$(sbatch --parsable train_stage1.sh)
 
-# Submit second job that depends on first
+# Submit second job that starts only after first succeeds
 sbatch --dependency=afterok:$JOB1 train_stage2.sh
 ```
 
+The `--dependency=afterok:$JOB1` flag tells SLURM to hold the second job until the first completes successfully. Other dependency types include `afterany` (run regardless of exit status), `afternotok` (run only if the first fails), and `singleton` (run only one job with this name at a time).
+
 ### Checkpointing and Job Resumption
 
-Slurm supports job preemption and resumption. A checkpoint utility script is in `code/checkpoint.py`, and a complete training script with checkpointing is in `code/train_distributed.sh`:
+Long training runs inevitably encounter interruptions—time limits, node failures, preemption by higher-priority jobs. Robust checkpointing is essential, and SLURM provides a mechanism to gracefully handle time limits.
+
+The `--signal=SIGUSR1@90` directive tells SLURM to send a `SIGUSR1` signal to your job 90 seconds before the time limit expires. Your script can trap this signal and trigger a checkpoint save. A complete example is in `code/train_distributed.sh`:
 
 ```bash
 #!/bin/bash
@@ -663,6 +669,8 @@ trap 'echo "Checkpointing..."; python code/checkpoint.py' SIGUSR1
 
 python code/train.py --resume --checkpoint_dir=/path/to/checkpoints
 ```
+
+When the signal arrives, the trap handler runs your checkpoint script, giving the training process time to save state before SLURM terminates the job. Combined with the `--resume` flag in your training script, you can seamlessly continue training across multiple job submissions.
 
 ## Monitoring and Debugging
 
