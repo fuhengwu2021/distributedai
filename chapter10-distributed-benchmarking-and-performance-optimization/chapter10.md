@@ -2,8 +2,8 @@
 
 *Measuring and optimizing performance of distributed AI systems*
 
-> Once you've built these systems, you need to know how well they're performing. Are you getting the throughput you expect? Is latency acceptable? How efficiently are you using your GPUs? Are your optimizations degrading model accuracy?
-- Adapted from Chapter 10
+> If you can't measure it, you can't improve it.
+- Peter Drucker, Management Consultant and Author
 
 **Code Summary**
 
@@ -19,8 +19,16 @@
 - `ncu`: NVIDIA Nsight Compute for kernel-level profiling
 
 
+## Overview
 
-## 1. Benchmarking Methodology and Metrics
+The previous chapters have equipped you with the tools to build distributed AI systems: DDP and FSDP for training (Chapters 3-4), DeepSpeed and Megatron for large-scale parallelism (Chapter 5), vLLM and SGLang for inference (Chapters 6-7), Slurm for job orchestration (Chapter 8), and production serving stacks (Chapter 9). But building these systems is only half the battle. How do you know if your system is performing well? Is your training scaling efficiently across GPUs? Are your inference latencies meeting SLA requirements? Where are the bottlenecks hiding?
+
+This chapter addresses these questions through systematic benchmarking and performance optimization. Benchmarking distributed systems is fundamentally different from single-GPU workloads—you're not just measuring compute time, but also communication overhead, synchronization delays, memory bandwidth, and the complex interplay between multiple components. A 10% inefficiency in gradient synchronization might be invisible in a single training step, but compounds to hours of wasted GPU time over a multi-day training run. A tail latency spike that affects 1% of inference requests can violate SLAs and degrade user experience.
+
+We'll cover the complete benchmarking lifecycle: methodology and metrics that matter, profiling tools for training and inference, accuracy evaluation to ensure optimizations don't degrade model quality, network diagnostics for communication bottlenecks, and scaling efficiency analysis. By the end of this chapter, you'll be able to systematically identify performance bottlenecks, make data-driven optimization decisions, and validate that your distributed systems are running at peak efficiency.
+
+
+## Benchmarking Methodology and Metrics
 
 Benchmarking distributed AI systems is fundamentally different from benchmarking single-device workloads. The complexity arises from multiple dimensions: multiple GPUs, network communication, synchronization overhead, and system-level interactions. A rigorous benchmarking methodology is essential for making informed decisions about system design and optimization.
 
@@ -150,7 +158,7 @@ time_taken = time.time() - start  # ✅
 
 
 
-## 2. Training Benchmarking Tools and Procedures
+## Training Benchmarking Tools and Procedures
 
 Benchmarking distributed training requires understanding the full pipeline: data loading, forward pass, backward pass, gradient synchronization, and optimizer updates. Each component contributes to overall training time and must be measured separately.
 
@@ -376,7 +384,7 @@ print(f"Scaling efficiency: {efficiency:.1f}%")  # 81.25%
 
 
 
-## 3. Inference Benchmarking with genai-bench
+## Inference Benchmarking with genai-bench
 
 Inference benchmarking has unique challenges: variable request patterns, caching effects, and tail latency requirements. genai-bench provides a comprehensive framework for benchmarking inference systems with realistic workloads.
 
@@ -765,7 +773,7 @@ Guidance:
 
 
 
-## 4. Accuracy and Quality Benchmarking
+## Accuracy and Quality Benchmarking
 
 While performance benchmarking measures speed, throughput, and efficiency, **accuracy benchmarking** evaluates the quality and correctness of model outputs. For distributed AI systems, accuracy benchmarking ensures that optimizations and scaling don't degrade model quality, and helps compare different models, configurations, and serving strategies.
 
@@ -1150,7 +1158,7 @@ def compare_models_statistically(model1_scores, model2_scores):
 
 
 
-## 5. Network Bottleneck Diagnosis
+## Network Bottleneck Diagnosis
 
 Network bottlenecks are often the limiting factor in distributed training and inference. Identifying and diagnosing network issues requires understanding communication patterns, measuring bandwidth, and analyzing topology.
 
@@ -1298,7 +1306,7 @@ def detect_topology():
 
 
 
-## 6. Scaling Efficiency and Optimization
+## Scaling Efficiency and Optimization
 
 Scaling efficiency measures how well a system utilizes additional resources. Understanding scaling efficiency helps identify bottlenecks and guide optimization efforts.
 
