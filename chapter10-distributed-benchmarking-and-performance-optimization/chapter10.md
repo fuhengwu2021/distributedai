@@ -19,7 +19,7 @@
 - `ncu`: NVIDIA Nsight Compute for kernel-level profiling
 
 
-## Overview
+## The Performance Gap in Distributed Systems
 
 You've built the distributed AI system. DDP synchronizes gradients across your 8-GPU cluster. FSDP shards your 70B parameter model across nodes. vLLM serves inference requests with continuous batching. The production stack from Chapter 9 routes traffic to the right model instances. Everything *works*—but is it working *well*?
 
@@ -32,21 +32,23 @@ This chapter teaches you to find and fix these hidden inefficiencies. We'll cove
 
 ## Why Benchmarking Matters
 
-Before diving into tools and techniques, let's understand why benchmarking distributed AI systems is fundamentally different from benchmarking single-device workloads—and why getting it wrong can be costly.
+Benchmarking a single-GPU training loop is straightforward: time the forward pass, backward pass, and optimizer step. The numbers are reproducible, the methodology is simple, and the results are actionable. Distributed systems, however, introduce a fundamentally different challenge.
 
-A single-GPU training loop is relatively simple to measure: time the forward pass, backward pass, and optimizer step. But distributed systems introduce complexity at every layer. Your 8-GPU DDP training isn't just 8 copies of single-GPU training—it's 8 GPUs that must synchronize gradients, coordinate memory, and communicate over networks with varying bandwidths. A 10% inefficiency in gradient synchronization might be invisible in a single training step, but compounds to hours of wasted GPU time over a multi-day training run.
+When you scale from one GPU to eight, you're not simply running eight copies of the same workload. Those eight GPUs must synchronize gradients after every backward pass, coordinate memory allocations to avoid fragmentation, and communicate over networks with varying bandwidths and latencies. Each of these coordination points introduces overhead that doesn't exist in single-device training. A 10% inefficiency in gradient synchronization might seem negligible in a single training step, but over a two-week training run, it compounds to days of wasted GPU time.
 
-**The consequences of poor benchmarking are real and expensive:**
+The challenge is compounded by the fact that distributed system performance depends on factors that are invisible to simple timing measurements. Network topology affects AllReduce performance. Memory fragmentation affects batch size. Data loading throughput affects GPU utilization. Without systematic benchmarking that accounts for these factors, optimization efforts become guesswork.
 
-- **Wrong technology choices:** A team selects vLLM over SGLang based on benchmarks that used fixed-length prompts. In production, with variable-length requests, SGLang's radix attention provides 40% better throughput. The benchmark didn't reflect reality.
+__The consequences of inadequate benchmarking manifest in several ways:__
 
-- **Over-provisioning:** Without accurate scaling measurements, capacity planning becomes guesswork. Teams often provision 2x the hardware they need "just to be safe," doubling cloud costs.
+- **Suboptimal technology selection:** A team evaluates vLLM and SGLang using benchmarks with fixed-length prompts. vLLM wins by a small margin. In production, however, request lengths vary dramatically—some prompts are 50 tokens, others are 5,000. SGLang's radix attention provides 40% better throughput for this workload. The benchmark methodology failed to capture production reality.
 
-- **Missed optimizations:** A training job runs for two weeks. Post-hoc analysis reveals that data loading was the bottleneck—not compute. A \$50 SSD upgrade would have saved \$10,000 in GPU time.
+- **Resource over-provisioning:** Without accurate scaling efficiency measurements, capacity planning relies on conservative estimates. Teams provision twice the hardware they need "to be safe," doubling infrastructure costs without improving performance.
 
-- **SLA violations:** An inference service passes load testing with synthetic prompts. In production, real user queries trigger different code paths, and P99 latency spikes to 500ms—2.5x the promised SLA.
+- **Unidentified bottlenecks:** A training job runs for two weeks on 64 GPUs. Post-hoc analysis reveals that GPU utilization averaged only 45%—data loading was the bottleneck, not compute. A \$50 SSD upgrade would have saved \$10,000 in wasted GPU time.
 
-The techniques in this chapter help you avoid these pitfalls by establishing systematic, reproducible measurement practices. We'll start with the metrics that matter, then build up to comprehensive profiling workflows.
+- **Production SLA violations:** An inference service passes load testing with synthetic prompts averaging 100 tokens. In production, real user queries include long documents that trigger different code paths. P99 latency spikes to 500ms—2.5x the promised SLA.
+
+This chapter establishes systematic, reproducible measurement practices that address these challenges. We begin with the metrics that matter for distributed systems, then progress through profiling tools, accuracy evaluation, network diagnostics, and scaling analysis.
 
 
 ## Core Metrics for Distributed Systems
@@ -59,7 +61,9 @@ Throughput measures how much work your system completes per unit time. For distr
 
 - **Samples per Second (Training):** Number of training samples processed per second *across all GPUs*. This is your primary training efficiency metric.
 
-- **Tokens per Second (Inference):** Number of tokens generated per second. For LLM serving, this determines how many concurrent users you can support.
+- **Tokens per Second (Inference):** Number of tokens generated per second. For LLM serving, this determines how many concurrent users you can support. Total TPS per system represents the total output tokens per second throughput, accounting for all requests happening simultaneously. As the number of requests increases, total TPS increases until it reaches a saturation point for all available GPU compute resources, beyond which it may decrease.
+
+![TPS timeline showing concurrent request throughput](img/tps_timeline.png)
 
 - **Requests per Second (Serving):** Number of API requests handled per second at the system level. Unlike tokens/second, this captures the full request lifecycle including queuing and routing.
 
@@ -67,7 +71,9 @@ Throughput measures how much work your system completes per unit time. For distr
 
 ### Latency Metrics
 
-Latency measures how long individual operations take. For production systems, percentile latencies matter more than averages:
+Latency measures how long individual operations take. For production systems, percentile latencies matter more than averages. The following diagram illustrates the key LLM inference latency metrics and their relationships:
+
+![Overview of LLM inference performance metrics](img/inference_metrics_overview.png)
 
 - **P50 (Median):** The latency experienced by a typical request. Useful for understanding normal behavior.
 
@@ -75,11 +81,25 @@ Latency measures how long individual operations take. For production systems, pe
 
 - **P99:** The worst-case latency for 99% of requests. Critical for user experience—even 1% of users experiencing 10x latency creates significant frustration.
 
-- **Time to First Token (TTFT):** For streaming inference, how long until the first token appears. Users perceive this as "response time."
+- **End-to-End Request Latency (e2e_latency):** The total time from submitting a query to receiving the complete response. This metric captures the full request lifecycle including tokenization, prefill, all token generation, and de-tokenization.
 
-- **Time per Output Token (TPOT):** Average time between consecutive output tokens. Determines the perceived "typing speed" of streaming responses.
+![End-to-end request latency pipeline](img/e2e_latency_pipeline.png)
 
-![Latency distribution histogram and CDF with percentile markers](img/latency_distribution.png)
+- **Time to First Token (TTFT):** For streaming inference, how long until the first token appears. Users perceive this as "response time." TTFT includes tokenization, the prefill phase (processing the entire input prompt), generating the first token, and de-tokenization.
+
+![TTFT pipeline from input to first output token](img/ttft_pipeline.png)
+
+- **Time per Output Token (TPOT):** Average time between consecutive output tokens. Determines the perceived "typing speed" of streaming responses. Also known as Inter-token Latency (ITL), this metric is calculated as:
+
+$$
+\text{ITL} = \frac{\text{e2e\_latency} - \text{TTFT}}{\text{Total\_output\_tokens} - 1}
+$$
+
+![ITL pipeline showing output token generation](img/itl_pipeline.png)
+
+Understanding the distribution of latencies across requests is essential for setting realistic SLAs. Figure \ref{fig:latency-distribution} shows a typical latency distribution with both a histogram (showing frequency) and a cumulative distribution function (CDF). The histogram reveals the shape of the distribution—often long-tailed in production systems—while the CDF makes it easy to read off percentile values directly: the P50 is where the CDF crosses 50%, P95 at 95%, and P99 at 99%.
+
+![Latency distribution histogram and CDF with percentile markers](img/latency_distribution.png){#fig:latency-distribution}
 
 >NOTES: **Why P99 Matters More Than Average**
 
@@ -89,15 +109,15 @@ Average latency can be misleading. Consider two systems: System A has 100ms aver
 
 ### Efficiency Metrics
 
-Efficiency metrics help you understand how well you're utilizing resources:
+Raw performance numbers tell only part of the story. A system that processes 10,000 tokens per second sounds impressive—until you learn it requires 64 GPUs to achieve that throughput. Efficiency metrics bridge this gap by measuring how well your system converts resources into useful work.
 
-- **Scaling Efficiency:** How well performance scales with additional devices. If 8 GPUs provide 6.5x the throughput of 1 GPU, scaling efficiency is 81.25%.
+__Scaling Efficiency__ answers a fundamental question: when you double your hardware, do you double your performance? In an ideal world, adding 8 GPUs would yield 8x the throughput of a single GPU. Reality is less generous. Communication overhead, synchronization barriers, and load imbalances all conspire to reduce this ratio. If those 8 GPUs deliver only 6.5x throughput, your scaling efficiency is 81.25%—meaning nearly 20% of your additional hardware investment is lost to coordination costs. Understanding where this efficiency loss occurs is the first step toward recovering it.
 
-- **Memory Efficiency:** Memory utilization vs available memory. High utilization is good, but watch for fragmentation that prevents larger batch sizes.
+__Memory Efficiency__ measures how effectively you utilize the most precious resource in modern AI: GPU memory. High utilization sounds desirable, but the picture is more nuanced. Memory fragmentation can leave you with 20GB "free" yet unable to allocate a 10GB tensor because that free space is scattered across non-contiguous regions. Effective memory efficiency considers not just utilization percentage, but whether that memory organization supports your target batch sizes and sequence lengths.
 
-- **Communication Overhead:** Time spent on synchronization vs computation. In distributed training, this often becomes the bottleneck at scale.
+__Communication Overhead__ quantifies the hidden tax of distributed computing. Every gradient synchronization, every tensor transfer between devices, every collective operation consumes time that could otherwise be spent on computation. In well-optimized systems, communication overlaps with computation, hiding much of this cost. In poorly configured systems, GPUs sit idle waiting for data transfers to complete. The ratio of communication time to total time reveals how much room remains for optimization.
 
-- **Cost per Token/Request:** The economic efficiency metric. Combines performance with actual cloud/hardware costs.
+__Cost per Token/Request__ translates technical metrics into business reality. A system with superior throughput might still be economically inferior if it requires expensive hardware or consumes excessive power. This metric combines performance measurements with actual infrastructure costs—cloud instance pricing, electricity consumption, cooling requirements—to answer the question that ultimately matters: how much does each unit of useful work cost?
 
 ### The Benchmarking Methodology
 
