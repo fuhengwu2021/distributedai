@@ -1528,94 +1528,39 @@ This local setup provides a safe environment to experiment with production patte
 
 ## Kubernetes Deployment with llm-d
 
-While building custom serving stacks provides flexibility, production deployments often benefit from standardized solutions that handle the operational complexity of distributed inference. [llm-d](https://github.com/llm-d/llm-d) is an open-source project that provides production-ready Helm charts and deployment patterns for running LLM inference on Kubernetes with modern accelerators.
+In the previous section, we built a local k3d cluster to experiment with vLLM deployments. While this approach offers flexibility and deep understanding of the underlying components, production deployments at scale often benefit from standardized solutions that handle the operational complexity of distributed inference. This is where llm-d[^llmd] comes in---an open-source project that provides production-ready Helm charts and deployment patterns for running LLM inference on Kubernetes with modern accelerators.
+
+[^llmd]: llm-d project: \url{https://github.com/llm-d/llm-d}
 
 ### What is llm-d?
 
-llm-d is a comprehensive solution for deploying state-of-the-art inference performance on Kubernetes. It integrates industry-standard open technologies:
+Think of llm-d as a "batteries-included" deployment framework that assembles best-in-class open-source components into a cohesive system. At its core, llm-d uses vLLM[^vllm-llmd] as the model server---the same engine we deployed manually in the k3d section. But llm-d adds several layers of intelligence on top: the Inference Gateway (IGW)[^igw] acts as a smart request scheduler, Envoy Proxy[^envoy] handles load balancing and routing, and NIXL[^nixl] enables high-speed data transfer over fast interconnects like InfiniBand RDMA or TPU ICI. Kubernetes orchestrates all these components, ensuring they scale and recover gracefully.
 
-- **vLLM** as the default model server and engine
-- **Inference Gateway (IGW)** as request scheduler and balancer
-- **Kubernetes** as infrastructure orchestrator
-- **Envoy Proxy** for load balancing and routing
-- **NIXL** for fast interconnects (IB/RoCE RDMA, TPU ICI)
+[^vllm-llmd]: vLLM inference engine: \url{https://github.com/vllm-project/vllm}
+[^igw]: Inference Gateway (IGW): \url{https://github.com/kubernetes-sigs/gateway-api-inference-extension}
+[^envoy]: Envoy Proxy: \url{https://www.envoyproxy.io/}
+[^nixl]: NIXL (NVIDIA Inference Xfer Library): \url{https://github.com/ai-dynamo/nixl}
 
 ### Key Features
 
-**1. Intelligent Inference Scheduling**
+**Intelligent Inference Scheduling.** One of llm-d's most valuable capabilities is its intelligent request routing. Traditional load balancers distribute requests round-robin or based on simple metrics like connection count. But LLM inference has unique characteristics: a request with a 10,000-token prompt behaves very differently from one with 100 tokens. llm-d's IGW understands this. It can predict request latency and route accordingly, ensuring that long requests don't block short ones. It also implements prefix-cache aware routing---if one vLLM instance already has the KV cache for a particular system prompt, subsequent requests with the same prefix get routed there, dramatically reducing time-to-first-token. For enterprise deployments, SLA-aware scheduling ensures premium customers get priority access to compute resources, while load-aware balancing distributes work based on each instance's current capacity rather than just counting connections.
 
-llm-d builds on IGW's pattern of leveraging Envoy proxy and extensible balancing policies to make customizable "smart" load-balancing decisions for LLMs:
+**Prefill/Decode Disaggregation.** Perhaps the most innovative feature of llm-d is its support for disaggregated inference. In traditional LLM serving, a single GPU handles both the prefill phase (processing the input prompt) and the decode phase (generating output tokens one by one). These phases have very different computational profiles: prefill is compute-bound and parallelizable, while decode is memory-bandwidth-bound and sequential. By separating them onto different server pools, llm-d can optimize each independently. Prefill servers can use larger batch sizes and higher GPU utilization, while decode servers can be tuned for low latency. The challenge is transferring the KV cache between them---this is where NIXL shines, using RDMA to move gigabytes of cache data in milliseconds. A sidecar container coordinates these transfers, ensuring decode servers receive the KV cache exactly when they need it.
 
-- **Predicted latency balancing** (experimental): Predicts request latency and routes accordingly
-- **Prefix-cache aware routing**: Routes requests to instances with hot KV cache
-- **SLA-aware scheduling**: Routes based on service level agreements
-- **Load-aware balancing**: Distributes load based on current instance capacity
+**Disaggregated Prefix Caching.** Building on vLLM's KVConnector abstraction, llm-d implements a sophisticated caching hierarchy. Independent caching (sometimes called N/S for North/South) offloads KV cache to local memory and NVMe storage, allowing a single instance to serve more concurrent requests than its GPU memory would normally allow. Shared caching (E/W for East/West) enables KV cache transfer between instances, so if one server has computed the cache for a common system prompt, others can retrieve it rather than recomputing. For the most demanding deployments, global indexing provides a cluster-wide view of cached prefixes, enabling optimal routing decisions at the cost of additional coordination overhead.
 
-**2. Prefill/Decode Disaggregation**
-
-Reduces Time to First Token (TTFT) and provides more predictable Time Per Output Token (TPOT) by splitting inference:
-
-- **Prefill servers**: Handle prompt processing
-- **Decode servers**: Handle response generation
-- **KV cache transfer**: Uses NIXL for efficient KV cache transfer over fast interconnects
-- **Sidecar coordination**: Coordinates transactions via sidecar alongside decode instances
-
-**3. Disaggregated Prefix Caching**
-
-llm-d uses vLLM's KVConnector abstraction to configure a pluggable KV cache hierarchy:
-
-- **Independent (N/S) caching**: Offloads KVs to local memory and disk
-- **Shared (E/W) caching**: KV transfer between instances with shared storage
-- **Global indexing**: Enables higher performance at operational complexity cost
-
-**4. Variant Autoscaling**
-
-Traffic- and hardware-aware autoscaler that:
-
-- Measures capacity of each model server instance
-- Derives load function considering different request shapes and QoS
-- Assesses recent traffic mix (QPS, QoS, shapes)
-- Calculates optimal mix of instances for prefill, decode, and latency-tolerant requests
-- Enables HPA for SLO-level efficiency
+**Variant Autoscaling.** Traditional Kubernetes autoscaling (HPA) scales based on CPU or memory utilization, but LLM workloads need smarter scaling. llm-d's variant autoscaler measures the actual capacity of each model server instance---how many tokens per second it can generate given current memory pressure. It then analyzes recent traffic patterns: the mix of request sizes, quality-of-service requirements, and arrival rates. Based on this analysis, it calculates the optimal mix of prefill servers, decode servers, and instances reserved for latency-tolerant batch requests. This enables true SLO-level efficiency, scaling up before latency degrades rather than after.
 
 ### Hardware Support
 
-llm-d directly tests and validates multiple accelerator types:
-
-- **NVIDIA GPUs**: A100, L4, or newer
-- **AMD GPUs**: MI250 or newer
-- **Google TPUs**: TPU v5e or newer
-- **Intel XPUs**: Data Center GPU Max (Ponte Vecchio) series or newer
+One of llm-d's strengths is its broad hardware compatibility. The project directly tests and validates deployments on NVIDIA GPUs (A100, L4, and newer), AMD GPUs (MI250 and newer), Google TPUs (v5e and newer), and Intel Data Center GPU Max series (Ponte Vecchio). This multi-vendor support is increasingly important as organizations seek to avoid lock-in and optimize costs across different cloud providers.
 
 ### Deployment Architecture
 
-```
-┌─────────────────────────────────────────────────┐
-│              Kubernetes Cluster                  │
-│                                                  │
-│  ┌──────────────┐      ┌──────────────────┐    │
-│  │   Envoy      │      │  Inference        │    │
-│  │   Proxy      │──────│  Gateway (IGW)    │    │
-│  │              │      │  (Scheduler)      │    │
-│  └──────┬───────┘      └──────────────────┘    │
-│         │                                        │
-│         ├──────────────┬──────────────────┐    │
-│         ▼              ▼                  ▼     │
-│  ┌──────────┐   ┌──────────┐      ┌──────────┐ │
-│  │ Prefill  │   │ Decode   │      │ Decode   │ │
-│  │ Server 1 │   │ Server 1 │      │ Server 2 │ │
-│  │ (vLLM)   │   │ (vLLM)   │      │ (vLLM)   │ │
-│  └──────────┘   └──────────┘      └──────────┘ │
-│         │              │                  │     │
-│         └──────────────┴──────────────────┘    │
-│                    │                            │
-│                    ▼                            │
-│         ┌──────────────────────┐               │
-│         │   KV Cache Storage    │               │
-│         │   (NIXL/NVMe)         │               │
-│         └──────────────────────┘               │
-└─────────────────────────────────────────────────┘
-```
+![llm-d deployment architecture on Kubernetes.](img/llmd_architecture.png){#fig:llmd-architecture}
+
+Figure \ref{fig:llmd-architecture} illustrates the llm-d deployment architecture. Requests enter through an Envoy Proxy, which forwards them to the Inference Gateway (IGW). The IGW acts as an intelligent scheduler, routing requests to the appropriate model servers based on current load and request characteristics. In disaggregated inference mode, prefill servers handle prompt processing while decode servers generate tokens, with both sharing KV cache state through high-speed storage (NIXL over NVMe).
+
 
 ### Getting Started with llm-d
 
