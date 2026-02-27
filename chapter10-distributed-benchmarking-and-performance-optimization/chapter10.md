@@ -1850,19 +1850,8 @@ Throughout this book, we've covered the current state of distributed AI: DDP and
 
 
 
-## Exercises
-
-1. **Create a training benchmark:** Write a script that measures forward, backward, communication, and optimizer times separately. Run it with 1, 2, 4, and 8 GPUs and calculate scaling efficiency.
-
-2. **Benchmark inference latency:** Use genai-bench CLI to benchmark an inference server with different traffic scenarios and concurrency levels. Generate Excel reports and plots to analyze TTFT, E2E latency, and TPOT metrics with percentiles (P50, P95, P99).
-
-3. **Benchmark model accuracy:** Evaluate a model on a standard benchmark (e.g., MMLU or GLUE). Compare accuracy between centralized training, distributed training, and quantized versions. Use statistical tests to determine if accuracy differences are significant.
-
-4. **Analyze communication overhead:** Profile a distributed training job and identify what percentage of time is spent on communication vs computation.
-
-5. **Optimize a bottleneck:** Identify a bottleneck in a distributed system and implement an optimization. Measure both performance improvement and accuracy impact.
-
-
+<!-- include: exercises/torch.md if include_math -->
+<!-- include: exercises/torch.md if include_torch -->
 
 ## Further Reading
 

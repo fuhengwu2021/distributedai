@@ -966,3 +966,6 @@ __Research__
 
 - When to Reason: Semantic Router for vLLM (2025): \url{https://arxiv.org/abs/2510.08731}
 - Distributed Inference with vLLM (Red Hat, 2025): \url{https://developers.redhat.com/articles/2025/02/06/distributed-inference-with-vllm}
+
+<!-- include: exercises/torch.md if include_math -->
+<!-- include: exercises/torch.md if include_torch -->

@@ -1124,3 +1124,6 @@ __Projects__
 
 - Wan2.2 (FSDP + DeepSpeed Ulysses for multi-GPU inference): \url{https://github.com/Wan-Video/Wan2.2}
 
+<!-- include: exercises/torch.md if include_math -->
+<!-- include: exercises/torch.md if include_torch -->
+

@@ -819,17 +819,8 @@ The field of distributed AI is rapidly evolving. The technologies covered in thi
 
 
 
-## Exercises
-
-1. **Implement Basic MoE:** Create a simple MoE layer with 4 experts and top-2 routing. Test it on a small model.
-
-2. **Edge-Cloud Routing:** Build a simple routing system that decides between edge and cloud based on request characteristics.
-
-3. **Gradient Compression:** Implement top-k gradient compression and measure communication reduction.
-
-4. **Research Review:** Read a recent paper on distributed AI (MoE, edge AI, or new parallelism) and summarize key insights.
-
-
+<!-- include: exercises/torch.md if include_math -->
+<!-- include: exercises/torch.md if include_torch -->
 
 ## Further Reading
 

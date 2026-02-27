@@ -860,3 +860,6 @@ __Tutorials and Walkthroughs__
 - SGLang Scheduler Evolution: \url{https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/sglang/scheduler-evolution/SGLang%20Scheduler%20Evolution.md}
 - Why SGLang is a Game-Changer for LLM Workflows (Hugging Face, 2025): \url{https://huggingface.co/blog/paresh2806/sglang-efficient-llm-workflows}
 - Use Cases Favoring vLLM vs SGLang (2025): \url{https://kanerika.com/blogs/sglang-vs-vllm/}
+
+<!-- include: exercises/torch.md if include_math -->
+<!-- include: exercises/torch.md if include_torch -->

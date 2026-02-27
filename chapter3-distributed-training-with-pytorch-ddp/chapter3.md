@@ -1720,6 +1720,10 @@ Understanding how DDP works—gradient synchronization, bucketing, overlap—hel
 DDP is mature, well-optimized, and suitable for most distributed training scenarios. However, for very large models that don't fit on a single GPU, you'll need to move beyond DDP to techniques like FSDP (Fully Sharded Data Parallel), which we'll cover in the next chapter. FSDP extends DDP by sharding model parameters across GPUs, enabling training of models that are too large for any single GPU's memory.
 
 
+<!-- include: exercises/torch.md if include_math -->
+<!-- include: exercises/torch.md if include_torch -->
+
+
 <!--References:
 
 - /media/wukong/jackie/git.repo/AISystem/05Framework/04Parallel/02DataParallel.md
