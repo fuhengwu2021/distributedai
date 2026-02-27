@@ -5,7 +5,7 @@
 > If you can't measure it, you can't improve it.
 - Peter Drucker, Management Consultant and Author
 
-**Code Summary**
+__Code Summary__
 
 - `torch.profiler`: PyTorch profiler for performance analysis
 - `torch.utils.benchmark`: PyTorch benchmarking utilities
@@ -51,55 +51,13 @@ __The consequences of inadequate benchmarking manifest in several ways:__
 This chapter establishes systematic, reproducible measurement practices that address these challenges. We begin with the metrics that matter for distributed systems, then progress through profiling tools, accuracy evaluation, network diagnostics, and scaling analysis.
 
 
-## Core Metrics for Distributed Systems
+## Benchmarking Fundamentals
 
-Not all metrics are created equal. Understanding which numbers to track—and which to ignore—is the foundation of effective benchmarking. Let's examine the metrics that actually matter for distributed AI systems.
+Before diving into specific tools, let's establish the foundational concepts that apply to all distributed AI benchmarking—whether training or inference.
 
-### Throughput Metrics
+### Understanding Percentile Latencies
 
-Throughput measures how much work your system completes per unit time. For distributed systems, the key insight is that raw throughput must be normalized to be meaningful:
-
-- **Samples per Second (Training):** Number of training samples processed per second *across all GPUs*. This is your primary training efficiency metric.
-
-- **Tokens per Second (Inference):** Number of tokens generated per second. For LLM serving, this determines how many concurrent users you can support. Total TPS per system represents the total output tokens per second throughput, accounting for all requests happening simultaneously. As the number of requests increases, total TPS increases until it reaches a saturation point for all available GPU compute resources, beyond which it may decrease.
-
-![TPS timeline showing concurrent request throughput](img/tps_timeline.png)
-
-- **Requests per Second (Serving):** Number of API requests handled per second at the system level. Unlike tokens/second, this captures the full request lifecycle including queuing and routing.
-
-- **GPU Utilization:** Percentage of time GPUs are actively computing vs waiting. Low utilization often indicates bottlenecks elsewhere (data loading, communication, CPU preprocessing).
-
-### Latency Metrics
-
-Latency measures how long individual operations take. For production systems, percentile latencies matter more than averages. The following diagram illustrates the key LLM inference latency metrics and their relationships:
-
-![Overview of LLM inference performance metrics](img/inference_metrics_overview.png)
-
-- **P50 (Median):** The latency experienced by a typical request. Useful for understanding normal behavior.
-
-- **P95:** The latency experienced by 95% of requests. This is often the SLA target for production systems.
-
-- **P99:** The worst-case latency for 99% of requests. Critical for user experience—even 1% of users experiencing 10x latency creates significant frustration.
-
-- **End-to-End Request Latency (e2e_latency):** The total time from submitting a query to receiving the complete response. This metric captures the full request lifecycle including tokenization, prefill, all token generation, and de-tokenization.
-
-![End-to-end request latency pipeline](img/e2e_latency_pipeline.png)
-
-- **Time to First Token (TTFT):** For streaming inference, how long until the first token appears. Users perceive this as "response time." TTFT includes tokenization, the prefill phase (processing the entire input prompt), generating the first token, and de-tokenization.
-
-![TTFT pipeline from input to first output token](img/ttft_pipeline.png)
-
-- **Time per Output Token (TPOT):** Average time between consecutive output tokens. Determines the perceived "typing speed" of streaming responses. Also known as Inter-token Latency (ITL), this metric is calculated as:
-
-$$
-\text{ITL} = \frac{\text{e2e\_latency} - \text{TTFT}}{\text{Total\_output\_tokens} - 1}
-$$
-
-![ITL pipeline showing output token generation](img/itl_pipeline.png)
-
-Understanding the distribution of latencies across requests is essential for setting realistic SLAs. Figure \ref{fig:latency-distribution} shows a typical latency distribution with both a histogram (showing frequency) and a cumulative distribution function (CDF). The histogram reveals the shape of the distribution—often long-tailed in production systems—while the CDF makes it easy to read off percentile values directly: the P50 is where the CDF crosses 50%, P95 at 95%, and P99 at 99%.
-
-![Latency distribution histogram and CDF with percentile markers](img/latency_distribution.png){#fig:latency-distribution}
+For any performance measurement, percentile latencies matter more than averages. The P50 (median) represents typical behavior, P95 is often the SLA target, and P99 captures worst-case performance that affects user experience. A system with 80ms average latency but 500ms P99 creates frustrated users—those slow requests matter.
 
 >NOTES: **Why P99 Matters More Than Average**
 
@@ -109,106 +67,38 @@ Average latency can be misleading. Consider two systems: System A has 100ms aver
 
 ### Efficiency Metrics
 
-Raw performance numbers tell only part of the story. A system that processes 10,000 tokens per second sounds impressive—until you learn it requires 64 GPUs to achieve that throughput. Efficiency metrics bridge this gap by measuring how well your system converts resources into useful work.
+Raw performance numbers tell only part of the story. A system that processes 10,000 samples per second sounds impressive—until you learn it requires 64 GPUs to achieve that throughput. Efficiency metrics bridge this gap.
 
-__Scaling Efficiency__ answers a fundamental question: when you double your hardware, do you double your performance? In an ideal world, adding 8 GPUs would yield 8x the throughput of a single GPU. Reality is less generous. Communication overhead, synchronization barriers, and load imbalances all conspire to reduce this ratio. If those 8 GPUs deliver only 6.5x throughput, your scaling efficiency is 81.25%—meaning nearly 20% of your additional hardware investment is lost to coordination costs. Understanding where this efficiency loss occurs is the first step toward recovering it.
+__Scaling Efficiency__ answers a fundamental question: when you double your hardware, do you double your performance? If 8 GPUs deliver only 6.5x throughput instead of 8x, your scaling efficiency is 81.25%—meaning nearly 20% of your additional hardware investment is lost to coordination costs.
 
-__Memory Efficiency__ measures how effectively you utilize the most precious resource in modern AI: GPU memory. High utilization sounds desirable, but the picture is more nuanced. Memory fragmentation can leave you with 20GB "free" yet unable to allocate a 10GB tensor because that free space is scattered across non-contiguous regions. Effective memory efficiency considers not just utilization percentage, but whether that memory organization supports your target batch sizes and sequence lengths.
+__Memory Efficiency__ measures how effectively you utilize GPU memory. Memory fragmentation can leave you with 20GB "free" yet unable to allocate a 10GB tensor because that free space is scattered across non-contiguous regions.
 
-__Communication Overhead__ quantifies the hidden tax of distributed computing. Every gradient synchronization, every tensor transfer between devices, every collective operation consumes time that could otherwise be spent on computation. In well-optimized systems, communication overlaps with computation, hiding much of this cost. In poorly configured systems, GPUs sit idle waiting for data transfers to complete. The ratio of communication time to total time reveals how much room remains for optimization.
+__Cost per Token/Sample__ translates technical metrics into business reality. This metric combines performance measurements with actual infrastructure costs—cloud instance pricing, electricity consumption, cooling requirements—to answer the question that ultimately matters: how much does each unit of useful work cost?
 
-__Cost per Token/Request__ translates technical metrics into business reality. A system with superior throughput might still be economically inferior if it requires expensive hardware or consumes excessive power. This metric combines performance measurements with actual infrastructure costs—cloud instance pricing, electricity consumption, cooling requirements—to answer the question that ultimately matters: how much does each unit of useful work cost?
+### Benchmarking Methodology
 
-### The Benchmarking Methodology
+Rigorous methodology separates meaningful benchmarks from noise. Three critical practices apply to both training and inference:
 
-Rigorous methodology separates meaningful benchmarks from noise. Here's the four-phase approach that ensures reproducible, accurate results:
+__Warmup before measurement.__ CUDA operations are lazily compiled—the first execution triggers JIT compilation, memory allocation, and cache population. Always run several warmup iterations before starting your timer, and ensure CUDA synchronization completes before recording the start time.
 
-**Phase 1: Setup**
-- Fix random seeds for reproducibility
-- Document hardware configuration (GPU model, memory, interconnect)
-- Version control benchmark scripts
-- Record system state (driver versions, CUDA version, framework versions)
+__Measure multiple iterations with statistics.__ A single measurement tells you almost nothing. Performance varies due to thermal throttling, background processes, memory fragmentation, and network congestion. Run at least 100 iterations and report mean, standard deviation, and percentiles.
 
-**Phase 2: Warmup**
+__Isolate what you're measuring.__ Pre-load your data, call `torch.cuda.synchronize()` before starting the timer, and call it again before stopping. The synchronization ensures all GPU operations have completed, not just been queued.
 
-The warmup phase is critical because CUDA operations are lazily compiled—the first execution triggers JIT compilation, memory allocation, and cache population. Without warmup, your measurements include these one-time costs, making results unreliable. See `code/benchmark_warmup.py` for a complete implementation with proper synchronization and statistics reporting.
-
-**Phase 3: Measurement**
-- Run multiple independent iterations (minimum 100)
-- Ensure CUDA synchronization before timing
-- Measure over sufficient duration to capture variance
-
-**Phase 4: Analysis**
-- Report mean, standard deviation, and percentiles
-- Use statistical significance tests when comparing systems
-- Document any anomalies or outliers
-
-![Four-phase benchmarking workflow with pitfalls and best practices](img/benchmarking_methodology.png)
-
-### Common Benchmarking Pitfalls
-
-Even experienced engineers fall into these traps. Here's how to avoid them:
-
-**Pitfall 1: Insufficient Warmup**
-
-The first iteration of any CUDA operation is slow—kernels must be JIT compiled, memory must be allocated, and caches must be populated. Measuring cold-start performance as typical performance is a common mistake.
-
-```python
-# Wrong: No warmup, first iteration is slow
-start = time.time()
-result = model(inputs)  # ❌ Cold start
-time_taken = time.time() - start
-
-# Correct: Warmup before measurement
-for _ in range(10):
-    _ = model(inputs)  # Warmup
-torch.cuda.synchronize()
-start = time.time()
-result = model(inputs)  # ✅ Warm measurement
-time_taken = time.time() - start
-```
-
-**Pitfall 2: Ignoring Variance**
-
-A single measurement tells you almost nothing. Performance varies due to thermal throttling, background processes, network congestion, and dozens of other factors.
-
-```python
-# Wrong: Single measurement
-time_taken = measure_once()
-
-# Correct: Multiple measurements with statistics
-times = [measure() for _ in range(10)]
-mean_time = np.mean(times)
-std_time = np.std(times)
-print(f"Time: {mean_time:.3f} ± {std_time:.3f} seconds")
-```
-
-**Pitfall 3: Measuring the Wrong Thing**
-
-It's easy to accidentally include setup time, data loading, or other operations in your measurements.
-
-```python
-# Wrong: Including data loading in inference time
-for data in dataloader:  # Data loading included
-    start = time.time()
-    result = model(data)
-    time_taken = time.time() - start  # ❌
-
-# Correct: Pre-load data, measure only inference
-data_batch = next(iter(dataloader))
-torch.cuda.synchronize()
-start = time.time()
-result = model(data_batch)
-torch.cuda.synchronize()
-time_taken = time.time() - start  # ✅
-```
-
-With these foundational concepts in place, let's dive into the specific tools and techniques for benchmarking training and inference workloads.
+See `code/benchmark_warmup.py` for a complete implementation demonstrating proper warmup, synchronization, and statistics reporting.
 
 
 ## Training Benchmarking
 
 Training a distributed model involves a complex pipeline: data loading, forward pass, backward pass, gradient synchronization, and optimizer updates. Each component contributes to overall training time, and bottlenecks can hide in any of them. Effective training benchmarking requires measuring each phase separately to identify where optimization efforts should focus.
+
+### Key Training Metrics
+
+__Samples per Second__ is your primary training throughput metric—the number of training samples processed per second across all GPUs. This directly determines how long training takes: if you process 1,000 samples/second and have 1 million samples per epoch, each epoch takes ~17 minutes.
+
+__GPU Utilization__ measures what percentage of time GPUs are actively computing versus waiting. Low utilization (below 80%) often indicates bottlenecks elsewhere—data loading too slow, communication blocking computation, or CPU preprocessing creating stalls.
+
+__Communication Overhead__ quantifies the hidden tax of distributed training. Every gradient synchronization consumes time that could otherwise be spent on computation. In well-optimized systems, communication overlaps with backward pass computation, hiding much of this cost. In poorly configured systems, GPUs sit idle waiting for AllReduce operations to complete.
 
 ![Training iteration time breakdown by phase and GPU count](img/training_breakdown.png)
 
@@ -218,7 +108,7 @@ The figure above illustrates a common pattern: as you scale from 1 GPU to 16 GPU
 
 PyTorch's built-in profiler is your first tool for understanding training performance. It captures CPU and CUDA operations, memory allocations, and can export traces for visualization.
 
-**Basic Usage:**
+__Basic Usage:__
 
 The PyTorch profiler captures both CPU and CUDA operations, giving you a complete picture of where time is spent. The key is labeling your code regions with `record_function` so you can identify bottlenecks by phase. Key configuration options include:
 
@@ -229,7 +119,7 @@ The PyTorch profiler captures both CPU and CUDA operations, giving you a complet
 
 The output table shows operations sorted by total CUDA time. Look for operations consuming disproportionate time—these are your optimization targets. The exported `trace.json` can be viewed in `chrome://tracing` for detailed timeline analysis.
 
-**Advanced Profiling with Schedule:**
+__Advanced Profiling with Schedule:__
 
 For multi-iteration analysis, use a profiling schedule that handles warmup automatically. The schedule parameters control the profiling lifecycle: `wait` skips cold start iterations, `warmup` runs iterations without recording, `active` profiles the specified number of iterations, and `repeat` cycles through this pattern multiple times. The `tensorboard_trace_handler` automatically saves traces for visualization with TensorBoard.
 
@@ -239,7 +129,7 @@ See `code/pytorch_profiler.py` for complete implementations of both basic and sc
 
 For deeper analysis—especially of CUDA kernels and NCCL communication—NVIDIA Nsight Systems provides system-level profiling that PyTorch's profiler can't match.
 
-**Command Line Usage:**
+__Command Line Usage:__
 ```bash
 # Profile training script
 nsys profile --trace=cuda,nvtx,osrt \
@@ -274,7 +164,7 @@ Scaling efficiency quantifies how well your system utilizes additional resources
 
 ![Scaling efficiency: ideal vs actual throughput and efficiency percentages](img/scaling_efficiency.png)
 
-**Interpreting Scaling Efficiency:**
+__Interpreting Scaling Efficiency:__
 
 - **>90%:** Excellent scaling—your system is well-optimized
 - **70-90%:** Good scaling—typical for well-tuned distributed training
@@ -290,6 +180,46 @@ See `code/scaling_efficiency.py` for functions to calculate and benchmark scalin
 
 Inference benchmarking presents different challenges than training. Request patterns are variable, caching effects matter, and tail latency requirements are strict. A training job that's 10% slower is annoying; an inference endpoint that violates P99 SLA loses customers.
 
+### Key Inference Metrics
+
+LLM inference has its own vocabulary of metrics that capture the unique characteristics of autoregressive generation. Understanding these metrics and their relationships is essential for effective benchmarking.
+
+![Overview of LLM inference performance metrics](img/inference_metrics_overview.png)
+
+__Tokens per Second (TPS)__ measures generation throughput. Total TPS per system accounts for all concurrent requests—as concurrency increases, total TPS increases until GPU compute saturates, then may decrease due to memory pressure.
+
+![TPS timeline showing concurrent request throughput](img/tps_timeline.png)
+
+__Requests per Second (RPS)__ captures the full request lifecycle including queuing and routing. Unlike TPS, this metric reflects actual API capacity.
+
+__End-to-End Request Latency (e2e_latency)__ is the total time from submitting a query to receiving the complete response, capturing tokenization, prefill, all token generation, and de-tokenization.
+
+![End-to-end request latency pipeline](img/e2e_latency_pipeline.png)
+
+__Time to First Token (TTFT)__ measures how long until the first token appears. Users perceive this as "response time." TTFT includes tokenization, the prefill phase (processing the entire input prompt), generating the first token, and de-tokenization.
+
+![TTFT pipeline from input to first output token](img/ttft_pipeline.png)
+
+__Inter-token Latency (ITL)__, also called Time per Output Token (TPOT), is the average time between consecutive tokens. This determines the perceived "typing speed" of streaming responses:
+
+$$
+\text{ITL} = \frac{\text{e2e\_latency} - \text{TTFT}}{\text{Total\_output\_tokens} - 1}
+$$
+
+![ITL pipeline showing output token generation](img/itl_pipeline.png)
+
+The relationship between these metrics determines what you should optimize:
+
+$$
+\text{e2e\_latency} = \text{TTFT} + (\text{output\_tokens} - 1) \times \text{ITL}
+$$
+
+For short outputs (10-20 tokens), TTFT dominates—optimizing prefill and KV cache initialization matters most. For long outputs (hundreds of tokens), ITL dominates—memory bandwidth and decode efficiency become critical. For streaming applications, users perceive TTFT as "response time" and ITL as "typing speed," so both require attention.
+
+Understanding the distribution of latencies is essential for setting realistic SLAs. Figure \ref{fig:latency-distribution} shows a typical latency distribution with both a histogram and CDF. The CDF makes it easy to read percentile values directly: P50 where it crosses 50%, P95 at 95%, P99 at 99%.
+
+![Latency distribution histogram and CDF with percentile markers](img/latency_distribution.png){#fig:latency-distribution}
+
 >NOTES: **Performance vs Accuracy Benchmarking**
 
 This section covers **performance benchmarking** using tools like [genai-bench](https://github.com/sgl-project/genai-bench), which measures engineering metrics (throughput, latency, scaling). This is distinct from **accuracy benchmarking** tools like [GenAI-Bench for text-to-visual evaluation](https://linzhiqiu.github.io/papers/genai_bench/) that measure model output quality. We cover accuracy benchmarking in the next section.
@@ -298,11 +228,13 @@ This section covers **performance benchmarking** using tools like [genai-bench](
 
 ### genai-bench Overview
 
-genai-bench is a CLI-based benchmarking tool designed for realistic inference workload testing. Unlike simple load generators that send identical requests, genai-bench supports configurable traffic patterns that mirror production workloads—variable prompt lengths, different concurrency levels, and realistic request distributions.
+genai-bench[^genai-bench] is a CLI-based benchmarking tool designed for realistic inference workload testing. Unlike simple load generators that send identical requests, genai-bench supports configurable traffic patterns that mirror production workloads—variable prompt lengths, different concurrency levels, and realistic request distributions.
+
+[^genai-bench]: https://github.com/sgl-project/sglang/tree/main/benchmark/genai_bench
 
 **Why use genai-bench over custom scripts?** Production inference traffic is highly variable. Users send prompts ranging from 10 tokens to 10,000 tokens. Load varies from 1 concurrent request to 1,000. Simple benchmarks with fixed-length prompts miss critical performance characteristics like how your system handles long-context requests under load, or how batching efficiency changes with request diversity.
 
-**Key Features:**
+__Key Features:__
 
 - Realistic prompt distributions via traffic scenarios
 - Configurable load patterns (concurrency, request rates)
@@ -310,14 +242,14 @@ genai-bench is a CLI-based benchmarking tool designed for realistic inference wo
 - Comprehensive latency percentile tracking (TTFT, E2E, TPOT)
 - Automatic Excel reports and plot generation
 
-**Installation:**
+__Installation:__
 ```bash
 pip install genai-bench
 ```
 
 ### Running genai-bench
 
-**Understanding Traffic Scenarios:**
+__Understanding Traffic Scenarios:__
 
 Traffic scenarios define the distribution of input and output token lengths:
 
@@ -348,7 +280,7 @@ Cold start latency—the time for the first request after model loading—can be
 
 Reasoning models—chain-of-thought, tool-augmented LLMs, multi-step agents—require different benchmarking approaches. You need to measure both per-step latency and end-to-end session latency, separating local generation time from external calls.
 
-**Key measurement points:**
+__Key measurement points:__
 
 - **Per-step latency:** Measure TTFT/TPOT for each reasoning step to identify slow steps
 - **End-to-end session latency:** Total time for the complete reasoning session
@@ -378,14 +310,14 @@ Consider these scenarios where accuracy benchmarking prevented disasters:
 
 ### Accuracy Metrics for LLMs
 
-**Text Generation Quality Metrics:**
+__Text Generation Quality Metrics:__
 
 - **BLEU Score:** Measures n-gram overlap with reference text (common for translation)
 - **ROUGE Score:** Measures overlap of n-grams, longest common subsequence (summarization)
 - **BERTScore:** Semantic similarity using BERT embeddings
 - **Human Evaluation:** Gold standard but expensive (Likert scales, pairwise comparisons)
 
-**Task-Specific Metrics:**
+__Task-Specific Metrics:__
 
 - **Classification Accuracy:** For classification tasks
 - **F1 Score:** For tasks with precision/recall trade-offs
@@ -573,14 +505,14 @@ Before running any benchmark, verify:
 
 **Scenario:** Choose between vLLM, SGLang, and TensorRT-LLM for production
 
-**Approach:**
+__Approach:__
 1. Define metrics: Throughput, latency (P50/P95/P99), memory usage
 2. Create realistic workload using production request patterns
 3. Run benchmarks with genai-bench for consistency
 4. Analyze results across engines
 5. Consider tradeoffs: latency vs throughput, memory vs speed
 
-**Example Results:**
+__Example Results:__
 ```
 Engine      Throughput    P50 Latency    P95 Latency    Memory
 vLLM        150 tok/s    0.15s          0.35s          24GB
@@ -592,13 +524,13 @@ TensorRT    200 tok/s    0.10s          0.25s          26GB
 
 **Scenario:** Improve scaling efficiency of 8-node training cluster from 52% to 80%
 
-**Diagnostic Steps:**
+__Diagnostic Steps:__
 1. Profile communication vs compute time
 2. Check data loading throughput
 3. Measure GPU utilization
 4. Test network bandwidth between nodes
 
-**Common Fixes:**
+__Common Fixes:__
 - **Communication bottleneck:** Enable gradient compression, optimize bucket size
 - **Data loading bottleneck:** Increase `num_workers`, use `pin_memory=True`
 - **Compute bottleneck:** Check for CPU-GPU synchronization points
@@ -620,7 +552,7 @@ This chapter has equipped you with the tools and techniques to systematically be
 
 6. **Reproducibility enables progress:** Document everything. Version control benchmark scripts. Fix random seeds.
 
-**Skills you've gained:**
+__Skills you've gained:__
 
 - Design reproducible benchmark experiments with proper warmup and measurement
 - Profile training workloads using PyTorch Profiler and Nsight Systems
@@ -640,7 +572,7 @@ Throughout this book, we've covered the current state of distributed AI: DDP and
 
 ## Further Reading
 
-**Performance Benchmarking:**
+__Performance Benchmarking:__
 
 - genai-bench Documentation: https://github.com/sgl-project/genai-bench
 - PyTorch Profiler: https://pytorch.org/tutorials/recipes/recipes/profiler_recipe.html
@@ -655,7 +587,7 @@ Throughout this book, we've covered the current state of distributed AI: DDP and
 
 
 
-**Accuracy Benchmarking:**
+__Accuracy Benchmarking:__
 
 - GenAI-Bench (Text-to-Visual Evaluation): https://linzhiqiu.github.io/papers/genai_bench/
 - GLUE Benchmark: https://gluebenchmark.com/
