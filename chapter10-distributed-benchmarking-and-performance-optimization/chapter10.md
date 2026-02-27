@@ -79,7 +79,7 @@ Latency measures how long individual operations take. For production systems, pe
 
 - **Time per Output Token (TPOT):** Average time between consecutive output tokens. Determines the perceived "typing speed" of streaming responses.
 
-![Latency Distribution: Left shows histogram with P50/P95/P99 percentile lines and color-coded regions. Right shows CDF with percentile markers demonstrating tail latency.](img/latency_distribution.png)
+![Latency distribution histogram and CDF with percentile markers](img/latency_distribution.png)
 
 >NOTES: **Why P99 Matters More Than Average**
 
@@ -110,26 +110,8 @@ Rigorous methodology separates meaningful benchmarks from noise. Here's the four
 - Record system state (driver versions, CUDA version, framework versions)
 
 **Phase 2: Warmup**
-```python
-# Always include warmup iterations
-def benchmark_with_warmup(model, dataloader, num_warmup=10, num_iterations=100):
-    # Warmup: discard initial iterations
-    for i in range(num_warmup):
-        _ = model(next(iter(dataloader)))
-    
-    # Synchronize before measurement
-    torch.cuda.synchronize()
-    
-    # Actual measurement
-    timings = []
-    for i in range(num_iterations):
-        start = time.time()
-        _ = model(next(iter(dataloader)))
-        torch.cuda.synchronize()
-        timings.append(time.time() - start)
-    
-    return timings
-```
+
+The warmup phase is critical because CUDA operations are lazily compiled—the first execution triggers JIT compilation, memory allocation, and cache population. Without warmup, your measurements include these one-time costs, making results unreliable. See `code/benchmark_warmup.py` for a complete implementation with proper synchronization and statistics reporting.
 
 **Phase 3: Measurement**
 - Run multiple independent iterations (minimum 100)
@@ -141,7 +123,7 @@ def benchmark_with_warmup(model, dataloader, num_warmup=10, num_iterations=100):
 - Use statistical significance tests when comparing systems
 - Document any anomalies or outliers
 
-![Benchmarking Methodology Flow: Shows the four-phase workflow (Setup, Warmup, Measurement, Analysis) with common pitfalls and best practices for rigorous benchmarking.](img/benchmarking_methodology.png)
+![Four-phase benchmarking workflow with pitfalls and best practices](img/benchmarking_methodology.png)
 
 ### Common Benchmarking Pitfalls
 
@@ -208,7 +190,7 @@ With these foundational concepts in place, let's dive into the specific tools an
 
 Training a distributed model involves a complex pipeline: data loading, forward pass, backward pass, gradient synchronization, and optimizer updates. Each component contributes to overall training time, and bottlenecks can hide in any of them. Effective training benchmarking requires measuring each phase separately to identify where optimization efforts should focus.
 
-![Training Iteration Breakdown: Left shows stacked bar chart of time per iteration phase across GPU configurations. Right shows percentage distribution highlighting communication overhead growth with scale.](img/training_breakdown.png)
+![Training iteration time breakdown by phase and GPU count](img/training_breakdown.png)
 
 The figure above illustrates a common pattern: as you scale from 1 GPU to 16 GPUs, communication overhead grows from 0% to over 50% of iteration time. This is why scaling efficiency decreases—you're spending more time synchronizing and less time computing. Understanding this breakdown is the first step toward optimization.
 
@@ -217,63 +199,21 @@ The figure above illustrates a common pattern: as you scale from 1 GPU to 16 GPU
 PyTorch's built-in profiler is your first tool for understanding training performance. It captures CPU and CUDA operations, memory allocations, and can export traces for visualization.
 
 **Basic Usage:**
-```python
-from torch.profiler import profile, record_function, ProfilerActivity
-import torch
 
-def profile_training_step(model, inputs, targets):
-    with profile(
-        activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
-        record_shapes=True,
-        profile_memory=True,
-        with_stack=True
-    ) as prof:
-        with record_function("forward"):
-            outputs = model(inputs)
-            loss = criterion(outputs, targets)
-        
-        with record_function("backward"):
-            loss.backward()
-        
-        with record_function("optimizer"):
-            optimizer.step()
-    
-    # Print results
-    print(prof.key_averages().table(
-        sort_by="cuda_time_total",
-        row_limit=20
-    ))
-    
-    # Export for visualization
-    prof.export_chrome_trace("trace.json")
-```
+The PyTorch profiler captures both CPU and CUDA operations, giving you a complete picture of where time is spent. The key is labeling your code regions with `record_function` so you can identify bottlenecks by phase. Key configuration options include:
 
-The `record_function` context manager lets you label regions of code, making it easy to identify which phase consumes the most time. The exported Chrome trace can be viewed in `chrome://tracing` for detailed timeline analysis.
+- **`activities`:** Specify `CPU` and `CUDA` to capture both host and device operations
+- **`record_shapes`:** Records tensor shapes, useful for understanding memory patterns
+- **`profile_memory`:** Tracks memory allocations and deallocations
+- **`with_stack`:** Captures Python call stacks for deeper debugging
+
+The output table shows operations sorted by total CUDA time. Look for operations consuming disproportionate time—these are your optimization targets. The exported `trace.json` can be viewed in `chrome://tracing` for detailed timeline analysis.
 
 **Advanced Profiling with Schedule:**
 
-For multi-iteration analysis, use a profiling schedule that handles warmup automatically:
+For multi-iteration analysis, use a profiling schedule that handles warmup automatically. The schedule parameters control the profiling lifecycle: `wait` skips cold start iterations, `warmup` runs iterations without recording, `active` profiles the specified number of iterations, and `repeat` cycles through this pattern multiple times. The `tensorboard_trace_handler` automatically saves traces for visualization with TensorBoard.
 
-```python
-# Profile with schedule for multi-iteration analysis
-with torch.profiler.profile(
-    schedule=torch.profiler.schedule(
-        wait=1,      # Skip first iteration
-        warmup=1,    # Warmup for 1 iteration
-        active=3,    # Profile 3 iterations
-        repeat=2     # Repeat schedule 2 times
-    ),
-    on_trace_ready=torch.profiler.tensorboard_trace_handler('./log'),
-    record_shapes=True,
-    profile_memory=True,
-    with_stack=True
-) as prof:
-    for step, data in enumerate(dataloader):
-        prof.step()
-        # Training code
-```
-
-This schedule skips the first iteration, warms up for one iteration, then profiles three iterations—repeating this pattern twice. The results integrate directly with TensorBoard for visualization.
+See `code/pytorch_profiler.py` for complete implementations of both basic and scheduled profiling.
 
 ### NVIDIA Nsight Systems
 
@@ -300,119 +240,19 @@ Start with PyTorch Profiler for high-level analysis—it's easier to use and int
 
 ### Custom Training Benchmark
 
-For systematic benchmarking across configurations, a custom benchmark class provides more control than ad-hoc profiling:
+For systematic benchmarking across configurations, a custom benchmark class provides more control than ad-hoc profiling. This class measures each training phase separately—data loading, forward pass, backward pass, and optimizer step—enabling you to pinpoint exactly where time is spent.
 
-```python
-import time
-import torch
-import torch.distributed as dist
-from collections import defaultdict
+**Why separate phase timing matters:** If your backward pass takes 3x longer than your forward pass, you might have inefficient gradient computation or memory fragmentation. If data loading dominates, you need more DataLoader workers or faster storage. Without phase-level breakdown, you're optimizing blind.
 
-class TrainingBenchmark:
-    def __init__(self, model, dataloader, optimizer, criterion):
-        self.model = model
-        self.dataloader = dataloader
-        self.optimizer = optimizer
-        self.criterion = criterion
-        self.metrics = defaultdict(list)
-    
-    def benchmark_iteration(self, warmup=True):
-        """Benchmark a single training iteration with phase breakdown"""
-        if warmup:
-            data, target = next(iter(self.dataloader))
-            _ = self._training_step(data, target)
-            torch.cuda.synchronize()
-        
-        data, target = next(iter(self.dataloader))
-        
-        # Data loading time
-        data_start = time.time()
-        data, target = data.cuda(), target.cuda()
-        torch.cuda.synchronize()
-        data_time = time.time() - data_start
-        
-        # Forward pass
-        forward_start = time.time()
-        output = self.model(data)
-        loss = self.criterion(output, target)
-        torch.cuda.synchronize()
-        forward_time = time.time() - forward_start
-        
-        # Backward pass
-        backward_start = time.time()
-        loss.backward()
-        torch.cuda.synchronize()
-        backward_time = time.time() - backward_start
-        
-        # Optimizer step
-        optimizer_start = time.time()
-        self.optimizer.step()
-        self.optimizer.zero_grad()
-        torch.cuda.synchronize()
-        optimizer_time = time.time() - optimizer_start
-        
-        return {
-            'data_loading': data_time,
-            'forward': forward_time,
-            'backward': backward_time,
-            'optimizer': optimizer_time,
-            'total': forward_time + backward_time + optimizer_time
-        }
-    
-    def benchmark(self, num_warmup=10, num_iterations=100):
-        """Run full benchmark with statistics"""
-        for _ in range(num_warmup):
-            self.benchmark_iteration(warmup=False)
-        
-        for _ in range(num_iterations):
-            metrics = self.benchmark_iteration(warmup=False)
-            for key, value in metrics.items():
-                self.metrics[key].append(value)
-        
-        stats = {}
-        for key, values in self.metrics.items():
-            stats[key] = {
-                'mean': np.mean(values),
-                'std': np.std(values),
-                'p50': np.percentile(values, 50),
-                'p95': np.percentile(values, 95),
-                'p99': np.percentile(values, 99)
-            }
-        return stats
-```
+**Interpreting the results:** The returned `stats` dictionary contains mean, std, and percentiles for each phase. If `data_loading` exceeds 10% of total time, increase DataLoader workers. If `backward` is more than 2x `forward`, check for gradient checkpointing opportunities or memory fragmentation. High variance (large gap between mean and P99) indicates system instability—investigate thermal throttling or competing processes.
 
-This class measures each phase separately, enabling you to identify exactly where time is spent. If `data_loading` dominates, you need more DataLoader workers. If `backward` is slow relative to `forward`, you may have inefficient gradient computation.
+See `code/training_benchmark.py` for the complete `TrainingBenchmark` class implementation.
 
 ### Measuring Scaling Efficiency
 
-Scaling efficiency quantifies how well your system utilizes additional resources. Perfect linear scaling (100% efficiency) means doubling GPUs doubles throughput—but communication overhead makes this impossible in practice.
+Scaling efficiency quantifies how well your system utilizes additional resources. Perfect linear scaling (100% efficiency) means doubling GPUs doubles throughput—but communication overhead makes this impossible in practice. Measuring scaling efficiency helps you decide when adding more GPUs is cost-effective versus when you've hit diminishing returns.
 
-```python
-def calculate_scaling_efficiency(throughput_1gpu, throughput_ngpu, n):
-    """
-    Calculate scaling efficiency.
-    
-    Args:
-        throughput_1gpu: Throughput with 1 GPU
-        throughput_ngpu: Throughput with N GPUs
-        n: Number of GPUs
-    
-    Returns:
-        Efficiency percentage (100% = perfect linear scaling)
-    """
-    ideal_throughput = throughput_1gpu * n
-    actual_throughput = throughput_ngpu
-    efficiency = (actual_throughput / ideal_throughput) * 100
-    return efficiency
-
-# Example
-throughput_1 = 100  # samples/sec with 1 GPU
-throughput_8 = 650  # samples/sec with 8 GPUs
-efficiency = calculate_scaling_efficiency(throughput_1, throughput_8, 8)
-print(f"Scaling efficiency: {efficiency:.1f}%")  # 81.25%
-```
-
-![Scaling Efficiency: Left shows throughput scaling (ideal vs actual) with communication overhead gap. Right shows efficiency percentages by GPU count with color-coded thresholds.](img/scaling_efficiency.png)
+![Scaling efficiency: ideal vs actual throughput and efficiency percentages](img/scaling_efficiency.png)
 
 **Interpreting Scaling Efficiency:**
 
@@ -422,6 +262,8 @@ print(f"Scaling efficiency: {efficiency:.1f}%")  # 81.25%
 - **<50%:** Poor scaling—major bottleneck present, likely communication or data loading
 
 Understanding your scaling efficiency helps with capacity planning. If you have 81% efficiency at 8 GPUs, you can predict that 16 GPUs will provide roughly 13x throughput (not 16x), helping you make informed hardware decisions.
+
+See `code/scaling_efficiency.py` for functions to calculate and benchmark scaling efficiency.
 
 
 ## Inference Benchmarking
@@ -436,7 +278,9 @@ This section covers **performance benchmarking** using tools like [genai-bench](
 
 ### genai-bench Overview
 
-genai-bench is a CLI-based benchmarking tool designed for realistic inference workload testing. Unlike simple load generators, it supports configurable traffic patterns that mirror production workloads.
+genai-bench is a CLI-based benchmarking tool designed for realistic inference workload testing. Unlike simple load generators that send identical requests, genai-bench supports configurable traffic patterns that mirror production workloads—variable prompt lengths, different concurrency levels, and realistic request distributions.
+
+**Why use genai-bench over custom scripts?** Production inference traffic is highly variable. Users send prompts ranging from 10 tokens to 10,000 tokens. Load varies from 1 concurrent request to 1,000. Simple benchmarks with fixed-length prompts miss critical performance characteristics like how your system handles long-context requests under load, or how batching efficiency changes with request diversity.
 
 **Key Features:**
 
@@ -453,24 +297,6 @@ pip install genai-bench
 
 ### Running genai-bench
 
-**Basic Command Line Usage:**
-```bash
-genai-bench benchmark \
-    --api-backend openai \
-    --api-base "http://localhost:8000" \
-    --api-key "your-api-key" \
-    --api-model-name "llama-2-7b-chat" \
-    --model-tokenizer "/path/to/tokenizer" \
-    --task text-to-text \
-    --max-time-per-run 15 \
-    --max-requests-per-run 1000 \
-    --num-concurrency 100 \
-    --traffic-scenario "D(100,100)" \
-    --server-engine "vLLM" \
-    --server-gpu-type "H100" \
-    --server-gpu-count 4
-```
-
 **Understanding Traffic Scenarios:**
 
 Traffic scenarios define the distribution of input and output token lengths:
@@ -480,133 +306,23 @@ Traffic scenarios define the distribution of input and output token lengths:
 - `I(input_tokens, output_tokens)`: Image-text input with fixed tokens
 - `E(input_tokens)`: Embedding requests
 
-For realistic benchmarking, test multiple scenarios that reflect your production traffic:
+For realistic benchmarking, test multiple scenarios that reflect your production traffic. A test matrix covering different concurrency levels and context lengths reveals critical performance characteristics:
 
-```bash
-genai-bench benchmark \
-    --api-backend openai \
-    --api-base "http://localhost:8000" \
-    --api-key "your-api-key" \
-    --api-model-name "llama-2-7b-chat" \
-    --model-tokenizer "/path/to/tokenizer" \
-    --task text-to-text \
-    --max-time-per-run 15 \
-    --max-requests-per-run 300 \
-    --num-concurrency 1 \
-    --num-concurrency 8 \
-    --num-concurrency 16 \
-    --traffic-scenario "D(100,100)" \
-    --traffic-scenario "D(512,512)" \
-    --traffic-scenario "D(2048,2048)" \
-    --server-engine "vLLM" \
-    --server-gpu-type "H100"
-```
+- **Low concurrency + short context:** Baseline latency without batching effects
+- **High concurrency + short context:** How well the system batches requests
+- **Any concurrency + long context:** Memory pressure and KV cache behavior
 
-This runs a matrix of tests: 3 concurrency levels × 3 traffic scenarios = 9 benchmark configurations. The results reveal how your system behaves under different load patterns.
+Look for non-linear latency increases as context length grows—this indicates memory bandwidth bottlenecks.
 
-**Analyzing Results:**
-
-After benchmarking, generate reports:
-
-```bash
-# Generate Excel report
-genai-bench excel \
-    --experiment-folder ./experiments/your_experiment \
-    --excel-name benchmark_results \
-    --metric-percentile mean \
-    --metrics-time-unit s
-
-# Generate plots
-genai-bench plot \
-    --experiments-folder ./experiments \
-    --group-key traffic_scenario \
-    --preset 2x4_default
-```
+See `code/genai_bench_example.py` for complete examples of running genai-bench programmatically, including single benchmarks, test matrices, and result analysis.
 
 ### Custom Inference Benchmark
 
-For scenarios where genai-bench doesn't fit, here's a custom benchmark class:
-
-```python
-import asyncio
-import time
-import numpy as np
-from collections import defaultdict
-
-class InferenceBenchmark:
-    def __init__(self, model, tokenizer):
-        self.model = model
-        self.tokenizer = tokenizer
-        self.metrics = defaultdict(list)
-    
-    def benchmark_single_request(self, prompt, max_tokens=512):
-        """Benchmark a single inference request"""
-        inputs = self.tokenizer(prompt, return_tensors="pt").to("cuda")
-        
-        # Warmup on first request
-        if not hasattr(self, '_warmed_up'):
-            _ = self.model.generate(**inputs, max_new_tokens=1)
-            torch.cuda.synchronize()
-            self._warmed_up = True
-        
-        # Measure generation
-        torch.cuda.synchronize()
-        start = time.time()
-        outputs = self.model.generate(**inputs, max_new_tokens=max_tokens)
-        torch.cuda.synchronize()
-        total_time = time.time() - start
-        
-        num_tokens = outputs.shape[1] - inputs.input_ids.shape[1]
-        
-        return {
-            'total_time': total_time,
-            'tokens_per_second': num_tokens / total_time,
-            'num_tokens': num_tokens
-        }
-    
-    def get_statistics(self):
-        """Get statistical summary"""
-        stats = {}
-        for key, values in self.metrics.items():
-            stats[key] = {
-                'mean': np.mean(values),
-                'std': np.std(values),
-                'p50': np.percentile(values, 50),
-                'p95': np.percentile(values, 95),
-                'p99': np.percentile(values, 99)
-            }
-        return stats
-```
+For scenarios where genai-bench doesn't fit—custom models, non-standard APIs, or specialized metrics—a custom benchmark class provides fine-grained control over the measurement process. This is useful for CI/CD integration or specialized metrics.
 
 ### Measuring Cold vs Warm Performance
 
-Cold start latency—the time for the first request after model loading—can be 10-100x slower than warm requests. Understanding this gap is critical for autoscaling decisions:
-
-```python
-def benchmark_cold_start(model, prompts):
-    """Measure cold start performance"""
-    torch.cuda.empty_cache()  # Clear cache to simulate cold start
-    
-    # First request (cold)
-    cold_start = time.time()
-    _ = model.generate(prompts[0], max_new_tokens=100)
-    torch.cuda.synchronize()
-    cold_time = time.time() - cold_start
-    
-    # Subsequent requests (warm)
-    warm_times = []
-    for prompt in prompts[1:]:
-        start = time.time()
-        _ = model.generate(prompt, max_new_tokens=100)
-        torch.cuda.synchronize()
-        warm_times.append(time.time() - start)
-    
-    return {
-        'cold_time': cold_time,
-        'warm_mean': np.mean(warm_times),
-        'cold_overhead': cold_time - np.mean(warm_times)
-    }
-```
+Cold start latency—the time for the first request after model loading—can be 10-100x slower than warm requests. This matters for autoscaling: if cold starts take 30 seconds but warm requests take 100ms, aggressive scale-down policies will cause user-facing latency spikes when traffic returns. A 16x cold/warm ratio is typical. Use this data to configure autoscaler minimum instances—keep enough warm instances to handle baseline traffic without cold starts.
 
 ### Measuring Reasoning & Multi-step Models
 
@@ -619,51 +335,9 @@ Reasoning models—chain-of-thought, tool-augmented LLMs, multi-step agents—re
 - **External-call breakdown:** Time waiting for retrievals, tool calls, or APIs vs local generation
 - **Cache effects:** Cold vs warm runs when KV cache or retrieval caches are populated
 
-```python
-import time
-import numpy as np
+In agentic workflows, often 60%+ of latency comes from external calls, not model inference. Optimizing the model won't help—you need to optimize or parallelize the tool calls.
 
-def run_reasoning_step(model, step_input, max_new_tokens=64, do_tool_call=None):
-    """Measure a single reasoning step with optional tool call"""
-    gen_start = time.time()
-    out = model.generate(step_input, max_new_tokens=max_new_tokens)
-    torch.cuda.synchronize()
-    gen_time = time.time() - gen_start
-
-    tool_time = 0.0
-    if do_tool_call:
-        t0 = time.time()
-        tool_result = do_tool_call()
-        tool_time = time.time() - t0
-
-    return gen_time, tool_time, out
-
-def measure_reasoning_session(model, session_steps, do_tool_call_fn=None):
-    """Measure complete reasoning session with per-step breakdown"""
-    per_step = []
-    total = 0.0
-    
-    for step_input in session_steps:
-        gen_t, tool_t, out = run_reasoning_step(
-            model, step_input, 
-            do_tool_call=(do_tool_call_fn if do_tool_call_fn else None)
-        )
-        per_step.append({
-            'gen_time': gen_t, 
-            'tool_time': tool_t, 
-            'step_total': gen_t + tool_t
-        })
-        total += gen_t + tool_t
-
-    times = [s['step_total'] for s in per_step]
-    return {
-        'per_step': per_step,
-        'total': total,
-        'p50': np.percentile(times, 50),
-        'p95': np.percentile(times, 95),
-        'p99': np.percentile(times, 99)
-    }
-```
+See `code/inference_benchmark.py` for complete implementations of `InferenceBenchmark`, cold start measurement, and reasoning session benchmarking.
 
 With training and inference benchmarking covered, let's turn to a different but equally important dimension: ensuring that performance optimizations don't degrade model quality.
 
@@ -700,14 +374,7 @@ Consider these scenarios where accuracy benchmarking prevented disasters:
 
 ### Standard LLM Benchmarks
 
-**GLUE/SuperGLUE:** General language understanding tasks
-```python
-from evaluate import load
-
-glue = load("glue", "sst2")  # Sentiment classification
-results = glue.compute(predictions=predictions, references=references)
-print(f"Accuracy: {results['accuracy']:.3f}")
-```
+**GLUE/SuperGLUE:** General language understanding tasks. The Hugging Face `evaluate` library provides easy access to standard benchmarks like SST-2 (sentiment classification).
 
 **MMLU:** Knowledge across 57 tasks (STEM, humanities, social sciences)
 
@@ -717,175 +384,73 @@ print(f"Accuracy: {results['accuracy']:.3f}")
 
 ### Evaluating Distributed Training Accuracy
 
-A critical check: does your distributed training produce the same model quality as single-GPU training?
-
-```python
-def compare_centralized_vs_distributed_accuracy(
-    model_centralized,
-    model_distributed,
-    test_dataset
-):
-    """Compare accuracy between centralized and distributed training"""
-    acc_centralized = evaluate_model(model_centralized, test_dataset)
-    acc_distributed = evaluate_model(model_distributed, test_dataset)
-    
-    accuracy_drop = acc_centralized - acc_distributed
-    
-    print(f"Centralized accuracy: {acc_centralized:.4f}")
-    print(f"Distributed accuracy: {acc_distributed:.4f}")
-    print(f"Accuracy drop: {accuracy_drop:.4f}")
-    
-    if accuracy_drop > 0.01:  # More than 1% drop
-        print("⚠️ Warning: Significant accuracy drop detected!")
-    
-    return {
-        'centralized': acc_centralized,
-        'distributed': acc_distributed,
-        'drop': accuracy_drop
-    }
-```
+A critical check: does your distributed training produce the same model quality as single-GPU training? Bugs in gradient synchronization, different batch size effects, or numerical precision issues can cause distributed training to converge to worse solutions.
 
 ### Evaluating Quantization Impact
 
-Quantization trades precision for speed. Measure the accuracy cost:
-
-```python
-def evaluate_quantization_impact(model_fp32, model_int8, test_dataset):
-    """Compare accuracy between FP32 and INT8 quantized models"""
-    acc_fp32 = evaluate_model(model_fp32, test_dataset)
-    acc_int8 = evaluate_model(model_int8, test_dataset)
-    
-    accuracy_drop = acc_fp32 - acc_int8
-    
-    return {
-        'fp32_accuracy': acc_fp32,
-        'int8_accuracy': acc_int8,
-        'drop': accuracy_drop,
-        'relative_drop': accuracy_drop / acc_fp32 * 100
-    }
-```
+Quantization trades precision for speed. Before deploying a quantized model, measure the accuracy cost to ensure the speedup is worth the quality tradeoff.
 
 >NOTES: **Statistical Significance in Accuracy Comparisons**
 
-Small accuracy differences may be noise, not signal. Use statistical tests to determine if differences are meaningful:
-
-```python
-from scipy import stats
-t_stat, p_value = stats.ttest_rel(model1_scores, model2_scores)
-if p_value < 0.05:
-    print("Statistically significant difference")
-```
-
-A 0.5% accuracy drop with p=0.3 is probably noise. A 0.5% drop with p=0.001 is real.
+Small accuracy differences may be noise, not signal. Use statistical tests to determine if differences are meaningful. A 0.5% accuracy drop with p=0.3 is probably noise. A 0.5% drop with p=0.001 is real.
 
 >NOTEE
+
+See `code/accuracy_benchmark.py` for functions to compare centralized vs distributed training accuracy, evaluate quantization impact, and test statistical significance.
 
 
 ## Network and Communication Profiling
 
 In distributed systems, the network is often the bottleneck. A single slow link between nodes can limit the entire system's performance. Understanding communication patterns and diagnosing network issues is essential for scaling efficiently.
 
-![Network Topology: Left shows Ring AllReduce communication pattern. Right illustrates multi-node topology with NVLink (fast, intra-node) vs InfiniBand (slower, inter-node) bandwidth hierarchy.](img/network_topology.png)
+![Ring AllReduce pattern and multi-node bandwidth hierarchy](img/network_topology.png)
 
 The bandwidth hierarchy matters enormously: NVLink between GPUs on the same node provides ~600 GB/s, InfiniBand between nodes provides ~200 GB/s, and Ethernet provides only ~12.5 GB/s (100 Gbps). Communication patterns that cross these boundaries pay significant latency penalties.
 
 ### Network Monitoring Tools
 
+Before diving into NCCL-specific profiling, use standard network tools to establish baseline connectivity and bandwidth between nodes.
+
 **iftop:** Real-time network traffic monitoring
+
 ```bash
 sudo iftop -i eth0
 sudo iftop -i eth0 -f "host 192.168.1.10"  # Filter by host
 ```
 
+This shows live bandwidth usage per connection. Look for unexpected traffic patterns or connections that should be idle but aren't.
+
 **nload:** Bandwidth monitoring
+
 ```bash
 nload eth0
 ```
 
+Displays incoming/outgoing bandwidth graphs. Useful for seeing if you're saturating your network link during training.
+
 **iperf3:** Bandwidth testing between nodes
+
 ```bash
-# Server side
+# Server side (run on node 1)
 iperf3 -s
 
-# Client side
+# Client side (run on node 2)
 iperf3 -c server_ip -t 60 -i 1
 ```
 
+This measures raw TCP bandwidth between nodes. If iperf3 shows 100 Gbps but your training only achieves 20 Gbps effective bandwidth, the bottleneck is in your communication pattern, not the network hardware.
+
 ### NCCL Communication Tests
 
-Test AllReduce bandwidth—the operation that dominates distributed training communication:
+AllReduce is the dominant communication operation in distributed training—it synchronizes gradients across all GPUs. Testing AllReduce bandwidth separately from training helps isolate network issues from compute issues.
 
-```python
-import torch
-import torch.distributed as dist
-import time
-
-def test_allreduce_bandwidth(rank, world_size):
-    """Test AllReduce bandwidth across different message sizes"""
-    dist.init_process_group("nccl", rank=rank, world_size=world_size)
-    torch.cuda.set_device(rank)
-    
-    sizes = [1, 10, 100, 1000, 10000]  # MB
-    
-    for size_mb in sizes:
-        size = size_mb * 1024 * 1024 // 4  # float32 elements
-        tensor = torch.randn(size, device=f'cuda:{rank}')
-        
-        # Warmup
-        for _ in range(5):
-            dist.all_reduce(tensor, op=dist.ReduceOp.SUM)
-        
-        # Benchmark
-        torch.cuda.synchronize()
-        start = time.time()
-        num_iterations = 10
-        for _ in range(num_iterations):
-            dist.all_reduce(tensor, op=dist.ReduceOp.SUM)
-        torch.cuda.synchronize()
-        elapsed = time.time() - start
-        
-        # Calculate bandwidth (2x for ring allreduce)
-        data_transferred = size_mb * 2 * num_iterations
-        bandwidth = data_transferred / elapsed
-        
-        if rank == 0:
-            print(f"Size: {size_mb}MB, Bandwidth: {bandwidth:.2f} MB/s")
-    
-    dist.destroy_process_group()
-```
+Small messages have high overhead (latency-bound), while large messages approach peak bandwidth (bandwidth-bound). If your large-message bandwidth is significantly below hardware specs, check for topology issues or NCCL configuration problems.
 
 ### Communication Overhead Analysis
 
-Measure how much time is spent communicating vs computing:
+Measure how much time is spent communicating vs computing. This helps determine if your scaling bottleneck is network-related. In DDP, communication happens during the backward pass, so use the profiler to separate these components.
 
-```python
-def analyze_communication_overhead(model, dataloader, num_iterations=100):
-    """Analyze communication vs computation time"""
-    comm_times = []
-    compute_times = []
-    
-    for i, (data, target) in enumerate(dataloader):
-        if i >= num_iterations:
-            break
-        
-        # Computation (forward + backward)
-        compute_start = time.time()
-        output = model(data)
-        loss = criterion(output, target)
-        loss.backward()
-        torch.cuda.synchronize()
-        compute_time = time.time() - compute_start
-        
-        compute_times.append(compute_time)
-        optimizer.step()
-        optimizer.zero_grad()
-    
-    total_compute = sum(compute_times)
-    # In DDP, communication happens during backward
-    # Use profiler to separate these
-    
-    print(f"Compute time: {total_compute:.2f}s")
-```
+See `code/network_diagnostics.py` for AllReduce bandwidth tests and communication overhead analysis functions.
 
 With network profiling complete, let's examine how to analyze and improve scaling efficiency.
 
@@ -896,283 +461,67 @@ Scaling efficiency measures how well your system utilizes additional resources. 
 
 ### Amdahl's Law
 
-Amdahl's Law provides the theoretical limit on speedup from parallelization:
-
-```python
-def amdahl_speedup(serial_fraction, n):
-    """
-    Calculate maximum speedup using Amdahl's Law.
-    
-    Speedup = 1 / (S + P/N)
-    where S = serial fraction, P = parallel fraction, N = processors
-    """
-    parallel_fraction = 1 - serial_fraction
-    speedup = 1 / (serial_fraction + parallel_fraction / n)
-    return speedup
-
-# Example: If 10% of work is serial
-serial_fraction = 0.10
-for n in [2, 4, 8, 16, 32]:
-    speedup = amdahl_speedup(serial_fraction, n)
-    efficiency = speedup / n * 100
-    print(f"{n} GPUs: {speedup:.2f}x speedup, {efficiency:.1f}% efficiency")
-```
-
-With 10% serial work, even infinite GPUs can only provide 10x speedup. This is why identifying and reducing serial bottlenecks is critical.
+Amdahl's Law provides the theoretical limit on speedup from parallelization. Even with infinite processors, speedup is bounded by the serial (non-parallelizable) portion of your workload. With 10% serial work, even infinite GPUs can only provide 10x speedup. This is why identifying and reducing serial bottlenecks is critical—reducing serial fraction from 10% to 5% has more impact than doubling GPU count.
 
 ### Identifying Scaling Bottlenecks
 
-```python
-def analyze_scaling_bottlenecks(metrics_1gpu, metrics_ngpu, n):
-    """Analyze what's limiting scaling"""
-    bottlenecks = []
-    
-    # Check data loading
-    if metrics_ngpu['data_loading'] > metrics_1gpu['data_loading'] * 1.5:
-        bottlenecks.append("Data loading not scaling well")
-    
-    # Check communication
-    comm_overhead = metrics_ngpu['communication'] / metrics_ngpu['total']
-    if comm_overhead > 0.3:
-        bottlenecks.append(f"High communication overhead: {comm_overhead*100:.1f}%")
-    
-    # Check compute utilization
-    gpu_util = metrics_ngpu['gpu_utilization']
-    if gpu_util < 0.8:
-        bottlenecks.append(f"Low GPU utilization: {gpu_util*100:.1f}%")
-    
-    return bottlenecks
-```
+Once you know your scaling efficiency is poor, the next step is identifying *why*. Common patterns include:
+
+- **"Data loading not scaling well":** Your DataLoader can't keep up with multiple GPUs. Increase `num_workers` or use faster storage.
+- **"High communication overhead":** Network is the bottleneck. Consider gradient compression, larger batch sizes, or better interconnect.
+- **"Low GPU utilization":** GPUs are waiting for something—usually data or synchronization.
 
 ### Optimization Strategies
 
-**1. Overlap Communication and Computation:**
-```python
-# Use gradient bucketing in DDP
-model = DDP(
-    model,
-    device_ids=[rank],
-    bucket_cap_mb=25,  # Tune bucket size
-    find_unused_parameters=False
-)
-```
+Once you've identified the bottleneck, apply the appropriate fix:
 
-**2. Optimize Data Loading:**
-```python
-dataloader = DataLoader(
-    dataset,
-    batch_size=batch_size,
-    num_workers=4,        # Parallel data loading
-    pin_memory=True,      # Faster H2D transfer
-    prefetch_factor=2     # Prefetch batches
-)
-```
+**1. Overlap Communication and Computation:** DDP uses gradient bucketing to overlap backward computation with gradient synchronization. Smaller buckets start communication earlier but have more overhead. Larger buckets have less overhead but delay communication. Start with 25MB and tune based on profiling.
 
-**3. Gradient Accumulation:**
-```python
-accumulation_steps = 4
-for i, (data, target) in enumerate(dataloader):
-    output = model(data)
-    loss = criterion(output, target) / accumulation_steps
-    loss.backward()
-    
-    if (i + 1) % accumulation_steps == 0:
-        optimizer.step()
-        optimizer.zero_grad()
-```
+**2. Optimize Data Loading:** Set `num_workers` to 2-4x your CPU cores per GPU. `pin_memory=True` enables faster CPU→GPU transfers. `prefetch_factor` controls how many batches each worker prefetches.
+
+**3. Gradient Accumulation:** If communication overhead is high, reduce synchronization frequency by accumulating gradients over multiple micro-batches. This effectively increases batch size without increasing memory usage.
+
+See `code/scaling_bottlenecks.py` for Amdahl's Law calculations, bottleneck analysis functions, and optimization strategy implementations.
 
 
 \fancydividerwithicon[center]{python.png}
 
 ## Hands-On Examples
 
-The following examples provide complete, runnable code for common benchmarking scenarios. Each example is self-contained and can be adapted to your specific use case.
+The following examples provide complete, runnable code for common benchmarking scenarios. Each example is self-contained and can be adapted to your specific use case. All code is available in the `code/` directory.
 
 ### Example 1: genai-bench Inference Benchmarking
 
-**File:** `examples/ch10_genai_bench.py`
+Programmatically run genai-bench and analyze results. Use this when you need to integrate benchmarking into CI/CD pipelines or automate performance regression testing.
 
-```python
-"""
-Comprehensive inference benchmarking using genai-bench CLI.
-Demonstrates how to programmatically run benchmarks and analyze results.
-"""
-import subprocess
-import json
-import os
-from pathlib import Path
-
-def run_genai_benchmark(
-    api_base: str,
-    api_key: str,
-    model_name: str,
-    tokenizer_path: str,
-    max_requests: int = 1000,
-    max_time_minutes: int = 15,
-    concurrency: int = 100,
-    traffic_scenario: str = "D(100,100)",
-    server_engine: str = "vLLM",
-    server_gpu_type: str = "H100"
-):
-    """Run genai-bench benchmark via CLI"""
-    cmd = [
-        "genai-bench", "benchmark",
-        "--api-backend", "openai",
-        "--api-base", api_base,
-        "--api-key", api_key,
-        "--api-model-name", model_name,
-        "--model-tokenizer", tokenizer_path,
-        "--task", "text-to-text",
-        "--max-time-per-run", str(max_time_minutes),
-        "--max-requests-per-run", str(max_requests),
-        "--num-concurrency", str(concurrency),
-        "--traffic-scenario", traffic_scenario,
-        "--server-engine", server_engine,
-        "--server-gpu-type", server_gpu_type
-    ]
-    
-    print("Running genai-bench benchmark...")
-    print(f"Command: {' '.join(cmd)}")
-    
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    
-    if result.returncode != 0:
-        print(f"Error: {result.stderr}")
-        return None
-    
-    print("Benchmark completed successfully!")
-    return result
-
-def analyze_experiment_results(experiment_folder: str):
-    """Generate Excel report and plots from experiment results"""
-    subprocess.run([
-        "genai-bench", "excel",
-        "--experiment-folder", experiment_folder,
-        "--excel-name", "benchmark_results",
-        "--metric-percentile", "mean"
-    ])
-    
-    subprocess.run([
-        "genai-bench", "plot",
-        "--experiments-folder", experiment_folder,
-        "--group-key", "traffic_scenario",
-        "--preset", "2x4_default"
-    ])
-
-if __name__ == "__main__":
-    result = run_genai_benchmark(
-        api_base="http://localhost:8000",
-        api_key="your-api-key",
-        model_name="llama-2-7b-chat",
-        tokenizer_path="/path/to/tokenizer",
-        max_requests=1000,
-        concurrency=100,
-        traffic_scenario="D(100,100)"
-    )
-```
+**File:** `code/genai_bench_example.py`
 
 ### Example 2: Scaling Efficiency Measurement
 
-**File:** `examples/ch10_scaling_efficiency.py`
+Measure how well your training scales across GPU counts. Run with different `--nproc_per_node` values to build a scaling curve and identify where efficiency drops off.
 
-```python
-"""
-Measure scaling efficiency across different GPU counts.
-Run with: torchrun --nproc_per_node=N examples/ch10_scaling_efficiency.py
-"""
-import torch
-import torch.distributed as dist
-import time
-import numpy as np
+**File:** `code/scaling_efficiency.py`
 
-def measure_throughput(model, dataloader, num_iterations=100):
-    """Measure throughput for current configuration"""
-    # Warmup
-    for i, (data, target) in enumerate(dataloader):
-        if i >= 10:
-            break
-        _ = model(data)
-    
-    # Measurement
-    torch.cuda.synchronize()
-    start = time.time()
-    
-    for i, (data, target) in enumerate(dataloader):
-        if i >= num_iterations:
-            break
-        _ = model(data)
-    
-    torch.cuda.synchronize()
-    elapsed = time.time() - start
-    
-    return num_iterations / elapsed
-
-def benchmark_scaling():
-    """Benchmark and report scaling efficiency"""
-    results = {}
-    
-    for num_gpus in [1, 2, 4, 8]:
-        print(f"\nBenchmarking with {num_gpus} GPU(s)...")
-        throughput = measure_throughput(model, dataloader)
-        results[num_gpus] = throughput
-        print(f"Throughput: {throughput:.2f} samples/sec")
-    
-    # Calculate scaling efficiency
-    baseline = results[1]
-    print("\nScaling Efficiency:")
-    for n in [2, 4, 8]:
-        ideal = baseline * n
-        actual = results[n]
-        efficiency = (actual / ideal) * 100
-        print(f"{n} GPUs: {actual:.2f} samples/sec "
-              f"(ideal: {ideal:.2f}, efficiency: {efficiency:.1f}%)")
-```
+Run with: `torchrun --nproc_per_node=N code/scaling_efficiency.py`
 
 ### Example 3: Network Diagnostic Tools
 
-**File:** `examples/ch10_network_diagnostics.py`
+Test raw AllReduce bandwidth between GPUs. Use it to verify your network is performing as expected before debugging higher-level training issues.
 
-```python
-"""
-Network diagnostic tools for distributed training.
-Run with: torchrun --nproc_per_node=2 examples/ch10_network_diagnostics.py
-"""
-import torch
-import torch.distributed as dist
-import time
+**File:** `code/network_diagnostics.py`
 
-def test_bandwidth(rank, world_size):
-    """Test network bandwidth between nodes"""
-    dist.init_process_group("nccl", rank=rank, world_size=world_size)
-    torch.cuda.set_device(rank)
-    
-    sizes_mb = [1, 10, 100, 1000]
-    
-    for size_mb in sizes_mb:
-        size = size_mb * 1024 * 1024 // 4
-        tensor = torch.randn(size, device='cuda')
-        
-        # Warmup
-        for _ in range(5):
-            dist.all_reduce(tensor, op=dist.ReduceOp.SUM)
-        
-        # Benchmark
-        torch.cuda.synchronize()
-        start = time.time()
-        iterations = 10
-        for _ in range(iterations):
-            dist.all_reduce(tensor, op=dist.ReduceOp.SUM)
-        torch.cuda.synchronize()
-        elapsed = time.time() - start
-        
-        bandwidth = (size_mb * 2 * iterations) / elapsed
-        
-        if rank == 0:
-            print(f"Size: {size_mb}MB, Bandwidth: {bandwidth:.2f} MB/s")
-    
-    dist.destroy_process_group()
-```
+Run with: `torchrun --nproc_per_node=2 code/network_diagnostics.py`
 
+If bandwidth is significantly lower than expected, check: (1) NCCL environment variables, (2) GPU topology with `nvidia-smi topo -m`, (3) whether GPUs are on the same NUMA node.
+
+### Additional Code Files
+
+- `code/benchmark_warmup.py` - Proper warmup and timing utilities
+- `code/pytorch_profiler.py` - PyTorch profiler examples
+- `code/training_benchmark.py` - Training phase breakdown benchmark
+- `code/inference_benchmark.py` - Custom inference and reasoning benchmarks
+- `code/accuracy_benchmark.py` - Accuracy comparison utilities
+- `code/scaling_bottlenecks.py` - Bottleneck analysis and optimization strategies
 
 
 ## Best Practices and Common Pitfalls
