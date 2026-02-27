@@ -21,8 +21,8 @@ from math4ai import configure_math_fonts
 # Configure matplotlib for math expressions
 configure_math_fonts()
 
-fig, ax = plt.subplots(figsize=(10, 7))
-ax.set_xlim(0, 10)
+fig, ax = plt.subplots(figsize=(7, 6))
+ax.set_xlim(0.7, 9.3)
 ax.set_ylim(0, 7)
 ax.set_aspect('equal')
 ax.axis('off')
@@ -35,21 +35,21 @@ border_color = '#212121'     # Darker gray
 
 # Client Applications box
 client_box = FancyBboxPatch(
-    (1.5, 5.8), 7.0, 0.8,
+    (1.5, 5.8), 7.0, 0.5,
     boxstyle="round,pad=0.02,rounding_size=0.08",
     facecolor=client_color,
     edgecolor=border_color,
     linewidth=1.5
 )
 ax.add_patch(client_box)
-ax.text(5, 6.2, 'Client Applications', ha='center', va='center',
+ax.text(5, 6.05, 'Client Applications', ha='center', va='center',
         fontsize=12, fontweight='bold')
 
 # Arrow from Client to Gateway
 ax.annotate('', xy=(5, 5.0), xytext=(5, 5.8),
             arrowprops=dict(arrowstyle='->', color=border_color, lw=1.5))
 ax.text(5.6, 5.4, "HTTP Request with 'model' field", ha='left', va='center',
-        fontsize=9, style='italic', color='#666666')
+        fontsize=11, style='italic', color='#666666')
 
 # API Gateway box
 gateway_box = FancyBboxPatch(
@@ -71,7 +71,7 @@ gateway_features = [
 ]
 for i, feature in enumerate(gateway_features):
     ax.text(5, 4.2 - i * 0.3, f"• {feature}", ha='center', va='center',
-            fontsize=9, color='#424242')
+            fontsize=11, color='#424242')
 
 # Arrows from Gateway to Services
 ax.annotate('', xy=(3.0, 1.8), xytext=(3.5, 3.2),
@@ -93,9 +93,9 @@ ax.text(2.75, 1.55, 'vLLM Service 1', ha='center', va='center',
 ax.text(2.75, 1.2, '(Llama-3.2-1B)', ha='center', va='center',
         fontsize=10, color='#666666')
 ax.text(2.75, 0.85, 'Pod: vllm-llama-32-1b', ha='center', va='center',
-        fontsize=8, color='#888888')
+        fontsize=10, color='#888888')
 ax.text(2.75, 0.55, 'Service: vllm-llama-32-1b:8000', ha='center', va='center',
-        fontsize=8, color='#888888')
+        fontsize=10, color='#888888')
 
 # vLLM Service 2 box
 service2_box = FancyBboxPatch(
@@ -111,16 +111,16 @@ ax.text(7.25, 1.55, 'vLLM Service 2', ha='center', va='center',
 ax.text(7.25, 1.2, '(Qwen2.5-0.5B)', ha='center', va='center',
         fontsize=10, color='#666666')
 ax.text(7.25, 0.85, 'Pod: vllm-qwen-0.5b', ha='center', va='center',
-        fontsize=8, color='#888888')
+        fontsize=10, color='#888888')
 ax.text(7.25, 0.55, 'Service: vllm-qwen-0.5b:8000', ha='center', va='center',
-        fontsize=8, color='#888888')
+        fontsize=10, color='#888888')
 
 # Legend
 legend_y = 6.6
 legend_items = [
     (2.0, legend_y, client_color, 'Client'),
     (4.0, legend_y, gateway_color, 'Gateway'),
-    (6.0, legend_y, service_color, 'Model Server'),
+    (6.5, legend_y, service_color, 'Model Server'),
 ]
 
 for x, y, color, label in legend_items:
@@ -132,7 +132,7 @@ for x, y, color, label in legend_items:
         linewidth=1
     )
     ax.add_patch(box)
-    ax.text(x + 0.2, y, label, ha='left', va='center', fontsize=9)
+    ax.text(x + 0.2, y, label, ha='left', va='center', fontsize=11)
 
 # Tight layout and save
 plt.tight_layout(pad=0.1)
