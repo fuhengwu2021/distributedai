@@ -1100,17 +1100,27 @@ FSDP2 handles most large model training scenarios well. But what if even full sh
 
 ## References
 
-- [PyTorch FSDP Documentation](https://pytorch.org/docs/stable/fsdp.html)
-- [Per-Parameter-Sharding FSDP RFC](https://github.com/pytorch/pytorch/issues/114299)
-- [TorchTitan FSDP Guide](https://github.com/pytorch/torchtitan/blob/main/docs/fsdp.md)
-- https://docs.pytorch.org/tutorials/intermediate/FSDP_tutorial.html
-- https://uvadlc-notebooks.readthedocs.io/en/latest/tutorial_notebooks/scaling/JAX/data_parallel_fsdp.html
-- https://huggingface.co/docs/accelerate/concept_guides/fsdp_and_deepspeed
-- https://huggingface.co/docs/accelerate/en/concept_guides/fsdp1_vs_fsdp2
-- https://ggrigorev.me/posts/introduction-to-parallelism/
-- https://arxiv.org/pdf/2304.11277
-- https://arxiv.org/pdf/2411.00284
-- https://docs.pytorch.org/xla/master/spmd.html
-- https://github.com/Wan-Video/Wan2.2 (Wan2.2: FSDP + DeepSpeed Ulysses for multi-GPU inference)
-- /media/wukong/jackie/git.repo/distributed-ai/resources/torch-examples/distributed/FSDP2
+__PyTorch FSDP Documentation__
+
+- PyTorch FSDP Documentation: \url{https://pytorch.org/docs/stable/fsdp.html}
+- PyTorch FSDP Tutorial: \url{https://docs.pytorch.org/tutorials/intermediate/FSDP_tutorial.html}
+- Per-Parameter-Sharding FSDP RFC: \url{https://github.com/pytorch/pytorch/issues/114299}
+- TorchTitan FSDP Guide: \url{https://github.com/pytorch/torchtitan/blob/main/docs/fsdp.md}
+- PyTorch XLA SPMD: \url{https://docs.pytorch.org/xla/master/spmd.html}
+
+__Tutorials and Guides__
+
+- UvA Deep Learning - Data Parallel FSDP (JAX): \url{https://uvadlc-notebooks.readthedocs.io/en/latest/tutorial_notebooks/scaling/JAX/data_parallel_fsdp.html}
+- Hugging Face - FSDP and DeepSpeed: \url{https://huggingface.co/docs/accelerate/concept_guides/fsdp_and_deepspeed}
+- Hugging Face - FSDP1 vs FSDP2: \url{https://huggingface.co/docs/accelerate/en/concept_guides/fsdp1_vs_fsdp2}
+- Introduction to Parallelism: \url{https://ggrigorev.me/posts/introduction-to-parallelism/}
+
+__Research__
+
+- PyTorch FSDP: Experiences on Scaling Fully Sharded Data Parallel (2023): \url{https://arxiv.org/abs/2304.11277}
+- Distributed Training Optimization (2024): \url{https://arxiv.org/abs/2411.00284}
+
+__Projects__
+
+- Wan2.2 (FSDP + DeepSpeed Ulysses for multi-GPU inference): \url{https://github.com/Wan-Video/Wan2.2}
 

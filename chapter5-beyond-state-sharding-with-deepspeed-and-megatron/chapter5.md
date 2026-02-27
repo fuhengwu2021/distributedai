@@ -873,30 +873,30 @@ So far, we've focused on distributed training. But training is only half the sto
 
 __DeepSpeed and ZeRO__
 
-- ZeRO: Memory Optimizations Toward Training Trillion Parameter Models (2020). https://arxiv.org/abs/1910.02054
-- ZeRO-Offload: Democratizing Billion-Scale Model Training (2021). https://arxiv.org/abs/2101.06840
-- ZeRO-Infinity: Breaking the GPU Memory Wall for Extreme Scale Deep Learning (2021). https://arxiv.org/abs/2104.07857
-- ZeRO++: Extremely Efficient Collective Communication for Giant Model Training (2023). https://arxiv.org/abs/2306.10209
-- DeepSpeed Documentation: https://www.deepspeed.ai/
-- DeepSpeed GitHub: https://github.com/microsoft/DeepSpeed
+- ZeRO: Memory Optimizations Toward Training Trillion Parameter Models (2020): \url{https://arxiv.org/abs/1910.02054}
+- ZeRO-Offload: Democratizing Billion-Scale Model Training (2021): \url{https://arxiv.org/abs/2101.06840}
+- ZeRO-Infinity: Breaking the GPU Memory Wall for Extreme Scale Deep Learning (2021): \url{https://arxiv.org/abs/2104.07857}
+- ZeRO++: Extremely Efficient Collective Communication for Giant Model Training (2023): \url{https://arxiv.org/abs/2306.10209}
+- DeepSpeed Documentation: \url{https://www.deepspeed.ai/}
+- DeepSpeed GitHub: \url{https://github.com/microsoft/DeepSpeed}
 
 __Megatron-LM__
 
-- Megatron-LM: Training Multi-Billion Parameter Language Models Using Model Parallelism (2019). https://arxiv.org/abs/1909.08053
-- Efficient Large-Scale Language Model Training on GPU Clusters Using Megatron-LM (2021). https://arxiv.org/abs/2104.04473
-- Reducing Activation Recomputation in Large Transformer Models (2023). https://arxiv.org/abs/2205.05198
-- Megatron-LM GitHub: https://github.com/NVIDIA/Megatron-LM
-- Megatron Core Documentation: https://docs.nvidia.com/megatron-core/
+- Megatron-LM: Training Multi-Billion Parameter Language Models Using Model Parallelism (2019): \url{https://arxiv.org/abs/1909.08053}
+- Efficient Large-Scale Language Model Training on GPU Clusters Using Megatron-LM (2021): \url{https://arxiv.org/abs/2104.04473}
+- Reducing Activation Recomputation in Large Transformer Models (2023): \url{https://arxiv.org/abs/2205.05198}
+- Megatron-LM GitHub: \url{https://github.com/NVIDIA/Megatron-LM}
+- Megatron Core Documentation: \url{https://docs.nvidia.com/megatron-core/}
 
 __Research__
 
-- Arctic Long Sequence Training: Scalable Training for Multi-Million Token Sequences (2025). https://arxiv.org/abs/2507.19845
-- SuperOffload: Large-Scale LLM Training on Superchips (2025). https://arxiv.org/abs/2502.19811
-- ZenFlow: Stall-Free Offloading Engine (2025). https://arxiv.org/abs/2502.07846
-- DeepCompile: Compiler Optimization for Distributed Training (2025). https://arxiv.org/abs/2505.11432
-- Universal Checkpointing for Large-Scale Training (2024). https://arxiv.org/abs/2503.15758
-- Ring Attention with Blockwise Transformers for Near-Infinite Context (2024). https://arxiv.org/abs/2310.01889
-- DeepSpeed Ulysses: System Optimizations for Enabling Training of Extreme Long Sequence Transformer Models (2023). https://arxiv.org/abs/2309.14509
+- Arctic Long Sequence Training: Scalable Training for Multi-Million Token Sequences (2025): \url{https://arxiv.org/abs/2507.19845}
+- SuperOffload: Large-Scale LLM Training on Superchips (2025): \url{https://arxiv.org/abs/2502.19811}
+- ZenFlow: Stall-Free Offloading Engine (2025): \url{https://arxiv.org/abs/2502.07846}
+- DeepCompile: Compiler Optimization for Distributed Training (2025): \url{https://arxiv.org/abs/2505.11432}
+- Universal Checkpointing for Large-Scale Training (2024): \url{https://arxiv.org/abs/2503.15758}
+- Ring Attention with Blockwise Transformers for Near-Infinite Context (2024): \url{https://arxiv.org/abs/2310.01889}
+- DeepSpeed Ulysses: System Optimizations for Enabling Training of Extreme Long Sequence Transformer Models (2023): \url{https://arxiv.org/abs/2309.14509}
 
 
 

@@ -950,19 +950,19 @@ vLLM's model parallelism approach excels for large models and high-throughput wo
 
 __vLLM and PagedAttention__
 
-- Efficient Memory Management for Large Language Model Serving with PagedAttention (2023). https://arxiv.org/abs/2309.06180
-- vLLM Documentation: https://docs.vllm.ai/
-- vLLM GitHub: https://github.com/vllm-project/vllm
-- vLLM Roadmap: https://roadmap.vllm.ai
+- Efficient Memory Management for Large Language Model Serving with PagedAttention (2023): \url{https://arxiv.org/abs/2309.06180}
+- vLLM Documentation: \url{https://docs.vllm.ai/}
+- vLLM GitHub: \url{https://github.com/vllm-project/vllm}
+- vLLM Roadmap: \url{https://roadmap.vllm.ai}
 
 __Distributed Inference__
 
-- vLLM Documentation - Parallelism and Scaling: https://docs.vllm.ai/en/stable/serving/parallelism_scaling/
-- vLLM Documentation - Data Parallel Deployment: https://docs.vllm.ai/en/stable/serving/data_parallel_deployment.html
-- vLLM Documentation - Distributed Serving: https://docs.vllm.ai/en/stable/serving/distributed_serving.html
-- NVIDIA Dynamo KV Cache Manager: https://docs.nvidia.com/dynamo/archive/0.2.0/architecture/kv_cache_manager.html
+- vLLM Documentation - Parallelism and Scaling: \url{https://docs.vllm.ai/en/stable/serving/parallelism_scaling/}
+- vLLM Documentation - Data Parallel Deployment: \url{https://docs.vllm.ai/en/stable/serving/data_parallel_deployment.html}
+- vLLM Documentation - Distributed Serving: \url{https://docs.vllm.ai/en/stable/serving/distributed_serving.html}
+- NVIDIA Dynamo KV Cache Manager: \url{https://docs.nvidia.com/dynamo/archive/0.2.0/architecture/kv_cache_manager.html}
 
 __Research__
 
-- When to Reason: Semantic Router for vLLM (2025). https://arxiv.org/abs/2510.08731
-- Distributed Inference with vLLM (Red Hat, 2025). https://developers.redhat.com/articles/2025/02/06/distributed-inference-with-vllm
+- When to Reason: Semantic Router for vLLM (2025): \url{https://arxiv.org/abs/2510.08731}
+- Distributed Inference with vLLM (Red Hat, 2025): \url{https://developers.redhat.com/articles/2025/02/06/distributed-inference-with-vllm}

@@ -836,27 +836,27 @@ We've now covered both sides of distributed AI: training systems (DDP, FSDP, Dee
 
 __SGLang and RadixAttention__
 
-- SGLang: Efficient Execution of Structured Language Model Programs (2023). https://arxiv.org/abs/2312.07104
-- SGLang v0.4: Faster, Longer, and Scalable LLM Serving (2025). https://arxiv.org/abs/2506.21901
-- SGLang Documentation: https://docs.sglang.io/
-- SGLang GitHub: https://github.com/sgl-project/sglang
+- SGLang: Efficient Execution of Structured Language Model Programs (2023): \url{https://arxiv.org/abs/2312.07104}
+- SGLang v0.4: Faster, Longer, and Scalable LLM Serving (2025): \url{https://arxiv.org/abs/2506.21901}
+- SGLang Documentation: \url{https://docs.sglang.io/}
+- SGLang GitHub: \url{https://github.com/sgl-project/sglang}
 
 __Distributed Inference__
 
-- SGLang Model Gateway (Router): https://docs.sglang.io/advanced_features/router.html
-- PD Disaggregation: https://docs.sglang.io/advanced_features/pd_disaggregation.html
-- Expert Parallelism: https://docs.sglang.io/advanced_features/expert_parallelism.html
-- Multi-Node Deployment: https://docs.sglang.io/references/multi_node_deployment/multi_node.html
+- SGLang Model Gateway (Router): \url{https://docs.sglang.io/advanced_features/router.html}
+- PD Disaggregation: \url{https://docs.sglang.io/advanced_features/pd_disaggregation.html}
+- Expert Parallelism: \url{https://docs.sglang.io/advanced_features/expert_parallelism.html}
+- Multi-Node Deployment: \url{https://docs.sglang.io/references/multi_node_deployment/multi_node.html}
 
 __Structured Output and Constrained Decoding__
 
-- XGrammar: Flexible and Efficient Structured Generation Engine for Large Language Models (2024). https://arxiv.org/abs/2411.15100
-- Constrained Decoding in SGLang: https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/tree/main/sglang/constraint-decoding
-- Understanding Constraint Decoding: https://www.aidancooper.co.uk/constrained-decoding/
+- XGrammar: Flexible and Efficient Structured Generation Engine for Large Language Models (2024): \url{https://arxiv.org/abs/2411.15100}
+- Constrained Decoding in SGLang: \url{https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/tree/main/sglang/constraint-decoding}
+- Understanding Constraint Decoding: \url{https://www.aidancooper.co.uk/constrained-decoding/}
 
 __Tutorials and Walkthroughs__
 
-- SGLang Code Walk Through: https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/sglang/code-walk-through/readme.md
-- SGLang Scheduler Evolution: https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/sglang/scheduler-evolution/SGLang%20Scheduler%20Evolution.md
-- Why SGLang is a Game-Changer for LLM Workflows (Hugging Face, 2025). https://huggingface.co/blog/paresh2806/sglang-efficient-llm-workflows
-- Use Cases Favoring vLLM vs SGLang (2025). https://kanerika.com/blogs/sglang-vs-vllm/
+- SGLang Code Walk Through: \url{https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/sglang/code-walk-through/readme.md}
+- SGLang Scheduler Evolution: \url{https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/sglang/scheduler-evolution/SGLang%20Scheduler%20Evolution.md}
+- Why SGLang is a Game-Changer for LLM Workflows (Hugging Face, 2025): \url{https://huggingface.co/blog/paresh2806/sglang-efficient-llm-workflows}
+- Use Cases Favoring vLLM vs SGLang (2025): \url{https://kanerika.com/blogs/sglang-vs-vllm/}
