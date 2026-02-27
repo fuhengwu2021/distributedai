@@ -242,53 +242,21 @@ Figure~\ref{fig:multi-node-training} illustrates how SLURM orchestrates multi-no
 ![Multi-node distributed training with SLURM.](img/multi_node_training.png){#fig:multi-node-training .block width=90% align=center}
 
 
-### PyTorch DDP (Distributed Data Parallel)
+### PyTorch DDP (Distributed Data Parallel) {#sec:slurm-ddp-overview}
 
-PyTorch DDP replicates the model across multiple GPUs and synchronizes gradients during backward pass. It's the simplest distributed training approach.
+PyTorch DDP is the simplest and most widely used approach for distributed training. It replicates the entire model on each GPU, distributes data across processes, and synchronizes gradients via AllReduce during the backward pass. Because each GPU holds a complete copy of the model, DDP works best when your model fits comfortably in a single GPU's memory. The training loop remains almost identical to single-GPU code—you wrap your model with `DistributedDataParallel`, use a `DistributedSampler` for your dataloader, and PyTorch handles the gradient synchronization transparently. DDP integrates seamlessly with SLURM through `torchrun`, which reads the environment variables we discussed above and initializes the process group automatically. For a detailed walkthrough with complete code examples and SLURM batch scripts, see Section~\ref{sec:slurm-ddp-example}.
 
-**Key characteristics:**
-- Model replicated on each GPU
-- Gradients synchronized via all-reduce
-- Works with `torch.distributed.launch` or `torchrun`
-- Suitable for models that fit in single GPU memory
+### PyTorch FSDP (Fully Sharded Data Parallel) {#sec:slurm-fsdp-overview}
 
-For complete code examples and SLURM scripts, see [Section 9.1: PyTorch DDP](#91-pytorch-ddp-distributed-data-parallel).
+When models grow too large to fit in a single GPU's memory, FSDP offers an elegant solution by sharding model parameters, gradients, and optimizer states across all participating GPUs. Unlike DDP where each GPU holds the full model, FSDP distributes the model itself—each GPU stores only a fraction of the parameters and gathers the full parameters on-demand during forward and backward passes. This dramatically reduces per-GPU memory requirements, enabling training of models that would otherwise be impossible. FSDP also supports CPU offloading for even larger models, though this trades memory savings for slower training speed. The SLURM integration mirrors DDP: you use `torchrun` to launch processes, and FSDP handles the sharding and communication internally. Section~\ref{sec:slurm-fsdp-example} provides complete examples showing how to configure FSDP with SLURM.
 
-### PyTorch FSDP (Fully Sharded Data Parallel)
+### DeepSpeed ZeRO-3 with CPU Offload {#sec:slurm-deepspeed-overview}
 
-FSDP shards model parameters, gradients, and optimizer states across GPUs, enabling training of larger models.
+DeepSpeed's ZeRO (Zero Redundancy Optimizer) takes memory optimization further with its Stage 3 configuration, which partitions parameters, gradients, and optimizer states across GPUs—similar to FSDP but with additional optimizations and flexibility. DeepSpeed's CPU offloading capability allows training models that exceed total GPU memory by spilling optimizer states and even parameters to CPU RAM and NVMe storage. A key advantage of DeepSpeed is its tight integration with HuggingFace Transformers: you can often enable distributed training by simply adding a DeepSpeed configuration file and changing your launch command. DeepSpeed handles distributed initialization automatically, reading SLURM environment variables without requiring explicit `torch.distributed` setup in your code. This makes it particularly attractive for researchers who want advanced memory optimization without deep distributed systems expertise. See Section~\ref{sec:slurm-deepspeed-example} for configuration examples and SLURM scripts.
 
-**Key characteristics:**
-- Parameters sharded across GPUs
-- Memory efficient for large models
-- Supports CPU offloading
-- Uses `torchrun` for distributed launch
+### Megatron-LM Training with SLURM {#sec:slurm-megatron-overview}
 
-For complete code examples and SLURM scripts, see [Section 9.2: PyTorch FSDP](#92-pytorch-fsdp-fully-sharded-data-parallel).
-
-### DeepSpeed ZeRO-3 with CPU Offload
-
-DeepSpeed ZeRO-3 provides advanced memory optimization with optional CPU offloading for training very large models.
-
-**Key characteristics:**
-- Automatic distributed setup (no manual initialization)
-- ZeRO-3 shards parameters, gradients, and optimizer states
-- CPU offload enables training models larger than total GPU memory
-- Works seamlessly with HuggingFace models
-
-For complete code examples, configuration files, and SLURM scripts, see [Section 9.3: DeepSpeed ZeRO-3](#93-deepspeed-zero-3-with-cpu-offload).
-
-### Megatron-LM Training with SLURM
-
-Megatron-LM is NVIDIA's framework for training large language models with advanced parallelism strategies.
-
-**Key characteristics:**
-- Multiple parallelism strategies: Tensor, pipeline, context, and data parallelism
-- Production-ready optimizations
-- Supports various model architectures (GPT, BERT, T5, etc.)
-- Built-in FP8 support and other cutting-edge features
-
-For complete code examples, installation instructions, and SLURM scripts, see [Section 9.4: Megatron-LM](#94-megatron-lm-training-with-slurm).
+For training the largest language models—tens or hundreds of billions of parameters—Megatron-LM provides NVIDIA's production-grade framework combining multiple parallelism strategies. Megatron-LM supports tensor parallelism (splitting individual layers across GPUs), pipeline parallelism (distributing layers across pipeline stages), sequence/context parallelism (for handling very long sequences), and data parallelism—all composable in a single training run. This multi-dimensional parallelism is essential when models are so large that no single parallelism strategy suffices. Megatron-LM also includes highly optimized kernels, FP8 training support, and efficient checkpointing for fault tolerance. The framework is designed for large clusters and integrates naturally with SLURM's multi-node job management. Section~\ref{sec:slurm-megatron-example} walks through the setup process, from installation to launching training jobs on SLURM.
 
 ### Using Slurm's Built-in MPI Support
 
@@ -524,11 +492,11 @@ srun -N 1 --gres=gpu:1 nvidia-smi -L
 - **Verify data loading**: Ensure all ranks can access data
 - **Check logs**: Review both stdout and stderr from all ranks
 
-## Hands-on: Complete Distributed Training Workflow
+## Hands-on: Complete Distributed Training Workflow {#sec:slurm-hands-on}
 
 This section provides hands-on examples for running distributed training with different frameworks on SLURM clusters. All code examples are available in the `code/` directory. The complete Python training script is in `code/train_ddp.py` and the SLURM batch script is in `code/train_ddp.sh`.
 
-### PyTorch DDP Example
+### PyTorch DDP Example {#sec:slurm-ddp-example}
 
 **Method 1: Using `torch.distributed.launch`**
 
@@ -602,7 +570,7 @@ srun torchrun \
     code/train_ddp.py
 ```
 
-### PyTorch FSDP Example
+### PyTorch FSDP Example {#sec:slurm-fsdp-example}
 
 FSDP shards model parameters, gradients, and optimizer states across GPUs. The complete training script is in `code/train_fsdp.py` and the SLURM batch script is in `code/train_fsdp.sh`:
 
@@ -658,7 +626,7 @@ srun torchrun \
     code/train_fsdp.py
 ```
 
-### DeepSpeed ZeRO-3 Example
+### DeepSpeed ZeRO-3 Example {#sec:slurm-deepspeed-example}
 
 DeepSpeed ZeRO-3 enables training models larger than GPU memory by sharding parameters, gradients, and optimizer states across GPUs, with optional CPU offloading for even larger models.
 
@@ -829,7 +797,7 @@ tail -f logs/train_*.out
 - IPv6 resolution: Set `NCCL_SOCKET_IFNAME` and `GLOO_SOCKET_IFNAME` to avoid IPv6 issues
 - Conda activation: Ensure conda environment is activated on each compute node via `srun`
 
-### Megatron-LM Example
+### Megatron-LM Example {#sec:slurm-megatron-example}
 
 Megatron-LM is NVIDIA's framework for training large language models with advanced parallelism strategies including tensor parallelism (TP), pipeline parallelism (PP), context parallelism (CP), and data parallelism (DP).
 
