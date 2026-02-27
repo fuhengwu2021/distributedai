@@ -222,9 +222,10 @@ Figure~\ref{fig:slurm-env-vars} shows the mapping between SLURM and PyTorch envi
 
 This section provides an overview of different distributed training frameworks and their integration with SLURM. For hands-on examples with complete code, see [Section 9: Hands-on: Complete Distributed Training Workflow](#9-hands-on-complete-distributed-training-workflow).
 
+Figure~\ref{fig:multi-node-training} illustrates how SLURM orchestrates multi-node distributed training. SLURM launches processes across allocated nodes, each process binds to a specific GPU, and NCCL handles the AllReduce communication for gradient synchronization. The environment variables set by SLURM enable each process to identify its global rank, local rank, and the master address for establishing the process group.
+
 ![Multi-node distributed training with SLURM.](img/multi_node_training.png){#fig:multi-node-training .block width=90% align=center}
 
-Figure~\ref{fig:multi-node-training} illustrates how SLURM orchestrates multi-node distributed training. SLURM launches processes across allocated nodes, each process binds to a specific GPU, and NCCL handles the AllReduce communication for gradient synchronization. The environment variables set by SLURM enable each process to identify its global rank, local rank, and the master address for establishing the process group.
 
 ### PyTorch DDP (Distributed Data Parallel)
 

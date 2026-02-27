@@ -33,8 +33,8 @@ ax.add_patch(slurm_box)
 ax.text(5.0, 5.6, "SLURM", ha="center", va="center", fontsize=14, fontweight="bold")
 ax.text(5.0, 5.2, "srun / torchrun", ha="center", va="center", fontsize=13, family="monospace")
 
-# Two nodes
-for node_idx, (node_x, node_name) in enumerate([(0.3, "Node 0 (MASTER_ADDR)"), (5.2, "Node 1")]):
+# Two nodes (moved apart: node0 to left, node1 to right)
+for node_idx, (node_x, node_name) in enumerate([(0.1, "Node 0 (MASTER_ADDR)"), (5.4, "Node 1")]):
     # Node box
     node_box = mpatches.FancyBboxPatch((node_x, 0.5), 4.5, 4.0, boxstyle="round,pad=0.1",
                                         facecolor=node_color, edgecolor="grey", linewidth=1.5)
@@ -70,15 +70,15 @@ for node_idx, (node_x, node_name) in enumerate([(0.3, "Node 0 (MASTER_ADDR)"), (
         ax.text(gpu_x + 0.9, 1.0, f"Process {global_rank}", ha="center", va="center", fontsize=12)
 
 # SLURM arrows to nodes
-ax.annotate("", xy=(2.55, 4.5), xytext=(4.2, 5.0),
+ax.annotate("", xy=(2.35, 4.5), xytext=(4.2, 5.0),
             arrowprops=dict(arrowstyle="->", color="#666666", lw=1.5,
                            connectionstyle="arc3,rad=0.2"))
-ax.annotate("", xy=(7.45, 4.5), xytext=(5.8, 5.0),
+ax.annotate("", xy=(7.65, 4.5), xytext=(5.8, 5.0),
             arrowprops=dict(arrowstyle="->", color="#666666", lw=1.5,
                            connectionstyle="arc3,rad=-0.2"))
 
 # NCCL communication (horizontal double arrow between nodes)
-ax.annotate("", xy=(5.2, 2.5), xytext=(4.8, 2.5),
+ax.annotate("", xy=(5.4, 2.5), xytext=(4.6, 2.5),
             arrowprops=dict(arrowstyle="<->", color=nccl_color, lw=3))
 ax.text(5.0, 2.9, "NCCL", ha="center", va="center", fontsize=13, fontweight="bold",
         color="#856404")
