@@ -49,7 +49,7 @@ ax.text(5, 6.05, 'Client Applications', ha='center', va='center',
 ax.annotate('', xy=(5, 5.0), xytext=(5, 5.8),
             arrowprops=dict(arrowstyle='->', color=border_color, lw=1.5))
 ax.text(5.6, 5.4, "HTTP Request with 'model' field", ha='left', va='center',
-        fontsize=11, style='italic', color='#666666')
+        fontsize=12, style='italic', color='#666666')
 
 # API Gateway box
 gateway_box = FancyBboxPatch(
@@ -61,7 +61,7 @@ gateway_box = FancyBboxPatch(
 )
 ax.add_patch(gateway_box)
 ax.text(5, 4.7, 'API Gateway (Unified Entry Point)', ha='center', va='center',
-        fontsize=11, fontweight='bold')
+        fontsize=12, fontweight='bold')
 
 # Gateway features
 gateway_features = [
@@ -71,7 +71,7 @@ gateway_features = [
 ]
 for i, feature in enumerate(gateway_features):
     ax.text(5, 4.2 - i * 0.3, f"• {feature}", ha='center', va='center',
-            fontsize=11, color='#424242')
+            fontsize=12, color='#424242')
 
 # Arrows from Gateway to Services
 ax.annotate('', xy=(3.0, 1.8), xytext=(3.5, 3.2),
@@ -84,36 +84,36 @@ service1_box = FancyBboxPatch(
     (1.0, 0.3), 3.5, 1.5,
     boxstyle="round,pad=0.02,rounding_size=0.08",
     facecolor=service_color,
-    edgecolor=border_color,
+    edgecolor='#2E7D32',
     linewidth=1.5
 )
 ax.add_patch(service1_box)
 ax.text(2.75, 1.55, 'vLLM Service 1', ha='center', va='center',
-        fontsize=11, fontweight='bold')
+        fontsize=12, fontweight='bold', color='#2E7D32')
 ax.text(2.75, 1.2, '(Llama-3.2-1B)', ha='center', va='center',
-        fontsize=10, color='#666666')
+        fontsize=12, color='#666666')
 ax.text(2.75, 0.85, 'Pod: vllm-llama-32-1b', ha='center', va='center',
-        fontsize=10, color='#888888')
+        fontsize=12, color='#888888')
 ax.text(2.75, 0.55, 'Service: vllm-llama-32-1b:8000', ha='center', va='center',
-        fontsize=10, color='#888888')
+        fontsize=12, color='#888888')
 
 # vLLM Service 2 box
 service2_box = FancyBboxPatch(
     (5.5, 0.3), 3.5, 1.5,
     boxstyle="round,pad=0.02,rounding_size=0.08",
     facecolor=service_color,
-    edgecolor=border_color,
+    edgecolor='#2E7D32',
     linewidth=1.5
 )
 ax.add_patch(service2_box)
 ax.text(7.25, 1.55, 'vLLM Service 2', ha='center', va='center',
-        fontsize=11, fontweight='bold')
+        fontsize=12, fontweight='bold', color='#2E7D32')
 ax.text(7.25, 1.2, '(Qwen2.5-0.5B)', ha='center', va='center',
-        fontsize=10, color='#666666')
+        fontsize=12, color='#666666')
 ax.text(7.25, 0.85, 'Pod: vllm-qwen-0.5b', ha='center', va='center',
-        fontsize=10, color='#888888')
+        fontsize=12, color='#888888')
 ax.text(7.25, 0.55, 'Service: vllm-qwen-0.5b:8000', ha='center', va='center',
-        fontsize=10, color='#888888')
+        fontsize=12, color='#888888')
 
 # Legend
 legend_y = 6.6
@@ -132,7 +132,7 @@ for x, y, color, label in legend_items:
         linewidth=1
     )
     ax.add_patch(box)
-    ax.text(x + 0.2, y, label, ha='left', va='center', fontsize=11)
+    ax.text(x + 0.2, y, label, ha='left', va='center', fontsize=12)
 
 # Tight layout and save
 plt.tight_layout(pad=0.1)

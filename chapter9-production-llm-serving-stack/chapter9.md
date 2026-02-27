@@ -388,7 +388,6 @@ The key insight, illustrated in Figure \ref{fig:multi-model-routing}, is that an
 
 The `code/k3d/` directory contains complete examples of this pattern. The `llm-d-multi-model/` subdirectory demonstrates deploying multiple models (Llama-3.2-1B and Qwen2.5-0.5B) with vLLM, each as a separate Kubernetes pod with its own service. An API gateway aggregates these services, providing a single `/v1/chat/completions` endpoint that routes based on the model name.
 
-
 ![Multi-engine routing architecture.](img/multi_engine_routing.png){#fig:multi-engine-routing width=80%}
 
 The `llm-d-multi-engine/` subdirectory, illustrated in Figure \ref{fig:multi-engine-routing}, takes this further by deploying the same model (Qwen2.5-0.5B-Instruct) on both vLLM and SGLang. Here, routing uses both the `model` field and an `owned_by` field to select the inference engine---useful for benchmarking or gradually migrating between engines.
