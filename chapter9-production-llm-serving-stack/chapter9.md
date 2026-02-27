@@ -378,7 +378,7 @@ k3d cluster delete mycluster-gpu
 docker rmi k3s-cuda:<your-tag>  # optional, removes the custom image
 ```
 
-### Multi-Model Serving with API Gateway
+### Multi-Model and Multi-Engine Serving
 
 Once you have a single model running, the natural next step is serving multiple models through a unified API. Production deployments rarely serve just one model---you might have different models for different tasks (a small model for simple queries, a larger one for complex reasoning), or you might want to A/B test different models or inference engines.
 
@@ -477,42 +477,7 @@ llm-d provides a production-grade solution using:
 - **ModelService**: Helm chart for deploying vLLM model servers
 - **Intelligent Scheduler**: Load-aware and prefix-cache aware routing
 
-**Architecture:**
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    Client Applications                      │
-└───────────────────────────┬─────────────────────────────────┘
-                            │
-                            │ HTTP Request with 'model' field
-                            ▼
-┌─────────────────────────────────────────────────────────────┐
-│         Inference Gateway (Kubernetes Gateway API)          │
-│  - Load balancing with prefix-cache awareness               │
-│  - Intelligent request scheduling                           │
-│  - Traffic routing to InferencePool                         │
-└───────────────┬─────────────────────────────────────────────┘
-                │
-                ▼
-┌─────────────────────────────────────────────────────────────┐
-│              InferencePool (Routing Layer)                  │
-│  - Routes requests to appropriate ModelService              │
-│  - Model-aware request distribution                         │
-│  - Health checking and load balancing                       │
-└───────────────┬───────────────────────────┬─────────────────┘
-                │                           │
-                │                           │
-    ┌───────────▼──────────┐    ┌──────────▼──────────┐
-    │  ModelService 1      │    │  ModelService 2     │
-    │  (Llama-3.2-1B)      │    │  (Phi-tiny-MoE)     │
-    │                      │    │                     │
-    │  vLLM Pods (2x)      │    │  vLLM Pods (2x)     │
-    │  - Intelligent       │    │  - Intelligent      │
-    │    load balancing    │    │    load balancing   │
-    │  - Prefix cache      │    │  - Prefix cache     │
-    │    aware routing     │    │    aware routing    │
-    └──────────────────────┘    └─────────────────────┘
-```
+![llm-d multi-model serving architecture.](img/llmd_multi_model.png){#fig:llmd-multi-model width=80%}
 
 ### Prerequisites
 
