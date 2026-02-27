@@ -2,8 +2,8 @@
 
 *Building end-to-end production systems for reliable LLM serving*
 
-> Building a production LLM serving system requires more than just running an inference engine. You need a complete stack: model runners, tokenizers, API gateways, rate limiting, observability, and deployment strategies like A/B testing and canary rollouts.
-- Adapted from Chapter 9
+> Everything fails all the time.
+- Werner Vogels, CTO of Amazon
 
 **Code Summary**
 
@@ -20,7 +20,7 @@
 
 
 
-## 1. Anatomy of a Production LLM Serving System
+## Anatomy of a Production LLM Serving System
 
 A production LLM serving system is more than just a model running on a GPU. It's a complex distributed system with multiple components working together to provide reliable, scalable, and cost-effective inference services. Understanding the architecture is crucial for building robust systems.
 
@@ -341,7 +341,7 @@ async def handle_request(request: GenerationRequest):
     return final_response
 ```
 
-## 2. Multi-Model Routing and Load Balancing
+## Multi-Model Routing and Load Balancing
 
 In production systems, you often need to serve multiple models simultaneously, route requests intelligently, and balance load across instances. This section covers routing strategies and load balancing techniques.
 
@@ -579,7 +579,7 @@ class HealthChecker:
         return self.health_status.get(endpoint, False)
 ```
 
-## 3. Canary Deployments and A/B Testing
+## Canary Deployments and A/B Testing
 
 Canary deployments allow you to gradually roll out new model versions while monitoring for issues. A/B testing enables comparing model performance in production. This section covers both techniques.
 
@@ -850,7 +850,7 @@ class AutoRollback:
         return False
 ```
 
-## 4. Observability and Distributed Tracing
+## Observability and Distributed Tracing
 
 Observability is crucial for understanding system behavior, debugging issues, and optimizing performance. This section covers metrics collection, distributed tracing, and monitoring dashboards.
 
@@ -1064,7 +1064,7 @@ class StructuredLogger:
 logger = StructuredLogger("llm-serving")
 ```
 
-## 5. Fault Tolerance and Cost Optimization
+## Fault Tolerance and Cost Optimization
 
 Production systems must handle failures gracefully and optimize costs. This section covers cold start handling, autoscaling, request queuing, and cost optimization strategies.
 
@@ -1316,7 +1316,7 @@ class CostOptimizedRouter:
         return min(self.models.items(), key=lambda x: x[1]["latency_ms"])[0]
 ```
 
-## 6. Local Kubernetes Setup with k3d for GPU Model Serving
+## Local Kubernetes Setup with k3d for GPU Model Serving
 
 While production deployments often use managed Kubernetes services, setting up a local Kubernetes cluster is invaluable for development, testing, and learning. This section covers setting up a GPU-enabled Kubernetes cluster using k3d (k3s in Docker), which provides a lightweight, production-like environment that runs entirely in Docker containers.
 
@@ -2894,7 +2894,7 @@ With a working GPU-enabled Kubernetes cluster, you can:
 
 This local setup provides a safe environment to experiment with production patterns before deploying to cloud Kubernetes services.
 
-## 7. Kubernetes Deployment with llm-d
+## Kubernetes Deployment with llm-d
 
 While building custom serving stacks provides flexibility, production deployments often benefit from standardized solutions that handle the operational complexity of distributed inference. [llm-d](https://github.com/llm-d/llm-d) is an open-source project that provides production-ready Helm charts and deployment patterns for running LLM inference on Kubernetes with modern accelerators.
 
