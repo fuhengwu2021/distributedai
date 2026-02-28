@@ -111,20 +111,19 @@ The key insight is that architecture and training quality matter more than raw s
 
 ### Edge-Cloud Coordination
 
-The most interesting systems don't treat edge and cloud as separate worlds—they coordinate between them. Speculative decoding[^spec-decode] is a prime example. A small, fast model (on the edge) generates draft tokens. A larger, more accurate model (in the cloud) verifies them in parallel. When the draft is correct—which happens surprisingly often for predictable text—you get the speed of the small model with the quality of the large model. Speedups of 2-3x are common.
+The most interesting systems don't treat edge and cloud as separate worlds—they find ways to make them work together. Remember speculative decoding from Chapter 7? We used it to speed up inference on a single server by having a small draft model propose tokens that a larger model then verifies. The same idea works beautifully across the edge-cloud boundary.
+
+Picture your phone running a tiny but fast model. It generates a sequence of candidate tokens—maybe "The cat sat on the"—and ships them to a powerful cloud model. The cloud doesn't generate anything; it just checks whether each token matches what it would have produced. Verification is cheap: the cloud model can evaluate all five tokens in a single forward pass, whereas generating them one by one would take five passes. When the drafts are mostly correct (and for predictable text, they often are), you get cloud-quality output at edge-like speed. Speedups of 2-3x are common in practice[^spec-decode].
+
+![Edge-cloud speculative decoding workflow](img/speculative_decoding.png){#fig:speculative-decoding .block width=100% align=center}
+
+Figure~\ref{fig:speculative-decoding} illustrates this dance. The edge device proposes tokens (yellow circles), sends them to the cloud, and the verifier stamps each one as accepted (green) or rejected (red). In this example, "on" gets rejected—perhaps the cloud model prefers a different preposition—so the edge will need to regenerate from that point. But four out of five tokens sailed through, saving significant latency.
 
 [^spec-decode]: Fast Inference from Transformers via Speculative Decoding. \url{https://arxiv.org/abs/2211.17192}
 
-Intelligent routing takes this further. Not every request needs cloud-level capability. A system can estimate request complexity, edge model confidence, and network conditions, then route accordingly. Simple requests stay on device; complex ones go to the cloud. The decision factors include:
+Intelligent routing pushes this coordination further. Not every request actually needs the cloud. A well-designed system estimates how hard each request is, checks how confident the edge model feels, glances at network conditions, and decides: handle locally, or send to the cloud? Simple queries—"What time is it in Tokyo?"—stay on device. Complex reasoning tasks go to the cloud. The routing logic can even learn from past decisions, getting better at predicting which requests will succeed locally.
 
-- Request complexity and expected latency
-- Edge model confidence scores
-- Current network conditions and cloud availability
-- Cost constraints and user preferences
-
-The `code/edge_cloud.py` file implements these patterns, including `EdgeCloudSpeculativeDecoding`, `IntelligentOffloading`, and `AdaptiveRouter` that learns from past decisions.
-
-
+The `code/edge_cloud.py` file implements these patterns: `EdgeCloudSpeculativeDecoding` for the draft-verify loop, `IntelligentOffloading` for complexity-based routing, and `AdaptiveRouter` that improves over time.
 
 ## Parallelism at Scale
 
@@ -244,7 +243,9 @@ While most of this book focuses on distributed training where GPUs share access 
 
 ### The Federated Paradigm
 
-In classical distributed training, we assume all GPUs can access a shared dataset (or shards of it). Federated learning relaxes this assumption entirely. Each participant—whether a smartphone, a hospital, or a bank—trains on its local data and shares only model updates, never raw data. A central server aggregates these updates to produce a global model.
+In classical distributed training, we assume all GPUs can access a shared dataset (or shards of it). Federated learning relaxes this assumption entirely. Each participant—whether a smartphone, a hospital, or a bank—trains on its local data and shares only model updates, never raw data. A central server aggregates these updates to produce a global model, as shown in Figure~\ref{fig:federated-learning}.
+
+![Federated learning: data stays on clients](img/federated_learning.png){#fig:federated-learning .block width=80% align=center}
 
 The canonical algorithm is FedAvg[^fedavg]: each round, the server sends the current model to a subset of clients; clients train locally for several epochs; clients send updated weights back; the server averages the weights. This simple protocol has proven remarkably effective, though the field has moved well beyond it.
 

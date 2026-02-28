@@ -17,8 +17,8 @@ from matplotlib.patches import FancyBboxPatch, FancyArrowPatch
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'shared'))
-from math4ai import configure_math_fonts
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'shared'))
+from math4ai import configure_math_fonts, save_figure
 
 configure_math_fonts()
 
@@ -186,10 +186,4 @@ ax.set_aspect('equal')
 ax.axis('off')
 
 plt.tight_layout(pad=0.1)
-
-# Save figure
-script_dir = os.path.dirname(os.path.abspath(__file__))
-script_name = os.path.splitext(os.path.basename(__file__))[0]
-output_path = os.path.join(script_dir, f'{script_name}.png')
-plt.savefig(output_path, dpi=300, bbox_inches='tight', facecolor='white', pad_inches=0.02)
-print(f"Saved figure to: {output_path}")
+save_figure(__file__)
