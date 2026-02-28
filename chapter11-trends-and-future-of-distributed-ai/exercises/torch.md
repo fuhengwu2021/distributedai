@@ -4,351 +4,104 @@
 ## Exercises
 
 
-### Implement Basic MoE
+### Multiple Choice Questions
 
-Create a simple Mixture of Experts layer with expert routing.
+1. What is the primary advantage of MoE (Mixture of Experts) architectures?
 
-__Requirements:__
+   a) Faster training convergence
+   b) Scales model capacity without proportional compute increase
+   c) Eliminates the need for distributed training
+   d) Reduces model size
 
-- Implement an MoE layer with:
-  - 4 expert networks (FFN layers)
-  - Top-2 routing (each token uses 2 experts)
-  - Load balancing loss
-- Test on a small transformer model
-- Measure expert utilization
+2. In a typical MoE layer with 64 experts and top-2 routing, how many experts process each token?
 
-__Test your implementation:__
-```python
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
+   a) 1
+   b) 2
+   c) 32
+   d) 64
 
-class MoELayer(nn.Module):
-    def __init__(self, hidden_dim: int, num_experts: int = 4, top_k: int = 2):
-        super().__init__()
-        self.num_experts = num_experts
-        self.top_k = top_k
-        
-        # Expert networks
-        self.experts = nn.ModuleList([
-            nn.Sequential(
-                nn.Linear(hidden_dim, hidden_dim * 4),
-                nn.GELU(),
-                nn.Linear(hidden_dim * 4, hidden_dim),
-            )
-            for _ in range(num_experts)
-        ])
-        
-        # Router
-        self.router = nn.Linear(hidden_dim, num_experts)
-    
-    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        """Forward pass with expert routing."""
-        batch_size, seq_len, hidden_dim = x.shape
-        
-        # Compute routing scores
-        router_logits = self.router(x)  # (batch, seq, num_experts)
-        routing_weights = F.softmax(router_logits, dim=-1)
-        
-        # Select top-k experts
-        top_k_weights, top_k_indices = torch.topk(routing_weights, self.top_k, dim=-1)
-        top_k_weights = top_k_weights / top_k_weights.sum(dim=-1, keepdim=True)
-        
-        # Compute expert outputs
-        output = torch.zeros_like(x)
-        for i, expert in enumerate(self.experts):
-            # Find tokens routed to this expert
-            mask = (top_k_indices == i).any(dim=-1)
-            if mask.any():
-                expert_input = x[mask]
-                expert_output = expert(expert_input)
-                
-                # Weight by routing score
-                weight_mask = (top_k_indices == i).float()
-                weights = (top_k_weights * weight_mask).sum(dim=-1, keepdim=True)
-                output[mask] += expert_output * weights[mask]
-        
-        # Load balancing loss
-        load_balance_loss = self._compute_load_balance_loss(routing_weights)
-        
-        return output, load_balance_loss
-    
-    def _compute_load_balance_loss(self, routing_weights: torch.Tensor) -> torch.Tensor:
-        """Compute load balancing auxiliary loss."""
-        # Average routing probability per expert
-        avg_prob = routing_weights.mean(dim=[0, 1])  # (num_experts,)
-        
-        # Fraction of tokens routed to each expert
-        top_1_indices = routing_weights.argmax(dim=-1)
-        expert_counts = torch.bincount(top_1_indices.flatten(), minlength=self.num_experts)
-        expert_frac = expert_counts.float() / expert_counts.sum()
-        
-        # Load balance loss: encourage uniform distribution
-        loss = self.num_experts * (avg_prob * expert_frac).sum()
-        return loss
+3. What is the main bottleneck for on-device LLM inference on mobile devices?
 
-# Test MoE layer
-moe = MoELayer(hidden_dim=256, num_experts=4, top_k=2).cuda()
-x = torch.randn(8, 128, 256).cuda()
+   a) CPU compute
+   b) Storage space
+   c) Memory bandwidth
+   d) Battery capacity
 
-output, lb_loss = moe(x)
-print(f"Input shape: {x.shape}")
-print(f"Output shape: {output.shape}")
-print(f"Load balance loss: {lb_loss.item():.4f}")
-```
+4. What does speculative decoding achieve in edge-cloud scenarios?
 
-### Edge-Cloud Routing
+   a) Reduces model size
+   b) Uses a small draft model to propose tokens verified by a larger model
+   c) Eliminates network latency
+   d) Compresses gradients
 
-Build a routing system that decides between edge and cloud inference.
+5. At 100K GPU scale with 99.9% per-GPU reliability, approximately how many failures occur per day?
 
-__Requirements:__
+   a) 1
+   b) 10
+   c) 100
+   d) 1000
 
-- Implement routing logic based on:
-  - Request complexity (input length, expected output)
-  - Latency requirements
-  - Edge device capabilities
-  - Network conditions
-- Simulate edge and cloud backends
-- Measure routing decisions and latency
+6. What is the purpose of load balancing loss in MoE training?
 
-__Test your implementation:__
-```python
-import time
-import random
-from dataclasses import dataclass
-from enum import Enum
+   a) Reduce memory usage
+   b) Encourage uniform expert utilization
+   c) Speed up inference
+   d) Compress model weights
 
-class Backend(Enum):
-    EDGE = "edge"
-    CLOUD = "cloud"
+7. Which communication pattern is most expensive in expert parallelism?
 
-@dataclass
-class Request:
-    prompt: str
-    max_tokens: int
-    latency_requirement_ms: float
+   a) Broadcast
+   b) Reduce
+   c) All-to-all
+   d) Gather
 
-class EdgeCloudRouter:
-    def __init__(self, edge_capacity: int = 100, cloud_latency_ms: float = 50):
-        self.edge_capacity = edge_capacity  # Max tokens edge can handle
-        self.cloud_latency_ms = cloud_latency_ms  # Network latency to cloud
-        self.edge_throughput = 10  # tokens/ms
-        self.cloud_throughput = 50  # tokens/ms
-    
-    def route(self, request: Request) -> Backend:
-        """Decide whether to route to edge or cloud."""
-        # Estimate processing time
-        edge_time = request.max_tokens / self.edge_throughput
-        cloud_time = self.cloud_latency_ms + request.max_tokens / self.cloud_throughput
-        
-        # Check if edge can meet latency requirement
-        if edge_time <= request.latency_requirement_ms:
-            # Prefer edge if it can meet requirements
-            if len(request.prompt) <= self.edge_capacity:
-                return Backend.EDGE
-        
-        # Check if cloud can meet latency requirement
-        if cloud_time <= request.latency_requirement_ms:
-            return Backend.CLOUD
-        
-        # If neither can meet requirement, choose faster option
-        return Backend.EDGE if edge_time < cloud_time else Backend.CLOUD
-    
-    def process(self, request: Request) -> tuple[str, float, Backend]:
-        """Process request and return response with latency."""
-        backend = self.route(request)
-        
-        if backend == Backend.EDGE:
-            latency = request.max_tokens / self.edge_throughput
-        else:
-            latency = self.cloud_latency_ms + request.max_tokens / self.cloud_throughput
-        
-        # Simulate processing
-        time.sleep(latency / 1000)
-        
-        response = f"Response from {backend.value}"
-        return response, latency, backend
+8. What does Ring Attention trade for reduced memory usage?
 
-# Test router
-router = EdgeCloudRouter()
-
-# Generate test requests
-requests = [
-    Request("Short prompt", max_tokens=50, latency_requirement_ms=100),
-    Request("Medium prompt " * 10, max_tokens=200, latency_requirement_ms=50),
-    Request("Long prompt " * 50, max_tokens=500, latency_requirement_ms=200),
-]
-
-for req in requests:
-    response, latency, backend = router.process(req)
-    print(f"Tokens: {req.max_tokens}, Requirement: {req.latency_requirement_ms}ms, "
-          f"Backend: {backend.value}, Actual: {latency:.1f}ms")
-```
-
-### Gradient Compression
-
-Implement top-k gradient compression and measure communication reduction.
-
-__Requirements:__
-
-- Implement top-k gradient sparsification
-- Add error feedback (residual accumulation)
-- Measure:
-  - Communication volume reduction
-  - Training convergence impact
-  - Compression overhead
-- Compare with uncompressed baseline
-
-__Test your implementation:__
-```python
-import torch
-import torch.distributed as dist
-
-class TopKCompressor:
-    def __init__(self, k_ratio: float = 0.01):
-        """Initialize top-k compressor.
-        
-        Args:
-            k_ratio: Fraction of gradients to keep (0.01 = 1%)
-        """
-        self.k_ratio = k_ratio
-        self.residuals = {}
-    
-    def compress(self, grad: torch.Tensor, name: str) -> dict:
-        """Compress gradient using top-k selection with error feedback."""
-        # Add residual from previous iteration
-        if name in self.residuals:
-            grad = grad + self.residuals[name]
-        
-        # Flatten for top-k selection
-        flat_grad = grad.flatten()
-        k = max(1, int(flat_grad.numel() * self.k_ratio))
-        
-        # Select top-k by magnitude
-        _, indices = torch.topk(flat_grad.abs(), k)
-        values = flat_grad[indices]
-        
-        # Store residual (unselected gradients)
-        mask = torch.zeros_like(flat_grad)
-        mask[indices] = 1
-        self.residuals[name] = (flat_grad * (1 - mask)).view_as(grad)
-        
-        return {
-            "values": values,
-            "indices": indices,
-            "shape": grad.shape,
-            "original_size": grad.numel(),
-            "compressed_size": k,
-        }
-    
-    def decompress(self, compressed: dict) -> torch.Tensor:
-        """Decompress gradient."""
-        flat_grad = torch.zeros(compressed["original_size"], 
-                                device=compressed["values"].device)
-        flat_grad[compressed["indices"]] = compressed["values"]
-        return flat_grad.view(compressed["shape"])
-
-def benchmark_compression(model, compressor: TopKCompressor, num_steps: int = 10):
-    """Benchmark gradient compression."""
-    total_original = 0
-    total_compressed = 0
-    
-    for step in range(num_steps):
-        # Forward + backward
-        x = torch.randn(32, 1024).cuda()
-        output = model(x)
-        loss = output.mean()
-        loss.backward()
-        
-        # Compress and sync gradients
-        for name, param in model.named_parameters():
-            if param.grad is not None:
-                compressed = compressor.compress(param.grad, name)
-                total_original += compressed["original_size"]
-                total_compressed += compressed["compressed_size"]
-                
-                # Sync compressed gradients
-                dist.all_reduce(compressed["values"])
-                
-                # Decompress
-                param.grad = compressor.decompress(compressed)
-        
-        # Optimizer step
-        optimizer.step()
-        optimizer.zero_grad()
-    
-    compression_ratio = total_original / total_compressed
-    print(f"Compression ratio: {compression_ratio:.1f}x")
-    print(f"Communication reduction: {100 * (1 - 1/compression_ratio):.1f}%")
-
-# Test compression
-compressor = TopKCompressor(k_ratio=0.01)
-benchmark_compression(model, compressor)
-```
-
-### Research Review
-
-Read and summarize a recent paper on distributed AI.
-
-__Requirements:__
-
-- Select a paper on one of:
-  - Mixture of Experts (e.g., DeepSeek-V3, Mixtral)
-  - Edge AI (e.g., Apple Intelligence, on-device LLMs)
-  - New parallelism strategies (e.g., context parallelism, expert parallelism)
-- Summarize:
-  - Problem addressed
-  - Key technical contributions
-  - Experimental results
-  - Limitations and future work
-- Discuss practical implications
-
-__Template:__
-```markdown
-# Paper Review: [Paper Title]
-
-## Problem Statement
-- What problem does this paper address?
-- Why is this problem important?
-
-## Key Contributions
-1. [Contribution 1]
-2. [Contribution 2]
-3. [Contribution 3]
-
-## Technical Approach
-- [Describe the main technical approach]
-- [Key algorithms or architectures]
-
-## Experimental Results
-- [Main experimental findings]
-- [Comparison with baselines]
-
-## Limitations
-- [What are the limitations of this work?]
-
-## Practical Implications
-- [How can this be applied in practice?]
-- [What does this mean for distributed AI systems?]
-
-## Questions for Discussion
-1. [Question 1]
-2. [Question 2]
-```
-
-__Suggested Papers:__
-- DeepSeek-V3: Efficient MoE architecture with multi-head latent attention
-- Mixtral 8x7B: Sparse mixture of experts for efficient inference
-- Apple Intelligence: On-device LLM deployment strategies
-- Ring Attention: Efficient context parallelism for long sequences
+   a) Accuracy
+   b) More communication rounds
+   c) Larger batch sizes
+   d) Fewer experts
 
 
-## Expected Learning Outcomes
+### Short Answer Questions
 
-After completing these exercises, you should be able to:
+9. Explain why inference workloads now consume over 55% of AI infrastructure spending, while training was dominant just a few years ago.
 
-- Implement basic MoE layers with expert routing
-- Design edge-cloud routing systems for hybrid inference
-- Implement gradient compression for communication reduction
-- Critically analyze research papers in distributed AI
-- Understand emerging trends and their practical implications
+10. Describe the key difference between synchronous and asynchronous checkpointing, and why async checkpointing matters at scale.
+
+11. A VLM (Vision-Language Model) uses cross-modal attention. Explain what this means and one challenge in distributing it.
+
+12. Compare top-k gradient sparsification with quantization for gradient compression. What are the trade-offs?
+
+
+### Hands-On Exercise
+
+__Implement Basic MoE Routing__
+
+Create a simple MoE router that:
+
+- Takes input tokens and routes them to top-k experts
+- Computes load balancing loss
+- Returns weighted expert outputs
+
+Reference `code/moe_layer.py` for guidance. Test with 4 experts, top-2 routing, and measure expert utilization across a batch of inputs.
+
+
+## Answer Key
+
+1. b) Scales model capacity without proportional compute increase
+2. b) 2
+3. c) Memory bandwidth
+4. b) Uses a small draft model to propose tokens verified by a larger model
+5. c) 100
+6. b) Encourage uniform expert utilization
+7. c) All-to-all
+8. b) More communication rounds
+
+9. Training happens once; inference happens millions of times. As models mature and deployment scales, the economics favor inference. Additionally, infrastructure costs have dropped significantly, making deployment economically viable in more contexts.
+
+10. Synchronous checkpointing blocks training while saving state. Async checkpointing saves in the background, allowing training to continue. At scale, checkpoint time becomes significant (minutes), so blocking would waste substantial GPU time.
+
+11. Cross-modal attention allows text tokens to attend to vision features. Challenge: vision encoder and language model may have different optimal parallelism strategies and batch sizes.
+
+12. Top-k keeps largest gradients (high compression, ~100x) but requires error feedback for convergence. Quantization reduces precision (moderate compression, ~4x) but is simpler and has less overhead.

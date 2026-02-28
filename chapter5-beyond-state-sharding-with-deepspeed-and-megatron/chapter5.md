@@ -494,7 +494,9 @@ When should you choose Ulysses over ring attention? If you're already in the Dee
 
 Mixture-of-Experts (MoE) models present a unique scaling opportunity: instead of making every layer wider, we add multiple "expert" sub-networks and route each token to only a subset of them. A model like Mixtral 8x7B has 8 experts per MoE layer, but each token only activates 2 of them. This means the model has the capacity of a much larger network while keeping per-token computation manageable. But how do we distribute these experts across GPUs?
 
-This is where **Expert Parallelism (EP)** comes in. The idea is natural: if we have 8 experts and 8 GPUs, put one expert on each GPU. When a token needs to be processed by expert 3, it gets routed to GPU 3, processed, and the result is sent back. The communication pattern is all-to-all: tokens from all GPUs may need to go to any expert, and results flow back to their origin.
+This is where **Expert Parallelism (EP)** comes in. The idea is natural: if we have 8 experts and 8 GPUs, put one expert on each GPU. When a token needs to be processed by expert 3, it gets routed to GPU 3, processed, and the result is sent back. The communication pattern is all-to-all: tokens from all GPUs may need to go to any expert, and results flow back to their origin. Figure~\ref{fig:expert-parallelism} illustrates this distribution pattern.
+
+![Expert parallelism distributes experts across multiple GPUs](img/expert_parallelism.png){#fig:expert-parallelism .block width=90% align=center}
 
 The challenge is load balancing. If the router sends 80% of tokens to expert 0 and only 2% to expert 7, GPU 0 is overloaded while GPU 7 sits idle. MoE training typically includes an auxiliary loss that encourages the router to distribute tokens more evenly. Megatron supports several load balancing strategies: auxiliary loss (adds a penalty for imbalanced routing), Sinkhorn (iterative normalization to enforce balance), and aux-loss-free methods that achieve balance through architectural constraints.
 
