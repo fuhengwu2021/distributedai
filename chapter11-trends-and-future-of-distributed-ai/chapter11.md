@@ -7,13 +7,15 @@
 
 **Code Summary**
 
-- `code/moe_layer.py`: MoE layer implementations with expert parallelism and load balancing
-- `code/edge_cloud.py`: Edge-cloud coordination patterns including speculative decoding
-- `code/parallelism.py`: Hierarchical parallelism, sequence parallelism, and ring attention
-- `code/resource_management.py`: GPU allocation, multi-tenant scheduling, gradient compression
-- `code/fault_tolerance.py`: Async checkpointing, failure detection, elastic training
-- `code/multimodal.py`: Vision-language model distributed training
-- `code/agentic_inference.py`: Multi-agent systems and tool-calling infrastructure
+- `torch.distributed.checkpoint.save`: Async distributed checkpointing with DCP
+- `torch.distributed.checkpoint.load`: Load sharded checkpoints across ranks
+- `torch.distributed.elastic.multiprocessing.start_processes`: Elastic training launcher
+- `torch.ao.quantization.quantize_dynamic`: Dynamic quantization for model compression
+- `flwr.client.NumPyClient`: Flower federated learning client interface
+- `flwr.server.strategy.FedAvg`: Federated averaging aggregation strategy
+- `megatron.core.transformer.moe.router.TopKRouter`: Megatron MoE top-k routing
+- `vllm.LLM`: vLLM inference engine with PagedAttention
+- `sglang.Engine`: SGLang runtime with RadixAttention
 
 
 
@@ -439,40 +441,6 @@ The key insight is that gradients are highly compressible. Most gradient values 
 
 
 
-## Emerging Technologies and Research Directions
-
-The research frontier continues to advance rapidly. Here are the key areas to watch:
-
-### Advanced MoE Research
-
-- __LatentMoE__: Hardware-software co-design for optimal accuracy per FLOP
-- __MoSE__: Variable-width expert execution for continuous accuracy-compute trade-offs
-- __Elastic MoE__: Inference-time scaling beyond training-time expert counts
-- __ReMoE__: Fully differentiable routing using ReLU
-
-### Communication-Efficient Training
-
-- __NCCLX/RCCLX__: 10-50% speedup on collective operations
-- __Torchcomms__: New API for 100K+ GPU scale
-- __Async checkpointing__: 6x faster with cached plans
-- __Low precision collectives__: Reduced bandwidth requirements
-
-### Memory-Efficient Architectures
-
-- __Multi-head Latent Attention (MLA)__: Reduced KV cache memory
-- __RadixAttention__: Automatic prefix reuse across requests
-- __Per-Layer Embeddings__: Reduced model footprint for edge deployment
-- __PagedAttention__: KV cache waste reduced to under 4%
-
-### On-Device Optimization
-
-- __4-bit quantization__ (GPTQ, AWQ): Minimal quality loss
-- __KV cache compression__: Long context on mobile devices
-- __Speculative decoding__: 2-3x edge speedups
-- __LiteRT__: 25x faster NPU performance vs CPU
-
-
-
 ## Preparing for the Future
 
 ### Skills to Develop
@@ -545,20 +513,25 @@ __MoE Architectures__
 
 __Communication and Scale__
 
+- NVIDIA NCCL: \url{https://developer.nvidia.com/nccl}
 - Torchcomms API: \url{https://pytorch.org/blog/torchcomms/}
 - RCCLX for AMD Platforms: \url{https://engineering.fb.com/2026/02/24/data-center-engineering/rrcclx-innovating-gpu-communications-amd-platforms-meta/}
+- PyTorch Distributed Checkpoint: \url{https://pytorch.org/docs/stable/distributed.checkpoint.html}
 - Async Checkpointing Improvements: \url{https://pytorch.org/blog/6x-faster-async-checkpointing/}
 - Deep Gradient Compression: \url{https://arxiv.org/abs/1712.01887}
 
 __Inference Engines__
 
+- SGLang (RadixAttention): \url{https://arxiv.org/abs/2312.07104}
 - SGLang Pipeline Parallelism: \url{https://lmsys.org/blog/2026-01-15-chunked-pipeline/}
 - SGLang Documentation: \url{https://sgl-project.github.io/}
+- vLLM (PagedAttention): \url{https://arxiv.org/abs/2309.06180}
 - vLLM Documentation: \url{https://docs.vllm.ai/}
 - Speculative Decoding: \url{https://arxiv.org/abs/2211.17192}
 
-__Long Context and Attention__
+__Memory-Efficient Attention__
 
+- Multi-head Latent Attention (DeepSeek-V2): \url{https://arxiv.org/abs/2405.04434}
 - Ring Attention: \url{https://arxiv.org/abs/2310.01889}
 - FlashAttention-2: \url{https://arxiv.org/abs/2307.08691}
 
@@ -566,8 +539,9 @@ __On-Device AI and Quantization__
 
 - GPTQ: Post-Training Quantization: \url{https://arxiv.org/abs/2210.17323}
 - AWQ: Activation-aware Weight Quantization: \url{https://arxiv.org/abs/2306.00978}
-- Google LiteRT: \url{https://developers.googleblog.com/en/litert-maximum-performance-simplified/}
-- Gemma 3n: \url{https://developers.googleblog.com/en/introducing-gemma-3n}
+- KV Cache Compression: \url{https://arxiv.org/abs/2405.12981}
+- Google LiteRT: \url{https://ai.google.dev/edge/litert}
+- Gemma 3n: \url{https://ai.google.dev/gemma/docs/gemma-3n}
 
 __Reasoning and Agentic AI__
 
