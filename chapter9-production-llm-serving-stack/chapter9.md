@@ -92,7 +92,28 @@ curl -X POST http://localhost:8000/generate \
   -d '{"prompt": "What is machine learning?", "max_tokens": 100}'
 ```
 
-The `code/basic/` directory also includes a standalone tokenizer service (`tokenizer_service.py`) that demonstrates how to build a separate tokenization layer if needed. The monitoring layer is not included in this basic example—we'll cover observability patterns in Section~\ref{sec:k8s-deployment}.
+The `code/basic/` directory also includes a standalone tokenizer service (`tokenizer_service.py`) that demonstrates how to build a separate tokenization layer. While vLLM handles tokenization internally, a separate service is useful for diffusion models (which need CLIP tokenization), token counting for billing, or custom backends. To try it:
+
+```bash
+uvicorn tokenizer_service:app --host 0.0.0.0 --port 8001
+
+# In another terminal, test LLM tokenization
+curl -X POST http://localhost:8001/tokenize \
+  -H "Content-Type: application/json" \
+  -d '{"model": "qwen2.5-1.5b", "text": "Hello world"}'
+
+# Test CLIP tokenization for diffusion models
+curl -X POST http://localhost:8001/tokenize \
+  -H "Content-Type: application/json" \
+  -d '{"model": "stable-diffusion", "text": "a photo of a cat"}'
+
+# Count tokens for billing
+curl -X POST http://localhost:8001/count \
+  -H "Content-Type: application/json" \
+  -d '{"model": "qwen2.5-1.5b", "text": "How many tokens is this?"}'
+```
+
+The monitoring layer is not included in this basic example—we'll cover observability patterns in Section~\ref{sec:k8s-deployment}.
 
 ## Request Routing and Traffic Management
 
