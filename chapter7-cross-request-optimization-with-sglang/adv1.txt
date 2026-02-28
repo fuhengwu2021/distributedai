@@ -1,0 +1,240 @@
+我直接给你一个“技术评审式”的判断：
+
+**这章整体技术方向是对的，但确实有“策略性强调 router”的倾向。**
+不是错误，而是叙事重心略偏。
+
+我会分三层讲：
+
+---
+
+# 一、你有没有写错？
+
+结论：**没有写错架构逻辑。**
+
+你对 SGLang 的核心区分点抓得很准：
+
+* vLLM → weight-level parallelism（TP/PP）
+* SGLang → request-level routing + cache locality
+* RadixAttention 是跨请求优化
+* Session affinity 是 router 驱动
+* PD disaggregation 是 workload separation
+
+这些都符合 SGLang 官方设计思路。
+
+所以不是“技术错误”，而是“强调比例问题”。
+
+---
+
+# 二、是不是夸大了 router 的作用？
+
+**是的，有一点 narrative amplification。**
+
+具体在哪？
+
+你把 SGLang 的性能优势很大程度归因于：
+
+* Router-based architecture
+* No synchronization overhead
+* Session affinity
+* Cache locality
+
+但真实情况是：
+
+### 1️⃣ SGLang 的核心性能提升并不主要来自 router
+
+真正的性能来源是：
+
+* RadixAttention
+* Zero-overhead scheduler
+* Continuous batching
+* Kernel fusion
+* X-Grammar
+* Speculative decoding
+* PD disaggregation
+
+Router 只是：
+
+> scaling architecture choice
+
+不是：
+
+> kernel-level performance engine
+
+---
+
+### 2️⃣ “Eliminates synchronization overhead” 这句话有点过度
+
+你写：
+
+> eliminating communication overhead
+
+但实际上：
+
+* 如果用 TP → 还是 all-reduce
+* 如果用 EP → 还是 all-to-all
+* 如果用 PP → 还是 p2p
+
+Router 只是替代 DP，不是替代 TP。
+
+所以严格说：
+
+Router eliminates inter-request synchronization,
+not intra-layer synchronization.
+
+这是关键区别。
+
+---
+
+### 3️⃣ Router 不是 SGLang 的“最核心创新”
+
+SGLang 真正的论文创新是：
+
+* RadixAttention
+* Structured generation execution model
+* Scheduler evolution
+
+Router 是后期工程体系成熟后的“production gateway layer”。
+
+---
+
+# 三、你的章节现在的问题
+
+我帮你精准指出三个“叙事偏移点”：
+
+---
+
+## ⚠️ 问题 1：Router 被写成“架构革命”
+
+你现在写法给读者感觉是：
+
+> vLLM 是 model-parallel system
+> SGLang 是 router system
+
+但实际上：
+
+SGLang 也支持 TP/PP，
+router 只是 default deployment strategy。
+
+建议修改为：
+
+> SGLang introduces request-level routing as a first-class scaling primitive, complementing traditional model parallelism.
+
+这样更准确。
+
+---
+
+## ⚠️ 问题 2：把 latency improvement 过度归因于 router
+
+你写：
+
+> 2-3x lower latency due to session affinity
+
+这句话是有条件的：
+
+* 仅限 multi-turn
+* 仅限 prefix reuse
+* 仅限 conversational workload
+* 仅限 non-batch-dominated scenario
+
+如果是 batch throughput workload：
+
+Router 反而可能增加 hop latency。
+
+建议加限定语。
+
+---
+
+## ⚠️ 问题 3：Router vs vLLM 对比略带“对立叙事”
+
+你写的结构有点：
+
+vLLM = synchronization heavy
+SGLang = no sync
+
+但实际：
+
+* vLLM 也可以做 DP
+* vLLM 也可以 session pinning
+* vLLM 也可以 prefix caching（不同方式）
+
+两者是 design tradeoff，不是 paradigm opposition。
+
+---
+
+# 四、真正客观的架构差异应该这样表达
+
+我给你一个更平衡版本：
+
+SGLang differs from vLLM not by eliminating parallelism,
+but by elevating request routing and prefix reuse to first-class scheduling primitives.
+
+vLLM optimizes intra-request execution efficiency.
+SGLang additionally optimizes inter-request execution efficiency.
+
+这样更精准。
+
+---
+
+# 五、什么时候 router 真的是巨大优势？
+
+Router 是杀手级优势的场景：
+
+* Chatbot SaaS
+* 100K+ concurrent sessions
+* Short-turn interactive
+* Shared system prompt
+* Enterprise multi-tenant
+* PD disaggregation cluster
+
+Router 不是优势的场景：
+
+* Batch inference
+* Single giant model 70B+ TP cluster
+* Offline evaluation
+* Throughput-only workload
+
+---
+
+# 六、如果这是你的书（你是写给 ML 系统读者的）
+
+我建议你把章节结构稍微改一下：
+
+当前结构像：
+
+SGLang = Router system
+
+建议改成：
+
+1️⃣ Core execution engine (RadixAttention + scheduler)
+2️⃣ Structured generation
+3️⃣ Router scaling layer
+4️⃣ PD disaggregation
+5️⃣ Parallelism integration
+
+这样 Router 是一个 scaling primitive，而不是 the identity。
+
+---
+
+# 七、总结一句话
+
+你这章没有写错。
+但你 narrative center of gravity 偏向 router。
+
+真正的 SGLang 技术重心是：
+
+跨请求优化（RadixAttention + scheduler）
+
+而不是：
+
+仅仅 request routing。
+
+---
+
+如果你愿意，我可以帮你：
+
+* 重写“Router-Based Distributed Architecture”那一节
+* 或者帮你压缩 router 部分 30%，增强 scheduler + RadixAttention 理论部分
+* 或者帮你改成更“ML Systems 审稿人友好”的表达
+
+你这章整体质量其实很高。
+只是 narrative bias 稍微向 engineering deployment 倾斜了一点。
