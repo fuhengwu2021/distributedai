@@ -22,9 +22,11 @@
 
 In the previous chapter, we explored vLLM's approach to distributed inference: model parallelism. When a model is too large for a single GPU, vLLM splits the model weights across multiple GPUs using tensor parallelism (TP) or pipeline parallelism (PP). Workers must synchronize—all-reduce operations for TP, pipeline stages for PP—and the system optimizes for throughput by batching as many requests as possible.
 
-SGLang takes a different approach. It supports TP, PP, and EP just like vLLM, but elevates *cross-request optimization* to a first-class concern. While vLLM primarily focuses on intra-request execution efficiency (how efficiently a single request is processed), SGLang additionally optimizes inter-request execution efficiency (how requests interact and share resources).
+SGLang takes a different approach. It supports TP, PP, and Expert Parallelism (EP) just like vLLM, but elevates *cross-request optimization* to a first-class concern. While vLLM primarily focuses on intra-request execution efficiency (how efficiently a single request is processed), SGLang additionally optimizes inter-request execution efficiency (how requests interact and share resources).
 
-The core innovations that enable this are **RadixAttention** and the **zero-overhead scheduler**. RadixAttention organizes KV cache as a radix tree, allowing requests with common prefixes to share cached computations. The scheduler overlaps CPU work with GPU computation, eliminating idle time. These optimizations work at the kernel and scheduler level, forming the foundation of SGLang's performance.
+The core innovations that enable this are **RadixAttention**[^radix-attention] and the **zero-overhead scheduler**. RadixAttention organizes KV cache as a radix tree, allowing requests with common prefixes to share cached computations. The scheduler overlaps CPU work with GPU computation, eliminating idle time. These optimizations work at the kernel and scheduler level, forming the foundation of SGLang's performance.
+
+[^radix-attention]: SGLang: Efficient Execution of Structured Language Model Programs. \url{https://arxiv.org/abs/2312.07104}
 
 On top of this execution engine, SGLang introduces **request-level routing** as a scaling primitive. Instead of only scaling through model parallelism (splitting weights), SGLang can scale through request routing (distributing requests to independent workers). A router directs traffic based on cache locality, session affinity, and load balancing. This is particularly effective for workloads where models fit on a single GPU or small TP group.
 
@@ -198,7 +200,15 @@ The performance benefits are substantial—but conditional on workload character
 
 SGLang's scheduler is aware of the radix cache and uses it to optimize batch formation. When selecting the next batch to run, the scheduler sorts requests by their longest matching prefix length and prioritizes requests with longer shared prefixes. This maximizes cache hit rates and GPU utilization.
 
-The cache also integrates with session affinity. When requests from the same session are routed to the same worker, the radix tree on that worker accumulates the conversation history. Follow-up messages in a conversation benefit from the cached KV from previous turns, dramatically reducing latency for multi-turn interactions.
+The cache also integrates with session affinity. When requests from the same session are routed to the same worker, the radix tree on that worker accumulates the conversation history. Follow-up messages in a conversation benefit from the cached KV from previous turns, dramatically reducing latency for multi-turn interactions. But what happens as conversations grow and memory fills up?
+
+![RadixAttention tree evolution and LRU eviction. Source: Zheng et al., 2023.](img/radix_attn.jpg){#fig:radix-attention .block width=95% align=center}
+
+Figure~\ref{fig:radix-attention} traces the lifecycle of a radix tree from birth to maturity. In panel (1), the tree is empty—no requests have arrived yet. Panel (2) shows the first chat session: "You are a helpful assistant. User: Hello! Assistant: Hi!" becomes a single node. When a follow-up message extends this conversation in panel (3), something interesting happens: the tree restructures itself. The original content splits into a shared prefix node and a new branch for the continuation "User: Solve this problem..."
+
+As more users arrive, the tree reveals its true power. Panel (4) shows multiple chat sessions—each starting with "You are a helpful assistant."—branching from a single shared prefix node. One user asks "Hello!", another asks "What can you do?", a third poses a different question. The system prompt is stored once and shared by all.
+
+But memory is finite. Panels (5), (8), and (9) show what happens under pressure. When a new request needs space, SGLang's LRU (Least Recently Used) policy kicks in. In panel (5), node (c)—an older, inactive conversation—gets evicted (marked with orange dashed box and "X") to make room for "Write a story..." As pressure mounts in panels (8)-(9), entire conversation branches disappear, but the frequently-accessed system prompt and active sessions survive. The tree self-prunes, keeping what matters and discarding what doesn't.
 
 Under the hood, SGLang implements RadixAttention through a two-level memory pool (as of SGLang v0.5). The first level maps each request to its tokens' KV cache indices. The second level stores the actual KV cache data, organized as `[num_layers, max_tokens, num_heads, head_dim]`. The radix tree sits on top of these pools, tracking which prefixes are cached and enabling efficient lookup and sharing.
 
