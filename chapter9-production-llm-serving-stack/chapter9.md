@@ -243,6 +243,8 @@ A sample implementation of warmup, autoscaling, request queuing, and cost-optimi
 
 ## Deploying LLM Serving on Kubernetes {#sec:k8s-deployment}
 
+![](img/k8s_icon.png){.wrap align=top-right width=20%}
+
 The concepts we've covered so far—routing, load balancing, canary deployments, observability, and fault tolerance—are platform-agnostic patterns. You could implement them on bare metal servers, with Docker Compose, or on any cloud platform. However, Kubernetes (K8s) has emerged as the dominant platform for production LLM serving.
 
 Kubernetes^[Kubernetes official site: \url{https://kubernetes.io/}] is an open-source container orchestration system originally developed by Google and now maintained by the Cloud Native Computing Foundation (CNCF). At its core, Kubernetes manages containerized workloads across a cluster of machines, handling scheduling, scaling, networking, and storage. You describe your desired state in YAML manifests—how many replicas of a service you want, how much CPU and memory each needs, how they should be exposed to the network—and Kubernetes continuously works to make the actual state match your desired state. This declarative model, combined with self-healing capabilities (automatically restarting failed containers, rescheduling workloads when nodes die), makes Kubernetes well-suited for production systems that need high availability.
@@ -259,9 +261,13 @@ For LLM serving specifically, Kubernetes provides native primitives for many of 
 | Fault Tolerance | Pod restart, PDB^[PodDisruptionBudget: \url{https://kubernetes.io/docs/tasks/run-application/configure-pdb/}] | Graceful shutdown with request draining |
 | GPU Scheduling | Device plugin, requests/limits | `nvidia.com/gpu: 1` in pod spec |
 
+![Kubernetes primitives for LLM serving.](img/k8s.png){#fig:k8s-architecture .block width=90% align=center}
+
+Figure~\ref{fig:k8s-architecture} illustrates how these primitives fit together in a typical setup. External traffic enters through an Ingress, which routes to a Service that load-balances across Deployments. Each Deployment manages multiple Pods running vLLM, with the Horizontal Pod Autoscaler (HPA) scaling replicas based on demand. The two Deployments (model-v1 and model-v2) enable canary deployments with weighted traffic splitting (90%/10%). At the bottom, GPU nodes schedule workloads using the NVIDIA device plugin.
+
 Rather than implementing these patterns from scratch, Kubernetes lets you declare your desired state and handles the implementation details. This declarative approach—combined with a rich ecosystem of operators and tools—is why production LLM serving stacks like vLLM Production Stack and llm-d are built on Kubernetes.
 
-We'll explore Kubernetes-based LLM serving in two steps. First, we'll set up a local development environment using k3d^[k3d - k3s in Docker: \url{https://k3d.io/}], a lightweight Kubernetes distribution that runs entirely in Docker. This gives us a safe playground to experiment with configurations before deploying to production. Then, we'll deploy llm-d^[llm-d - Production LLM Serving on Kubernetes: \url{https://llm-d.ai/}], a production-ready serving stack that implements all the patterns we've discussed—routing, autoscaling, observability, and fault tolerance—as Kubernetes-native resources.
+We'll explore Kubernetes-based LLM serving in two steps. First, we'll set up a local development environment using k3d^[k3d - to run k3s (Rancher Lab’s minimal Kubernetes distribution) in docker: \url{https://k3d.io/}], a lightweight Kubernetes distribution that runs entirely in Docker. This gives us a safe playground to experiment with configurations before deploying to production. Then, we'll deploy llm-d^[llm-d - Production LLM Serving on Kubernetes: \url{https://llm-d.ai/}], a production-ready serving stack that implements all the patterns we've discussed—__routing, autoscaling, observability, and fault tolerance__—as Kubernetes-native resources.
 
 ### Local Development with k3d
 
