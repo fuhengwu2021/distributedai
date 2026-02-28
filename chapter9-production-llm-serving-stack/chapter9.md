@@ -33,19 +33,20 @@ A production LLM serving system is more than just a model running on a GPU. It's
 
 A typical production serving stack includes the following components:
 
-**Tokenizer Service.** This is a stateless, lightweight service that handles text tokenization and detokenization. Because it's stateless and CPU-bound, it can be scaled independently from the GPU-heavy model runners. The latency requirement is typically under 10ms—fast enough that it doesn't become a bottleneck in the request pipeline.
+**API Gateway.** The gateway sits between clients and the backend services, handling request routing, authentication, rate limiting, and load balancing. It's the single entry point that abstracts away the complexity of multiple model runners and routing decisions.
 
 **Model Runner.** This is the heart of the system: a stateful, GPU-backed inference engine that manages model loading, KV cache, and continuous batching. In production, you'll typically use vLLM or SGLang (covered in Chapters 6 and 7) as the model runner, but the architectural principles apply regardless of which engine you choose.
 
-**API Gateway.** The gateway sits between clients and the backend services, handling request routing, authentication, rate limiting, and load balancing. It's the single entry point that abstracts away the complexity of multiple model runners and routing decisions.
+**Monitoring and Observability.** Production systems need visibility into what's happening. Rather than a standalone service, observability is typically integrated into each component through instrumentation libraries. This includes metrics collection (typically exported to Prometheus), distributed tracing (OpenTelemetry), and structured logging. Without observability, debugging production issues becomes nearly impossible.
 
-**Monitoring and Observability.** Production systems need visibility into what's happening. This includes metrics collection (typically with Prometheus), distributed tracing (OpenTelemetry), structured logging, and alerting. Without observability, debugging production issues becomes nearly impossible.
+**Tokenizer Service (optional).** A stateless, lightweight service that handles text tokenization and detokenization. Modern inference engines like vLLM handle tokenization internally, so a separate tokenizer service is less common. It can be useful for counting tokens before inference (for billing or rate limiting), validating input length, or when using custom inference backends.
 
 ![Production LLM serving architecture.](img/serving_architecture.png){#fig:serving-architecture .block width=80% align=center}
 
-Figure~\ref{fig:serving-architecture} shows how these components fit together. Clients send requests to the API Gateway, which routes them to the appropriate model runner based on the requested model and current load. The tokenizer service handles text-to-token conversion, and all components report metrics and traces to the observability stack.
+Figure~\ref{fig:serving-architecture} shows how these components fit together. Clients send requests to the API Gateway, which routes them to the appropriate model runner based on the requested model and current load. All components report metrics and traces to the observability stack.
 
-A simplified implementation of the core components (gateway, tokenizer, model runner) is available in `code/basic/`. The examples use Qwen2.5-1.5B-Instruct as the default model, which runs comfortably on most GPUs with 8GB+ VRAM. For even smaller footprints, you can substitute Qwen2.5-0.5B-Instruct or TinyLlama-1.1B-Chat by modifying the model name in the code.
+
+A simplified implementation is available in `code/basic/`. The examples use Qwen2.5-1.5B-Instruct as the default model, which runs comfortably on most GPUs with 8GB+ VRAM. For even smaller footprints, you can substitute Qwen2.5-0.5B-Instruct or TinyLlama-1.1B-Chat by modifying the model name in the code.
 
 To try them out, first install the dependencies. We tested with the following versions in a conda environment:
 
@@ -58,15 +59,6 @@ pip install fastapi==0.133.1 uvicorn==0.35.0 httpx==0.28.1 \
 
 Your environment may require different versions—adjust as needed for compatibility with your CUDA and PyTorch setup.
 
-Then start the tokenizer service:
-
-```bash
-cd code/basic
-uvicorn tokenizer_service:app --host 0.0.0.0 --port 8001
-```
-
-The tokenizer service handles text tokenization and detokenization, offloading this CPU-bound work from the GPU inference servers.
-
 If you encounter a `401 Client Error` or `403 Forbidden` when downloading models, you need to set your Hugging Face token:
 
 ```bash
@@ -75,21 +67,22 @@ export HF_TOKEN=your_huggingface_token
 
 You can get a token from [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens). Some models require accepting license agreements on their model page before access is granted.
 
-In another terminal, start the model runner (this will download and load the model):
+Start the model runner in one terminal (this will download and load the model):
 
 ```bash
+cd code/basic
 uvicorn model_runner:app --host 0.0.0.0 --port 8002
 ```
 
-The model runner is a FastAPI service that wraps vLLM for inference. It loads the model on startup and exposes a `/generate` endpoint that the API gateway can route to. The model loading takes a minute or two on first run as it downloads weights and compiles CUDA graphs.
+The model runner (`code/basic/model_runner.py`) is a FastAPI service that wraps vLLM for inference. It loads the model on startup and exposes a `/generate` endpoint. The model loading takes a minute or two on first run as it downloads weights and compiles CUDA graphs.
 
-In a third terminal, start the API gateway:
+In another terminal, start the API gateway:
 
 ```bash
 uvicorn api_gateway:app --host 0.0.0.0 --port 8000
 ```
 
-The API gateway is the public-facing entry point. In this simplified example, it provides rate limiting and routes requests to the model runner. A production gateway would add authentication, load balancing across replicas, and request queuing.
+The API gateway (`code/basic/api_gateway.py`) is the public-facing entry point. In this simplified example, it provides rate limiting and routes requests to the model runner. A production gateway would add authentication, load balancing across replicas, and request queuing.
 
 You can then send requests to the gateway:
 
@@ -99,7 +92,7 @@ curl -X POST http://localhost:8000/generate \
   -d '{"prompt": "What is machine learning?", "max_tokens": 100}'
 ```
 
-The API gateway (`code/basic/api_gateway.py`) shows routing, rate limiting, and request forwarding. The tokenizer service (`code/basic/tokenizer_service.py`) demonstrates a FastAPI-based service for text-to-token conversion. The model runner (`code/basic/model_runner.py`) wraps vLLM for inference. The monitoring layer is not included in this basic example—we'll cover observability patterns in Section~\ref{sec:k8s-deployment}.
+The `code/basic/` directory also includes a standalone tokenizer service (`tokenizer_service.py`) that demonstrates how to build a separate tokenization layer if needed. The monitoring layer is not included in this basic example—we'll cover observability patterns in Section~\ref{sec:k8s-deployment}.
 
 ## Request Routing and Traffic Management
 

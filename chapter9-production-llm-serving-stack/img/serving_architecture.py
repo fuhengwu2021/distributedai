@@ -38,14 +38,16 @@ model_color = '#F3E5F5'       # Light purple
 monitoring_color = '#FFFDE7'  # Light yellow
 border_color = '#424242'      # Dark gray
 
-def draw_box(ax, x, y, width, height, label, sublabel=None, color='white'):
-    """Draw a rounded box with label"""
+def draw_box(ax, x, y, width, height, label, sublabel=None, color='white', optional=False):
+    """Draw a rounded box with label. If optional=True, use dotted border."""
+    linestyle = '--' if optional else '-'
     box = FancyBboxPatch(
         (x - width/2, y - height/2), width, height,
         boxstyle="round,pad=0.02,rounding_size=0.1",
         facecolor=color,
         edgecolor=border_color,
-        linewidth=1.5
+        linewidth=1.5,
+        linestyle=linestyle
     )
     ax.add_patch(box)
     
@@ -75,8 +77,8 @@ draw_arrow(ax, (3.5, 6.6), (2.5, 5.9))
 draw_arrow(ax, (5, 6.6), (5, 5.9))
 draw_arrow(ax, (6.5, 6.6), (7.5, 5.9))
 
-# Tokenizer Service
-draw_box(ax, 2.5, 5.5, 2.2, 0.7, 'Tokenizer', 'Service', color=service_color)
+# Tokenizer Service (optional - dotted border)
+draw_box(ax, 2.5, 5.5, 2.2, 0.7, 'Tokenizer', 'Service', color=service_color, optional=True)
 
 # Model Runners
 draw_box(ax, 5, 5.5, 2.2, 0.7, 'Model Runner', '(vLLM/SGLang)', color=model_color)
@@ -94,8 +96,8 @@ for x in [2.5, 5, 7.5]:
 ax.plot([2.5, 7.5], [4.2, 4.2], '--', color='#999999', lw=1)
 ax.plot([5, 5], [4.2, 3.6], '--', color='#999999', lw=1)
 
-# Monitoring & Observability
-draw_box(ax, 5, 3.2, 3.5, 0.7, 'Monitoring & Observability', 'Prometheus, OpenTelemetry, Logging', color=monitoring_color)
+# Monitoring & Observability (optional/integrated - dotted border)
+draw_box(ax, 5, 3.2, 3.5, 0.7, 'Monitoring & Observability', 'Prometheus, OpenTelemetry, Logging', color=monitoring_color, optional=True)
 
 # Add component descriptions on the side
 descriptions = [
