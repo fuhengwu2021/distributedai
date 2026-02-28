@@ -289,81 +289,32 @@ The `install-prerequisites.sh` script checks for NVIDIA drivers, installs the NV
 
 The custom image combines k3s with CUDA and the NVIDIA Container Toolkit. The key files are `code/k3d/Dockerfile` and `code/k3d/device-plugin-daemonset.yaml`. The Dockerfile uses a multi-stage build to copy k3s binaries into an NVIDIA CUDA base image, then installs the container toolkit and configures containerd to use the NVIDIA runtime. The device plugin manifest is automatically deployed when the cluster starts, making GPUs visible to Kubernetes as `nvidia.com/gpu` resources.
 
-Build the image by running `./build.sh` from the `code/k3d/` directory, or manually:
+The `build.sh` script auto-detects your local CUDA version and fetches the latest k3s release, so in most cases you can simply run it without arguments. If you need a specific version, override with environment variables:
 
 ```bash
-cd code/k3d
-export DOCKER_BUILDKIT=1
-docker build -t k3s-cuda:v1.33.6-cuda-12.2.0 .
+# Use specific versions (check hub.docker.com/r/rancher/k3s and hub.docker.com/r/nvidia/cuda)
+K3S_TAG=v1.32.0-k3s1 CUDA_TAG=13.0.0-base-ubuntu24.04 ./build.sh
 ```
 
-The build requires Docker BuildKit for the `--exclude` flag in the multi-stage copy. If you encounter issues, ensure `docker buildx` is available.
+The CUDA version must be compatible with your NVIDIA driver. Run `nvidia-smi` to see the maximum CUDA version your driver supports—you can use any version up to that number.
 
-The image tag combines two version numbers that you'll need to choose for your environment: the k3s (Kubernetes) version and the CUDA version. The k3s version is flexible—any recent stable release from the `rancher/k3s` Docker Hub repository should work. The CUDA version, however, must be compatible with the NVIDIA driver installed on your host machine.
+Figure~\ref{fig:k3d-architecture} shows the architecture of the resulting k3d GPU cluster. The host machine runs Docker Engine, which contains the k3d network with two nodes: a control plane (server-0) running Kubernetes control plane services, and a worker node (agent-0) running application workloads like vLLM pods. Both nodes use the custom k3s-cuda image and have GPU passthrough via `--gpus=all`. The NVIDIA device plugin runs as a DaemonSet, exposing physical GPUs to Kubernetes as `nvidia.com/gpu` resources.
 
-To find the right CUDA version, run `nvidia-smi` and note the "CUDA Version" shown in the top-right corner—this indicates the maximum CUDA version your driver supports. You can use any CUDA version up to and including that number. For the available CUDA base images, check the `nvidia/cuda` repository on Docker Hub^[NVIDIA CUDA Docker images: \url{https://hub.docker.com/r/nvidia/cuda}] and select a tag matching your needs (e.g., `13.0.0-base-ubuntu24.04` for CUDA 13 on Ubuntu 24.04).
+![k3d GPU cluster architecture.](img/k3d_architecture.png){#fig:k3d-architecture .block width=90% align=center}
 
-To build with your chosen versions, pass the appropriate build arguments:
-
-```bash
-# Example: check available k3s tags at hub.docker.com/r/rancher/k3s
-# Example: check available CUDA tags at hub.docker.com/r/nvidia/cuda
-docker build \
-  --build-arg K3S_TAG=v1.32.0-k3s1 \
-  --build-arg CUDA_TAG=13.0.0-base-ubuntu24.04 \
-  -t k3s-cuda:v1.32.0-cuda-13.0.0 .
-```
-
-Throughout the rest of this section, we use `<your-tag>` as a placeholder—replace it with whatever tag you chose when building your image.
-
-### Creating a 2-Node GPU Cluster
-
-Figure \ref{fig:k3d-architecture} shows the architecture of a k3d GPU cluster. The host machine runs Docker Engine, which contains the k3d network with two nodes: a control plane (server-0) running Kubernetes control plane services, and a worker node (agent-0) running application workloads like vLLM pods. Both nodes use the custom k3s-cuda image and have GPU passthrough via `--gpus=all`. The NVIDIA device plugin runs as a DaemonSet, exposing physical GPUs to Kubernetes as `nvidia.com/gpu` resources.
-
-![k3d GPU cluster architecture](img/k3d_architecture.png){#fig:k3d-architecture}
-
-The `create-cluster.sh` script creates a 2-node cluster (1 control-plane + 1 worker) with GPU passthrough. You can also create the cluster manually with custom options (replace the image tag with the version you built):
-
-```bash
-# Basic cluster with all GPUs
-k3d cluster create mycluster-gpu \
-  --image k3s-cuda:<your-tag> \
-  --gpus=all \
-  --servers 1 --agents 1
-
-# With model directory mounted
-k3d cluster create mycluster-gpu \
-  --image k3s-cuda:<your-tag> \
-  --gpus=all \
-  --servers 1 --agents 1 \
-  --volume /path/to/models:/models
-
-# With specific GPUs only
-k3d cluster create mycluster-gpu \
-  --image k3s-cuda:<your-tag> \
-  --gpus "device=0,1" \
-  --servers 1 --agents 1
-```
-
-After creation, k3d automatically configures kubectl. Verify the cluster:
+After running the three setup scripts, verify the cluster is working:
 
 ```bash
 kubectl get nodes
 # NAME                         STATUS   ROLES           AGE   VERSION
-# k3d-mycluster-gpu-server-0   Ready    control-plane   30s   v1.33.6+k3s1
-# k3d-mycluster-gpu-agent-0    Ready    <none>          25s   v1.33.6+k3s1
+# k3d-mycluster-gpu-server-0   Ready    control-plane   41s   v1.35.1+k3s1
+# k3d-mycluster-gpu-agent-0    Ready    <none>          37s   v1.35.1+k3s1
 
 kubectl describe nodes | grep nvidia.com/gpu
+# nvidia.com/gpu: 1
 ```
 
-You should see `nvidia.com/gpu: N` in the output, where N is the number of GPUs. To test GPU access end-to-end, use the provided test script:
-
-```bash
-cd code/k3d
-./verify-gpu.sh
-```
-
-This runs a test pod that executes `nvidia-smi` inside the cluster, confirming that GPUs are accessible to Kubernetes workloads.
+You should see `nvidia.com/gpu: N` in the output, where N is the number of GPUs available. If you need to customize the cluster (e.g., mount a model directory or use specific GPUs), you can pass options to `create-cluster.sh` or create the cluster manually—see `code/k3d/README.md` for details.
 
 ### Deploying vLLM on k3d
 
