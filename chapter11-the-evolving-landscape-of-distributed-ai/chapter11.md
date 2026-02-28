@@ -460,18 +460,13 @@ __Agentic Systems__: Multi-agent orchestration patterns, distributed tool execut
 
 ### Staying Current
 
-__Resources to Follow__:
+The field moves fast—techniques that seem cutting-edge today may be standard practice in six months. Staying current requires building habits around a few key information sources.
 
-- Research papers on arXiv (cs.DC, cs.LG)
-- Open-source projects (vLLM, SGLang, DeepSpeed, Torchcomms)
-- Industry developments from xAI, Anthropic, Google, and Meta
-- Communities like Hugging Face and PyTorch Forums
+For day-to-day learning, arXiv is indispensable. New papers in cs.DC and cs.LG drop daily, and the best work often appears here months before conference publication. Set up alerts for keywords like "distributed training," "inference optimization," and "mixture of experts." Open-source projects are equally important: vLLM, SGLang, DeepSpeed, and Megatron-LM are where theory meets practice. Watch their release notes and GitHub discussions—that's where you'll learn what actually works at scale. Industry blogs from teams at xAI, Anthropic, Google, and Meta regularly publish technical deep-dives that reveal practical insights never found in papers. And don't overlook communities: Hugging Face forums, PyTorch Discuss, and the SGLang Discord are where practitioners share war stories and debug tricky issues together.
 
-__Key Conferences__:
+For deeper dives, conferences remain essential. Research venues like NeurIPS, ICML, and ICLR are where new algorithms and architectures debut—pay special attention to workshops on efficient ML and large-scale systems. Systems conferences like MLSys, OSDI, and SOSP focus on infrastructure, communication optimization, and production deployment; if you care about making things fast, these are essential reading. Industry events like GTC and PyTorch Conference are where vendors announce new hardware and frameworks, giving you a preview of what's coming in the next 12-18 months.
 
-- __Research__: NeurIPS, ICML, ICLR
-- __Systems__: MLSys, OSDI, SOSP
-- __Industry__: GTC, PyTorch Conference
+The References section at the end of this chapter provides URLs for the key papers and projects mentioned throughout.
 
 
 
@@ -504,7 +499,7 @@ The future of distributed AI is being written now, by researchers pushing the bo
 <!-- include: exercises/torch.md if include_math -->
 <!-- include: exercises/torch.md if include_torch -->
 
-## Further Reading
+## References
 
 __MoE Architectures__
 
