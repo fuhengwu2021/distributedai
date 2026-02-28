@@ -164,7 +164,7 @@ Beyond routing to existing models, you need strategies for safely introducing ne
 
 **A/B Testing.** A/B testing differs from canary deployment in its goal: canaries are about safe rollouts, while A/B tests are about comparing alternatives to make data-driven decisions. An A/B test might compare two different models, two different prompt templates, or two different inference configurations. The critical requirement is consistent assignment—the same user must always see the same variant, achieved through consistent hashing of the user ID.
 
-The complete implementation of canary deployment, traffic shifting, and A/B testing is available in `code/basic/canary.py`. Here's how to use these classes in practice:
+A sample implementation of canary deployment, traffic shifting, and A/B testing is available in `code/basic/canary.py`. Here's how to use these classes in practice:
 
 ```python
 from canary import CanaryDeployment, TrafficShifter, ABTestFramework, ABTestConfig
@@ -225,7 +225,7 @@ In a distributed LLM serving system, a single request might touch the API gatewa
 
 **Structured logging** captures detailed information about individual requests in a machine-parseable format (typically JSON). Unlike traditional logs, structured logs can be queried and aggregated—for example, finding all requests for a specific user that took longer than 5 seconds.
 
-The complete implementation of all three is available in `code/basic/observability.py`.
+A sample implementation of all three is available in `code/basic/observability.py`.
 
 ### Reliability and Fault Tolerance
 
@@ -239,7 +239,7 @@ The complete implementation of all three is available in `code/basic/observabili
 
 GPU instances are expensive, so cost optimization matters. **Spot instances** (or preemptible VMs) cost 60-90% less than on-demand but can be terminated with short notice—a typical strategy uses 50% spot instances for baseline capacity, with on-demand instances absorbing traffic when spot instances are preempted. **Model selection** routes cost-sensitive requests to smaller, cheaper models; a 7B model might cost half as much per token as a 13B model, and for many use cases the quality difference doesn't justify the cost.
 
-The implementation of warmup, autoscaling, request queuing, and cost-optimized routing is available in `code/basic/fault_tolerance.py`.
+A sample implementation of warmup, autoscaling, request queuing, and cost-optimized routing is available in `code/basic/fault_tolerance.py`.
 
 ## Deploying LLM Serving on Kubernetes {#sec:k8s-deployment}
 
