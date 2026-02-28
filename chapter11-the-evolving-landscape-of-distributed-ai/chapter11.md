@@ -352,37 +352,33 @@ Long reasoning chains—the kind that models like o1 and DeepSeek-R1[^deepseek-r
 
 ### Multi-Agent Patterns
 
-The `code/agentic_inference.py` file implements several coordination patterns:
+How do you orchestrate multiple agents working together? Three patterns have emerged as the workhorses of multi-agent systems, each suited to different problem structures.
 
-__Sequential Processing__: Agents process in order, passing output to the next agent. Useful when agents have complementary capabilities—one might extract information, another might reason about it, a third might format the response.
+![Three common multi-agent coordination patterns](img/multi_agent_patterns.png){#fig:multi-agent-patterns .block width=95% align=center}
 
-__Parallel Processing__: Multiple agents process the same task concurrently. Useful for ensemble approaches where different agents might find different solutions, or when you want to race multiple strategies.
+Figure~\ref{fig:multi-agent-patterns} illustrates these patterns. In __sequential processing__, agents form a pipeline: one extracts information, the next reasons about it, the third formats the response. Each agent's output becomes the next agent's input. This works well when the task naturally decomposes into stages with clear handoffs.
 
-__Hierarchical Processing__: A coordinator agent delegates subtasks to worker agents. Useful for complex tasks that decompose naturally—the coordinator handles high-level planning while workers handle specific subtasks.
+__Parallel processing__ takes a different approach—multiple agents tackle the same task simultaneously. Perhaps you want diverse perspectives: one agent might find a creative solution while another finds a safe one. Or you're racing strategies, taking whichever finishes first. Results flow to an aggregator that combines or selects among them.
+
+__Hierarchical processing__ mirrors how human teams often work. A coordinator receives the task, breaks it into subtasks, and delegates to specialized workers. The workers report back (green dashed arrows in the figure), and the coordinator synthesizes their results into a final output. This shines for complex tasks that decompose naturally—the coordinator handles strategy while workers handle tactics.
+
+The `code/agentic_inference.py` file implements all three patterns, along with the routing logic to choose among them based on task characteristics.
 
 ### Distributed Tool Execution
 
-The `DistributedToolExecutor` routes tool calls to appropriate workers:
+When an agent decides to call a tool, where does that tool actually run? Not all tools are created equal. A code interpreter needs a sandboxed environment with proper security isolation—you can't just run arbitrary code anywhere. A web browser might need GPU acceleration for rendering. A simple calculator, on the other hand, can run on any worker with spare cycles.
 
-- Tools are registered with optional worker assignments
-- A code interpreter might only run on workers with proper sandboxing
-- A simple calculator can run anywhere
-- The executor tracks execution statistics for optimization
+The `DistributedToolExecutor` in `code/agentic_inference.py` handles this routing. Tools register themselves with optional worker constraints: "I need sandboxing," "I require GPU," or "I'm stateless, run me anywhere." When an agent requests a tool, the executor finds an appropriate worker, dispatches the call, and returns the result.
 
-This enables sophisticated tool placement strategies. Frequently-used tools can be replicated across workers. Stateful tools can be pinned to specific workers. Resource-intensive tools can be isolated to prevent interference.
+This opens up sophisticated placement strategies. Frequently-used tools get replicated across workers for load balancing. Stateful tools—like a database connection or a browser session—get pinned to specific workers so state persists between calls. Resource-intensive tools get isolated to dedicated workers, preventing them from starving other operations. The executor tracks execution statistics, learning over time which placements work best.
 
 ### Reasoning Agents
 
-The `ReasoningAgent` implements multi-step reasoning with tool use. It maintains a reasoning trace—a record of thoughts, tool calls, and observations. At each step, it decides whether to think, call a tool, or produce a final answer.
+The most sophisticated agents don't just respond—they think. Given a complex problem, they break it down, try approaches, observe results, and adjust. This is the territory of reasoning agents like o1 and DeepSeek-R1, where inference isn't a single forward pass but an extended deliberation that might span dozens of steps.
 
-The reasoning loop:
+The `ReasoningAgent` in `code/agentic_inference.py` captures this pattern. It maintains a reasoning trace—a running record of thoughts, tool calls, and observations. At each step, the agent faces a choice: think more deeply about the current state, call a tool to gather information, or commit to a final answer. When it calls a tool, the result becomes a new observation that feeds into the next thought. The loop continues until the agent is confident enough to answer, or hits a step limit.
 
-1. Generate a thought about the current state
-2. Decide on an action (think more, call tool, or answer)
-3. If tool call, execute and observe result
-4. Repeat until answer or max steps reached
-
-This is a simplified version of what production reasoning systems do, but it captures the core loop that enables complex problem-solving.
+This is a simplified version of what production reasoning systems do, but it captures the essential dynamic: the interplay between thinking and acting, between internal deliberation and external observation, that enables agents to solve problems too complex for a single inference pass.
 
 
 
