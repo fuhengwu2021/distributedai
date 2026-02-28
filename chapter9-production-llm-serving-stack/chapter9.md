@@ -92,22 +92,33 @@ curl -X POST http://localhost:8000/generate \
   -d '{"prompt": "What is machine learning?", "max_tokens": 100}'
 ```
 
-The `code/basic/` directory also includes a standalone tokenizer service (`tokenizer_service.py`) that demonstrates how to build a separate tokenization layer. While vLLM handles tokenization internally, a separate service is useful for diffusion models (which need CLIP tokenization), token counting for billing, or custom backends. To try it:
+The `code/basic/` directory also includes a standalone tokenizer service (`tokenizer_service.py`) that demonstrates how to build a separate tokenization layer. While vLLM handles tokenization internally, a separate service is useful for diffusion models (which need CLIP tokenization), token counting for billing, or custom backends. The service loads two tokenizers on startup: the Qwen2.5-1.5B tokenizer for LLMs and the `openai/clip-vit-large-patch14` tokenizer for diffusion models like Stable Diffusion. To try it, start the service:
 
 ```bash
 uvicorn tokenizer_service:app --host 0.0.0.0 --port 8001
+```
 
-# In another terminal, test LLM tokenization
+On startup, the service loads two tokenizers: `Qwen/Qwen2.5-1.5B-Instruct` for LLMs and `openai/clip-vit-large-patch14` for diffusion models. Since tokenizers only load vocabulary files and run on CPU, no GPU is required—this service can run on any machine.
+
+With the service running, you can tokenize text for LLMs:
+
+```bash
 curl -X POST http://localhost:8001/tokenize \
   -H "Content-Type: application/json" \
   -d '{"model": "qwen2.5-1.5b", "text": "Hello world"}'
+```
 
-# Test CLIP tokenization for diffusion models
+For diffusion models like Stable Diffusion, the text prompt needs CLIP tokenization before the text encoder can process it. The same service handles this with a different model name:
+
+```bash
 curl -X POST http://localhost:8001/tokenize \
   -H "Content-Type: application/json" \
   -d '{"model": "stable-diffusion", "text": "a photo of a cat"}'
+```
 
-# Count tokens for billing
+If you only need the token count—say, for billing or enforcing input length limits—the `/count` endpoint returns just the number without the full token list:
+
+```bash
 curl -X POST http://localhost:8001/count \
   -H "Content-Type: application/json" \
   -d '{"model": "qwen2.5-1.5b", "text": "How many tokens is this?"}'
