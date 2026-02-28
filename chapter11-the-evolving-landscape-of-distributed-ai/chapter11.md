@@ -239,15 +239,17 @@ Different modalities have different characteristics:
 
 ## Federated Learning: An Alternative Paradigm
 
-While most of this book focuses on distributed training where GPUs share access to centralized data, federated learning takes a fundamentally different approach—bringing the model to the data rather than the reverse. This paradigm, established since 2016, has matured into a practical solution for privacy-sensitive domains where traditional distributed training isn't an option.
+Throughout this book, we've assumed that all GPUs can access a shared dataset—or at least shards of it stored in a common data center. But what if the data can't be moved? What if privacy regulations, competitive concerns, or sheer logistics make centralization impossible? This is where federated learning comes in.
 
 ### The Federated Paradigm
 
-In classical distributed training, we assume all GPUs can access a shared dataset (or shards of it). Federated learning relaxes this assumption entirely. Each participant—whether a smartphone, a hospital, or a bank—trains on its local data and shares only model updates, never raw data. A central server aggregates these updates to produce a global model, as shown in Figure~\ref{fig:federated-learning}.
+Federated learning flips the script: instead of bringing data to the model, it brings the model to the data. Each participant—whether a smartphone, a hospital, or a bank—trains on its local data and shares only model updates, never raw data. A central server aggregates these updates to produce a global model. The paradigm has been around since 2016, and it has matured into a practical solution for privacy-sensitive domains.
+
+Figure~\ref{fig:federated-learning} illustrates this architecture. A central server at the top coordinates training and holds the global model. Four clients at the bottom—a hospital with patient records, a bank with transaction data, a mobile app with user behavior, and IoT devices with sensor readings—each train locally on their private data. Blue arrows show the server distributing the current model; green arrows show clients sending back their updates. The crucial point, highlighted at the bottom: data never leaves the client. Only gradients and weights travel across the network.
 
 ![Federated learning: data stays on clients](img/federated_learning.png){#fig:federated-learning .block width=80% align=center}
 
-The canonical algorithm is FedAvg[^fedavg]: each round, the server sends the current model to a subset of clients; clients train locally for several epochs; clients send updated weights back; the server averages the weights. This simple protocol has proven remarkably effective, though the field has moved well beyond it.
+The canonical algorithm is FedAvg[^fedavg]. Each round, the server sends the current model to a subset of clients. Clients train locally for several epochs, then send updated weights back. The server averages these weights to produce a new global model. Simple as it sounds, this protocol has proven remarkably effective—and the field has built many refinements on top of it.
 
 [^fedavg]: Communication-Efficient Learning of Deep Networks from Decentralized Data. \url{https://arxiv.org/abs/1602.05629}
 

@@ -14,12 +14,11 @@ import numpy as np
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'shared'))
 from math4ai import configure_math_fonts, save_figure
 
 configure_math_fonts()
 
-fig, ax = plt.subplots(figsize=(11, 8))
+fig, ax = plt.subplots(figsize=(10, 5))
 
 # Colors
 server_color = '#E8EAF6'
@@ -63,14 +62,14 @@ for i in range(n_clients):
     
     # Client label
     ax.text(cx + client_w/2, cy + client_h - 0.3, client_labels[i],
-            fontsize=9, ha='center', va='top', fontweight='bold', color=client_borders[i])
+            fontsize=12, ha='center', va='top', fontweight='bold', color=client_borders[i])
     
     # Data label (private)
-    ax.text(cx + client_w/2, cy + 0.5, client_data[i],
-            fontsize=8, ha='center', va='center', color='#666666')
+    ax.text(cx + client_w/2, cy + 0.95, client_data[i],
+            fontsize=11, ha='center', va='center', color='#666666')
     
     # Privacy indicator
-    ax.text(cx + client_w - 0.3, cy + 0.2, 'Private', fontsize=7, ha='center', va='center',
+    ax.text(cx + client_w - 0.55, cy + 0.2, 'Private', fontsize=10, ha='center', va='center',
             color='#666666', style='italic')
 
 # Arrows: Server to Clients (distribute model)
@@ -86,30 +85,30 @@ server_top_y = server_y + server_h
 for i, (cx, cy) in enumerate(client_centers):
     ax.annotate('', xy=(server_center_x, server_bottom + 0.1), 
                 xytext=(cx, cy + 0.1),
-                arrowprops=dict(arrowstyle='->', color=arrow_up_color, lw=1.5,
+                arrowprops=dict(arrowstyle='->', color=arrow_up_color, lw=1.0005,
                                connectionstyle=f'arc3,rad={-0.15 * (i - 1.5)}'))
 
 # Labels for arrows
-ax.text(1.2, 4.8, 'Distribute\nModel', fontsize=8, ha='center', va='center', 
+ax.text(4.0, 4.8, 'Distribute\nModel', fontsize=11, ha='center', va='center', 
         color=arrow_down_color, style='italic')
-ax.text(9.5, 4.8, 'Send\nUpdates', fontsize=8, ha='center', va='center', 
+ax.text(7, 4.8, 'Send\nUpdates', fontsize=11, ha='center', va='center', 
         color=arrow_up_color, style='italic')
 
 # Process steps annotation
-steps_x = 5.5
-ax.text(steps_x, 5.2, '① Server sends global model to clients', fontsize=9, ha='center', color='#333333')
-ax.text(steps_x, 4.7, '② Clients train locally on private data', fontsize=9, ha='center', color='#333333')
-ax.text(steps_x, 4.2, '③ Clients send model updates (not data)', fontsize=9, ha='center', color='#333333')
-ax.text(steps_x, 3.7, '④ Server aggregates: FedAvg', fontsize=9, ha='center', color='#333333')
+'''steps_x = 9.05
+ax.text(steps_x, 6.2, '① Server sends global model to clients', fontsize=12, ha='center', color='#333333')
+ax.text(steps_x, 5.7, '② Clients train locally on private data', fontsize=12, ha='center', color='#333333')
+ax.text(steps_x, 5.2, '③ Clients send model updates (not data)', fontsize=12, ha='center', color='#333333')
+ax.text(steps_x, 4.7, '④ Server aggregates: FedAvg', fontsize=12, ha='center', color='#333333')'''
 
 # Key insight box
 insight_text = 'Data never leaves the client'
-ax.text(5.5, 0.3, insight_text, fontsize=10, ha='center', va='center',
+ax.text(8.2, 0.3, insight_text, fontsize=13, ha='center', va='center',
         fontweight='bold', color='#D32F2F',
         bbox=dict(boxstyle='round,pad=0.4', facecolor='#FFEBEE', edgecolor='#D32F2F', linewidth=1.5))
 
-ax.set_xlim(-0.5, 11)
-ax.set_ylim(-0.2, 8)
+ax.set_xlim(0.45, 10.05)
+ax.set_ylim(-0., 7.6)
 ax.set_aspect('equal')
 ax.axis('off')
 
