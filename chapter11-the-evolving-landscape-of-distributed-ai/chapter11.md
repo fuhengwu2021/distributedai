@@ -55,7 +55,7 @@ __Inference Engine Evolution__: SGLang achieves 16,215 tok/s on H100, with Radix
 
 ## Mixture of Experts: The Dominant Architecture
 
-We covered MoE fundamentals in Chapter 5 (expert parallelism for training, see Figure~\ref{fig:expert-parallelism}) and Chapter 6 (MoE inference with vLLM). Here we focus on the research frontier pushing MoE capabilities further.
+We covered MoE fundamentals in Chapter~\ref{chap:beyond-state-sharding-with-deepspeed-and-megatron} (expert parallelism for training, see Figure~\ref{fig:expert-parallelism}) and Chapter~\ref{chap:distributed-inference-fundamentals-and-vllm} (MoE inference with vLLM). Here we focus on the research frontier pushing MoE capabilities further.
 
 Research continues to push MoE capabilities beyond what we covered in earlier chapters:
 
@@ -75,7 +75,7 @@ __ReMoE__[^remoe] replaces the non-differentiable TopK+Softmax routing with full
 
 [^remoe]: ReMoE: Fully Differentiable Mixture-of-Experts with ReLU Routing. \url{https://arxiv.org/abs/2412.14711}
 
-The code in `code/moe_layer.py` provides implementations that extend the concepts from Chapter 5, including load-balanced routing with the auxiliary-loss-free approach.
+The code in `code/moe_layer.py` provides implementations that extend the concepts from Chapter~\ref{chap:beyond-state-sharding-with-deepspeed-and-megatron}, including load-balanced routing with the auxiliary-loss-free approach.
 
 
 
@@ -111,7 +111,7 @@ The key insight is that architecture and training quality matter more than raw s
 
 ### Edge-Cloud Coordination
 
-The most interesting systems don't treat edge and cloud as separate worlds—they find ways to make them work together. Remember speculative decoding from Chapter 7? We used it to speed up inference on a single server by having a small draft model propose tokens that a larger model then verifies. The same idea works beautifully across the edge-cloud boundary.
+The most interesting systems don't treat edge and cloud as separate worlds—they find ways to make them work together. Remember speculative decoding from Chapter~\ref{chap:request-level-routing-and-sglang}? We used it to speed up inference on a single server by having a small draft model propose tokens that a larger model then verifies. The same idea works beautifully across the edge-cloud boundary.
 
 Picture your phone running a tiny but fast model. It generates a sequence of candidate tokens—maybe "The cat sat on the"—and ships them to a powerful cloud model. The cloud doesn't generate anything; it just checks whether each token matches what it would have produced. Verification is cheap: the cloud model can evaluate all five tokens in a single forward pass, whereas generating them one by one would take five passes. When the drafts are mostly correct (and for predictable text, they often are), you get cloud-quality output at edge-like speed. Speedups of 2-3x are common in practice[^spec-decode].
 
@@ -127,7 +127,7 @@ The `code/edge_cloud.py` file implements these patterns: `EdgeCloudSpeculativeDe
 
 ## Parallelism at Scale
 
-The parallelism strategies we covered in Chapters 3-5—data parallelism (DDP, FSDP), tensor parallelism, and pipeline parallelism—remain foundational. But at 100K+ GPU scale, new challenges emerge that require new solutions.
+The parallelism strategies we covered earlier—data parallelism (DDP in Chapter~\ref{chap:distributed-training-with-pytorch-ddp}, FSDP in Chapter~\ref{chap:scaling-with-fully-sharded-data-parallel-fsdp}), tensor parallelism, and pipeline parallelism (Chapter~\ref{chap:beyond-state-sharding-with-deepspeed-and-megatron})—remain foundational. But at 100K+ GPU scale, new challenges emerge that require new solutions.
 
 ### The Communication Revolution
 
@@ -153,19 +153,19 @@ SGLang's pipeline parallelism implementation achieves remarkable results: 3.31×
 
 ### Ring Attention
 
-Ring attention[^ring-attention] offers a memory-efficient alternative to standard sequence parallelism. Instead of all-gathering the full K and V tensors (which requires O(sequence_length) memory per GPU), ring attention passes K and V chunks around a ring of GPUs, computing partial attention scores at each step.
+We introduced ring attention in Chapter~\ref{chap:beyond-state-sharding-with-deepspeed-and-megatron} as part of context parallelism (see Figure~\ref{fig:seq-ctx-parallel}). Here we revisit it in the context of scaling to million-token sequences.
+
+Ring attention[^ring-attention] offers a memory-efficient alternative to standard sequence parallelism. Instead of all-gathering the full K and V tensors (which requires O(sequence_length) memory per GPU), ring attention passes K and V chunks around a ring of GPUs, computing partial attention scores at each step. Each GPU starts with its local Q, K, V chunks. In each round, GPUs compute attention between their local Q and the current K, V. Then K and V are passed to the next GPU in the ring. After N rounds (where N is the number of GPUs), each GPU has computed attention against all K, V chunks.
 
 [^ring-attention]: Ring Attention with Blockwise Transformers for Near-Infinite Context. \url{https://arxiv.org/abs/2310.01889}
 
-The algorithm works as follows: each GPU starts with its local Q, K, V chunks. In each round, GPUs compute attention between their local Q and the current K, V. Then K and V are passed to the next GPU in the ring. After N rounds (where N is the number of GPUs), each GPU has computed attention against all K, V chunks.
-
-This trades communication rounds for memory efficiency—useful when you're memory-constrained but have communication bandwidth to spare. The `RingAttention` class in `code/parallelism.py` implements this pattern.
+This trades communication rounds for memory efficiency—useful when you're memory-constrained but have communication bandwidth to spare. At million-token scale, this trade-off becomes increasingly attractive: the memory savings from avoiding full K, V all-gathers can be the difference between fitting a workload and running out of memory. The `RingAttention` class in `code/parallelism.py` implements this pattern.
 
 
 
 ## When Things Go Wrong: Fault Tolerance
 
-Here's a sobering calculation. Suppose you have a cluster of 100,000 GPUs, each with 99.9% reliability over a 24-hour period. The probability that all GPUs survive the day is 0.999^100,000 ≈ 0.00005. You'll see roughly 100 failures per day. At this scale, failures aren't exceptional—they're the norm.
+Here's a sobering calculation. Suppose you have a cluster of 100,000 GPUs, each with 99.9% reliability over a 24-hour period. The probability that all GPUs survive the day is $0.999^{100,000} ≈ 0.00005$. You'll see roughly 100 failures per day. At this scale, failures aren't exceptional—they're the norm.
 
 ### The Checkpointing Challenge
 
@@ -494,11 +494,6 @@ The technologies covered in this book—DDP, FSDP, DeepSpeed, vLLM, SGLang—rem
 
 The future of distributed AI is being written now, by researchers pushing the boundaries and practitioners deploying at scale. The best way to predict that future is to help invent it.
 
-
-
-<!-- include: exercises/torch.md if include_math -->
-<!-- include: exercises/torch.md if include_torch -->
-
 ## References
 
 __MoE Architectures__
@@ -560,3 +555,8 @@ __Federated Learning__
 - Flower Framework: \url{https://flower.ai/}
 - NVIDIA FLARE: \url{https://github.com/NVIDIA/NVFlare}
 - FedIT: Federated Instruction Tuning of LLMs: \url{https://arxiv.org/abs/2409.12568}
+
+
+
+<!-- include: exercises/torch.md if include_math -->
+<!-- include: exercises/torch.md if include_torch -->
