@@ -31,7 +31,7 @@ This chapter focuses specifically on LLM serving, building on the inference engi
 
 A production LLM serving system is more than just a model running on a GPU. It's a complex distributed system with multiple components working together to provide reliable, scalable, and cost-effective inference services. Understanding this architecture is essential before diving into specific deployment strategies.
 
-The core components of a production serving stack include:
+A typical production serving stack includes the following components:
 
 **Tokenizer Service.** This is a stateless, lightweight service that handles text tokenization and detokenization. Because it's stateless and CPU-bound, it can be scaled independently from the GPU-heavy model runners. The latency requirement is typically under 10ms—fast enough that it doesn't become a bottleneck in the request pipeline.
 
@@ -45,13 +45,18 @@ The core components of a production serving stack include:
 
 Figure~\ref{fig:serving-architecture} shows how these components fit together. Clients send requests to the API Gateway, which routes them to the appropriate model runner based on the requested model and current load. The tokenizer service handles text-to-token conversion, and all components report metrics and traces to the observability stack.
 
-The complete implementation of these components is available in `code/basic/`. The examples use Llama-2-7B-Chat as the default model, which requires a GPU with at least 16GB VRAM (e.g., NVIDIA RTX 4090, A100, or H100). For machines with less VRAM, you can substitute a smaller model like TinyLlama-1.1B or Qwen2-0.5B by modifying the model name in the code.
+A simplified implementation of the core components (gateway, tokenizer, model runner) is available in `code/basic/`. The examples use Qwen2.5-1.5B-Instruct as the default model, which runs comfortably on most GPUs with 8GB+ VRAM. For even smaller footprints, you can substitute Qwen2.5-0.5B-Instruct or TinyLlama-1.1B-Chat by modifying the model name in the code.
 
-To try them out, first install the dependencies:
+To try them out, first install the dependencies. We tested with the following versions in a conda environment:
 
 ```bash
-pip install fastapi uvicorn httpx pydantic transformers vllm
+conda create -n usao python=3.12
+conda activate usao
+pip install fastapi==0.133.1 uvicorn==0.35.0 httpx==0.28.1 \
+    pydantic==2.12.5 transformers==4.57.3 vllm==0.15.1
 ```
+
+Your environment may require different versions—adjust as needed for compatibility with your CUDA and PyTorch setup.
 
 Then start the tokenizer service:
 
@@ -60,21 +65,31 @@ cd code/basic
 uvicorn tokenizer_service:app --host 0.0.0.0 --port 8001
 ```
 
+The tokenizer service handles text tokenization and detokenization, offloading this CPU-bound work from the GPU inference servers.
+
+If you encounter a `401 Client Error` or `403 Forbidden` when downloading models, you need to set your Hugging Face token:
+
+```bash
+export HF_TOKEN=your_huggingface_token
+```
+
+You can get a token from [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens). Some models require accepting license agreements on their model page before access is granted.
+
 In another terminal, start the model runner (this will download and load the model):
 
 ```bash
-# For GPU with 16GB+ VRAM (default: Llama-2-7B-Chat)
-python model_runner.py
-
-# For smaller GPUs, edit model_runner.py to use a smaller model:
-# self.model_name = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+uvicorn model_runner:app --host 0.0.0.0 --port 8002
 ```
+
+The model runner is a FastAPI service that wraps vLLM for inference. It loads the model on startup and exposes a `/generate` endpoint that the API gateway can route to. The model loading takes a minute or two on first run as it downloads weights and compiles CUDA graphs.
 
 In a third terminal, start the API gateway:
 
 ```bash
 uvicorn api_gateway:app --host 0.0.0.0 --port 8000
 ```
+
+The API gateway is the public-facing entry point. In this simplified example, it provides rate limiting and routes requests to the model runner. A production gateway would add authentication, load balancing across replicas, and request queuing.
 
 You can then send requests to the gateway:
 
@@ -84,7 +99,7 @@ curl -X POST http://localhost:8000/generate \
   -d '{"prompt": "What is machine learning?", "max_tokens": 100}'
 ```
 
-The tokenizer service (`code/basic/tokenizer_service.py`) demonstrates a FastAPI-based service for text-to-token conversion. The model runner (`code/basic/model_runner.py`) wraps vLLM for inference. The API gateway (`code/basic/api_gateway.py`) shows routing, rate limiting, and request forwarding.
+The API gateway (`code/basic/api_gateway.py`) shows routing, rate limiting, and request forwarding. The tokenizer service (`code/basic/tokenizer_service.py`) demonstrates a FastAPI-based service for text-to-token conversion. The model runner (`code/basic/model_runner.py`) wraps vLLM for inference. The monitoring layer is not included in this basic example—we'll cover observability patterns in Section~\ref{sec:k8s-deployment}.
 
 ## Request Routing and Traffic Management
 
@@ -201,7 +216,7 @@ GPU instances are expensive, so cost optimization matters. **Spot instances** (o
 
 The implementation of warmup, autoscaling, request queuing, and cost-optimized routing is available in `code/basic/fault_tolerance.py`.
 
-## Deploying LLM Serving on Kubernetes
+## Deploying LLM Serving on Kubernetes {#sec:k8s-deployment}
 
 The concepts we've covered so far—routing, load balancing, canary deployments, observability, and fault tolerance—are platform-agnostic patterns. You could implement them on bare metal servers, with Docker Compose, or on any cloud platform. However, Kubernetes (K8s) has emerged as the dominant platform for production LLM serving.
 
