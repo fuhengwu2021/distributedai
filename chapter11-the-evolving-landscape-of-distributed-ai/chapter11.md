@@ -1,4 +1,4 @@
-# Chapter 11: Trends and Future of Distributed AI {-}
+# Chapter 11: The Evolving Landscape of Distributed AI {-}
 
 *Exploring emerging technologies and future directions in distributed AI*
 
@@ -9,7 +9,7 @@
 
 - `torch.distributed.checkpoint.save`: Async distributed checkpointing with DCP
 - `torch.distributed.checkpoint.load`: Load sharded checkpoints across ranks
-- `torch.distributed.elastic.multiprocessing.start_processes`: Elastic training launcher
+- `torch.distributed.elastic.multiprocessing`: Elastic training with fault tolerance
 - `torch.ao.quantization.quantize_dynamic`: Dynamic quantization for model compression
 - `flwr.client.NumPyClient`: Flower federated learning client interface
 - `flwr.server.strategy.FedAvg`: Federated averaging aggregation strategy
@@ -238,9 +238,9 @@ Different modalities have different characteristics:
 
 
 
-## Federated Learning: Privacy-Preserving Distribution
+## Federated Learning: An Alternative Paradigm
 
-Federated learning represents a different philosophy of distributed training—one where data never leaves its source. Instead of centralizing data in a data center, federated learning brings the model to the data. This approach has found its niche in privacy-sensitive domains where traditional distributed training isn't an option.
+While most of this book focuses on distributed training where GPUs share access to centralized data, federated learning takes a fundamentally different approach—bringing the model to the data rather than the reverse. This paradigm, established since 2016, has matured into a practical solution for privacy-sensitive domains where traditional distributed training isn't an option.
 
 ### The Federated Paradigm
 
@@ -488,7 +488,7 @@ This chapter has explored the current state of distributed AI and the trends sha
 
 6. __Multimodal and agentic__: VLMs and multi-agent systems require new distributed patterns for cross-modal attention and tool execution. These represent the next application frontier.
 
-7. __Federated learning for privacy__: When data can't be centralized, federated learning enables collaborative training across organizations. Modern techniques like FedProx and secure aggregation address the unique challenges of non-IID data and untrusted participants.
+7. __Federated learning as alternative paradigm__: When data can't be centralized due to privacy or regulatory constraints, federated learning offers a mature alternative. Techniques like FedProx and secure aggregation address the unique challenges of non-IID data and untrusted participants.
 
 8. __Inference engine evolution__: SGLang achieves 16,215 tok/s with RadixAttention; vLLM's PagedAttention reduces KV cache waste to under 4%. Both support diverse hardware platforms.
 
