@@ -420,19 +420,40 @@ cd code/k3d
 ./manage-cluster-multi-models.sh start
 ```
 
-This script creates a `multi-models` namespace, deploys both vLLM models (Llama-3.2-1B and Phi-tiny-MoE), and sets up the API gateway. You can also deploy manually step by step:
+We can check deployment status by:
 
 ```bash
-# Create namespace
-kubectl create namespace multi-models
-
-# Deploy models
-kubectl apply -f vllm/llama-3.2-1b.yaml -n multi-models
-kubectl apply -f vllm/phi-tiny-moe.yaml -n multi-models
-
-# Deploy API gateway
-cd gateway && ./deploy-gateway.sh
+./manage-cluster-multi-models.sh status
 ```
+
+The example output is like:
+
+```
+==========================================
+k3d Cluster Status: mycluster-gpu
+==========================================
+📊 Cluster list:
+NAME            SERVERS   AGENTS   LOADBALANCER
+mycluster-gpu   1/1       1/1      true
+Switched to context "k3d-mycluster-gpu".
+📊 Kubernetes nodes:
+NAME                         STATUS   ROLES           AGE     VERSION
+k3d-mycluster-gpu-agent-0    Ready    <none>          5h32m   v1.35.1+k3s1
+k3d-mycluster-gpu-server-0   Ready    control-plane   5h32m   v1.35.1+k3s1
+📊 Namespaces:
+NAME              STATUS   AGE
+multi-models      Active   20m
+📊 Pods in namespace multi-models:
+NAME                                     READY   STATUS    RESTARTS   AGE
+vllm-llama-32-1b-pod-76895c5cfb-vkz7w    1/1     Running   0          20m
+vllm-phi-tiny-moe-pod-55b8c8c959-nvxjh   1/1     Running   0          2m33s
+📊 Services in namespace multi-models:
+NAME                        TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)    AGE
+vllm-llama-32-1b-service    ClusterIP   10.43.178.154   <none>        8000/TCP   20m
+vllm-phi-tiny-moe-service   ClusterIP   10.43.55.228    <none>        8000/TCP   20m
+```
+
+This script creates a `multi-models` namespace, deploys both vLLM models (Llama-3.2-1B and Phi-tiny-MoE), and sets up the API gateway.
 
 The routing configuration (`gateway/routing-config.yaml`) maps model names to Kubernetes services:
 
@@ -440,26 +461,38 @@ The routing configuration (`gateway/routing-config.yaml`) maps model names to Ku
 routing:
   - model: "meta-llama/Llama-3.2-1B-Instruct"
     service_name: "vllm-llama-32-1b-service.multi-models.svc.cluster.local"
-  - model: "Phi-tiny-MoE-instruct"
+  - model: "microsoft/Phi-tiny-MoE-instruct"
     service_name: "vllm-phi-tiny-moe-service.multi-models.svc.cluster.local"
 ```
 
-Test the gateway by sending requests with different model names:
+Test the gateway by sending requests with different model names by firstly setting port forwarding:
 
 ```bash
 kubectl port-forward svc/vllm-api-gateway 8080:8000 &
+```
 
-# Request routed to Llama
-curl http://localhost:8080/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{"model": "meta-llama/Llama-3.2-1B-Instruct", 
-       "messages": [{"role": "user", "content": "Hello!"}]}'
+Then send request and get response to LLama:
 
-# Request routed to Phi
-curl http://localhost:8080/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{"model": "Phi-tiny-MoE-instruct", 
+```bash
+$ curl http://localhost:8080/v1/chat/completions   -H "Content-Type: application/json"   -d '{"model": "meta-llama/Llama-3.2-1B-Instruct", 
        "messages": [{"role": "user", "content": "Hello!"}]}'
+{"id":"chatcmpl-8d9100935563642c","object":"chat.completion","created":...,
+"model":"meta-llama/Llama-3.2-1B-Instruct","choices":[{"index":0,"message":{
+"role":"assistant","content":"Hello! How can I assist you today?...
+prompt_logprobs":null,"prompt_token_ids":null,"kv_transfer_params":null}
+```
+
+Also do the same for model Phi MoE:
+
+```bash
+$ curl http://localhost:8080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model": "microsoft/Phi-tiny-MoE-instruct", 
+       "messages": [{"role": "user", "content": "Hello!"}]}'
+{"id":"chatcmpl-a59b963764eb8f41","object":"chat.completion","created":...,
+"model":"microsoft/Phi-tiny-MoE-instruct","choices":[{"index":0,"message":
+{"role":"assistant","content":" Hello! How can I assist you today?...
+"prompt_logprobs":null,"prompt_token_ids":null,"kv_transfer_params":null}
 ```
 
 #### Multi-Engine Routing
