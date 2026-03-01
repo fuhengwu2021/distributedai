@@ -762,21 +762,32 @@ The example above uses the simplest setup---direct service access without the In
 ./manage-cluster-multi-models.sh start --with-gateway
 ```
 
-This deploys the Gateway API CRDs, creates an InferencePool for each model, and sets up HTTPRoutes for model-based routing. Now you can access both models through a single endpoint:
+This deploys the Gateway API CRDs and an Envoy-based gateway that routes requests based on the `model` field in the request body. Now you can access both models through a single endpoint:
 
 ```bash
-kubectl port-forward svc/llm-gateway 8000:8000 &
+$ kubectl port-forward svc/llm-gateway 8000:8000 &
+Forwarding from 127.0.0.1:8000 -> 8000
+
 # Request Llama model
 $ curl http://localhost:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{"model": "meta-llama/Llama-3.2-1B-Instruct",
        "messages": [{"role": "user", "content": "Hello!"}]}'
+{"id":"chatcmpl-...","model":"meta-llama/Llama-3.2-1B-Instruct",
+"choices":[{"message":{"role":"assistant",
+"content":"Hello! How can I assist you today?"}...
+
 # Request Qwen model (same port, different model)
 $ curl http://localhost:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{"model": "Qwen/Qwen2.5-0.5B-Instruct",
        "messages": [{"role": "user", "content": "Hello!"}]}'
+{"id":"chatcmpl-...","model":"Qwen/Qwen2.5-0.5B-Instruct",
+"choices":[{"message":{"role":"assistant",
+"content":"Hello! How can I assist you today?"}...
 ```
+
+The gateway extracts the model name from the request body and routes to the appropriate vLLM service. A complete example log showing the deployment and testing is available in `code/llmd/llm-d-multi-model/example.log`.
 
 Unlike our manual k3d setup where we built a custom API gateway, llm-d's Inference Gateway handles routing automatically using the Kubernetes Gateway API Inference Extension. It also adds intelligence: tracking prefix cache state across instances and routing repeat requests to servers that can serve them faster.
 
