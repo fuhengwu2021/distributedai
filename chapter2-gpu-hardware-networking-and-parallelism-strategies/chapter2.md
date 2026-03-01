@@ -831,7 +831,7 @@ The following table shows common composition patterns. These are combinations of
 | DP + EP | Data + Computation | Sparse MoE models | DeepSpeed-MoE (Chapter~\ref{chap:beyond-state-sharding-with-deepspeed-and-megatron}) |
 | FSDP + TP | State + Computation | Memory-efficient large LLMs | PyTorch FSDP (Chapter~\ref{chap:scaling-with-fully-sharded-data-parallel-fsdp}) + Megatron (Chapter~\ref{chap:beyond-state-sharding-with-deepspeed-and-megatron}) |
 | ZeRO-3 + PP | State + Computation | Extreme-scale models | DeepSpeed (Chapter~\ref{chap:beyond-state-sharding-with-deepspeed-and-megatron}) |
-| TP + Context Parallelism | Computation + Computation | Long-context inference | vLLM (Chapter~\ref{chap:distributed-inference-fundamentals-and-vllm}) / SGLang (Chapter~\ref{chap:request-level-routing-and-sglang}) |
+| TP + Context Parallelism | Computation + Computation | Long-context inference | vLLM (Chapter~\ref{chap:distributed-inference-fundamentals-and-vllm}) / SGLang (Chapter~\ref{chap:cross-request-optimization-with-sglang}) |
 
 Most people don't implement these from scratch—you'll use PyTorch's DDP (Chapter~\ref{chap:distributed-training-with-pytorch-ddp})/FSDP (Chapter~\ref{chap:scaling-with-fully-sharded-data-parallel-fsdp}), DeepSpeed's ZeRO (Chapter~\ref{chap:beyond-state-sharding-with-deepspeed-and-megatron}), or libraries like Megatron-LM (Chapter~\ref{chap:beyond-state-sharding-with-deepspeed-and-megatron}) that handle the tensor parallelism details. But understanding what's happening under the hood helps when things go wrong.
 
