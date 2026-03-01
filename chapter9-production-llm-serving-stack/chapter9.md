@@ -411,9 +411,11 @@ The `code/k3d/` directory provides two management scripts that automate these de
 
 The key insight is that an API gateway can route requests based on the `model` field in the OpenAI-compatible request body. When a client sends a request specifying `"model": "meta-llama/Llama-3.2-1B-Instruct"`, the gateway looks up which Kubernetes service hosts that model and forwards the request accordingly. This creates a unified endpoint where clients don't need to know which backend server handles which model.
 
+Figure~\ref{fig:multi-model-routing} illustrates this architecture. Client applications send requests to the API gateway, which parses the `model` field and forwards the request to the appropriate vLLM service. Each model runs in its own pod with a dedicated Kubernetes service.
+
 ![Multi-model routing architecture.](img/multi_model_routing.png){#fig:multi-model-routing width=80%}
 
-Figure~\ref{fig:multi-model-routing} illustrates this architecture. The easiest way to deploy it is using the management script:
+Let's deploy this architecture. The management script handles all the complexity---creating the namespace, deploying both models, and setting up the gateway:
 
 ```bash
 cd code/k3d
@@ -426,7 +428,7 @@ We can check deployment status by:
 ./manage-cluster-multi-models.sh status
 ```
 
-The example output is like:
+The status command shows what's running. You should see two vLLM pods (one for each model) and their corresponding services:
 
 ```
 ==========================================
@@ -465,7 +467,9 @@ routing:
     service_name: "vllm-phi-tiny-moe-service.multi-models.svc.cluster.local"
 ```
 
-Test the gateway by sending requests with different model names by firstly setting port forwarding:
+When the gateway receives a request with `"model": "meta-llama/Llama-3.2-1B-Instruct"`, it looks up this mapping and forwards the request to `vllm-llama-32-1b-service`. The client never needs to know which backend handles which model.
+
+Now let's test it. First, set up port forwarding to access the gateway from your local machine:
 
 ```bash
 kubectl port-forward svc/vllm-api-gateway 8080:8000 &
@@ -474,15 +478,17 @@ kubectl port-forward svc/vllm-api-gateway 8080:8000 &
 Then send request and get response to LLama:
 
 ```bash
-$ curl http://localhost:8080/v1/chat/completions   -H "Content-Type: application/json"   -d '{"model": "meta-llama/Llama-3.2-1B-Instruct", 
+$ curl http://localhost:8080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model": "meta-llama/Llama-3.2-1B-Instruct", 
        "messages": [{"role": "user", "content": "Hello!"}]}'
 {"id":"chatcmpl-8d9100935563642c","object":"chat.completion","created":...,
 "model":"meta-llama/Llama-3.2-1B-Instruct","choices":[{"index":0,"message":{
-"role":"assistant","content":"Hello! How can I assist you today?...
+"role":"assistant","content":"Hello! How can I assist you today?"...
 prompt_logprobs":null,"prompt_token_ids":null,"kv_transfer_params":null}
 ```
 
-Also do the same for model Phi MoE:
+Now send a request to the Phi model---same endpoint, different `model` field:
 
 ```bash
 $ curl http://localhost:8080/v1/chat/completions \
@@ -491,21 +497,23 @@ $ curl http://localhost:8080/v1/chat/completions \
        "messages": [{"role": "user", "content": "Hello!"}]}'
 {"id":"chatcmpl-a59b963764eb8f41","object":"chat.completion","created":...,
 "model":"microsoft/Phi-tiny-MoE-instruct","choices":[{"index":0,"message":
-{"role":"assistant","content":" Hello! How can I assist you today?...
+{"role":"assistant","content":" Hello! How can I assist you today?"...
 "prompt_logprobs":null,"prompt_token_ids":null,"kv_transfer_params":null}
 ```
 
-Before moving to multi-engine routing, clean up the multi-models deployment to free GPU resources (this also stops any active port-forward processes):
+Notice that both requests go to `localhost:8080`, but the gateway routes them to different backends based on the `model` field. This is the power of multi-model routing: clients interact with a single endpoint while the infrastructure handles model placement.
+
+Before moving to multi-engine routing, clean up this deployment to free GPU resources:
 
 ```bash
 ./manage-cluster-multi-models.sh stop
 ```
 
+This command stops the port-forward process and removes all resources in the `multi-models` namespace.
+
 #### Multi-Engine Routing
 
 Taking this further, we can deploy the same model on different inference engines (vLLM and SGLang) and route based on an `inference_server` field. This is useful for benchmarking engines or gradually migrating between them.
-
-![Multi-engine routing architecture.](img/multi_engine_routing.png){#fig:multi-engine-routing width=80%}
 
 As shown in Figure~\ref{fig:multi-engine-routing}, the gateway parses both `model` and `inference_server` fields to determine routing. Use the multi-engine management script:
 
@@ -543,6 +551,8 @@ sglang-llama-32-1b-service   ClusterIP   10.43.249.196   <none>        8000/TCP 
 vllm-llama-32-1b-service     ClusterIP   10.43.89.85     <none>        8000/TCP   21m
 ```
 
+![Multi-engine routing architecture.](img/multi_engine_routing.png){#fig:multi-engine-routing width=80%}
+
 The routing configuration (`code/k3d/gateway/routing-config.yaml`) includes engine-specific routes, allowing clients to select their preferred inference engine:
 
 ```yaml
@@ -558,13 +568,15 @@ routing:
     service_name: "vllm-llama-32-1b-service.multi-engines.svc.cluster.local"
 ```
 
-Now clients can explicitly select their preferred engine. First, set up port forwarding to access the gateway:
+The third entry with `inference_server: null` acts as a fallback---requests that don't specify an engine go to vLLM by default.
+
+Set up port forwarding and test both engines:
 
 ```bash
 kubectl port-forward svc/vllm-api-gateway 8080:8000 &
 ```
 
-Then send requests with different engine selections:
+First, a request without specifying the engine (routes to vLLM by default):
 
 ```bash
 $ curl http://localhost:8080/v1/chat/completions \
@@ -573,11 +585,11 @@ $ curl http://localhost:8080/v1/chat/completions \
        "messages": [{"role": "user", "content": "Hello!"}]}'
 {"id":"chatcmpl-9583dfa06c9b9669","object":"chat.completion","created":...,
 "model":"meta-llama/Llama-3.2-1B-Instruct","choices":[{"index":0,"message":{
-"role":"assistant","content":"Hello! How can I assist you today?...
+"role":"assistant","content":"Hello! How can I assist you today?"...
 "prompt_logprobs":null,"prompt_token_ids":null,"kv_transfer_params":null}
 ```
 
-Route to SGLang explicitly by adding the `inference_server` field:
+Now explicitly route to SGLang by adding the `inference_server` field:
 
 ```bash
 $ curl http://localhost:8080/v1/chat/completions \
@@ -585,9 +597,9 @@ $ curl http://localhost:8080/v1/chat/completions \
   -d '{"model": "meta-llama/Llama-3.2-1B-Instruct",
        "inference_server": "sglang",
        "messages": [{"role": "user", "content": "Hello!"}]}'
-{"id":"e02f545aca204f4b975343009b5d3b20","object":"chat.completion","created":...,
+{"id":"e02f545aca204f...3b20","object":"chat.completion","created":...,
 "model":"meta-llama/Llama-3.2-1B-Instruct","choices":[{"index":0,"message":{
-"role":"assistant","content":"Hello! How can I assist you today?...
+"role":"assistant","content":"Hello! How can I assist you today?"...
 "usage":{"prompt_tokens":37,"total_tokens":47,"completion_tokens":10...}
 ```
 
@@ -630,9 +642,27 @@ __Hardware Support:__ One of llm-d's strengths is its broad hardware compatibili
 
 ### Deployment Architecture
 
+Having covered llm-d's key features---intelligent scheduling, prefill/decode disaggregation, distributed caching, and variant autoscaling---let's see how these components fit together in a production deployment.
+
+Figure \ref{fig:llmd-architecture} illustrates the complete architecture. To understand how it works, let's trace a request through the system.
+
+Every production API needs a front door---something that handles the messy realities of internet traffic: TLS encryption, authentication, rate limiting, and graceful handling of misbehaving clients. In llm-d, this role falls to Envoy Proxy[^envoy], a high-performance edge proxy widely used in cloud-native deployments. You may already have Envoy in your infrastructure (it powers Istio[^istio] service mesh and many API gateways); llm-d simply leverages it as the entry point for all inference requests.
+
 ![llm-d deployment architecture on Kubernetes.](img/llmd_architecture.png){#fig:llmd-architecture width=80%}
 
-Figure \ref{fig:llmd-architecture} illustrates the llm-d deployment architecture. Requests enter through an Envoy Proxy, which forwards them to the Inference Gateway (IGW). The IGW acts as an intelligent scheduler, routing requests to the appropriate model servers based on current load and request characteristics. In disaggregated inference mode, prefill servers handle prompt processing while decode servers generate tokens, with both sharing KV cache state through high-speed storage (NIXL over NVMe).
+[^istio]: Istio service mesh: \url{https://istio.io/}
+
+From Envoy, requests flow to the Inference Gateway (IGW)[^igw]---the "brain" of llm-d. While Envoy handles generic HTTP concerns, the IGW understands LLM inference. It examines each request's characteristics: How long is the prompt? Which model is requested? Does any backend already have the relevant prefix cached? Based on this analysis, the IGW routes the request to the optimal model server. This is fundamentally different from traditional load balancers that distribute requests round-robin or based on connection counts---the IGW makes routing decisions based on the actual computational cost of each request.
+
+Behind the IGW sit the model servers that perform inference. In standard mode, each server handles the complete inference pipeline. But llm-d also supports disaggregated mode, where servers specialize: prefill servers process input prompts (compute-intensive, parallelizable), while decode servers generate output tokens (memory-bandwidth-bound, latency-sensitive). When a prefill server finishes processing a prompt, a NIXL[^nixl] sidecar transfers the KV cache to the assigned decode server using RDMA[^rdma], often completing in milliseconds even for large caches. This separation allows each server type to be optimized independently---prefill servers can batch aggressively for throughput, while decode servers tune for minimal latency.
+
+[^rdma]: Remote Direct Memory Access (RDMA) allows direct memory access between computers without involving the CPU or operating system.
+
+For deployments that serve many requests with shared prefixes (common system prompts, few-shot examples), llm-d can optionally store KV cache on shared NVMe[^nvme] storage. This enables cluster-wide prefix caching: when one server computes the cache for a popular prefix, other servers can retrieve it rather than recomputing, dramatically reducing redundant work across the fleet.
+
+[^nvme]: Non-Volatile Memory Express (NVMe) is a high-speed storage interface protocol designed for SSDs.
+
+
 
 
 ### Getting Started with llm-d
