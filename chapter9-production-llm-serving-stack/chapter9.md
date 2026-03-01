@@ -310,10 +310,16 @@ kubectl get nodes
 # k3d-mycluster-gpu-server-0   Ready    control-plane   41s   v1.35.1+k3s1
 # k3d-mycluster-gpu-agent-0    Ready    <none>          37s   v1.35.1+k3s1
 kubectl describe nodes | grep nvidia.com/gpu
-# nvidia.com/gpu: 1
+#   nvidia.com/gpu:     8
+...
+#   nvidia.com/gpu     0         0
+...
 ```
 
-You should see `nvidia.com/gpu: N` in the output, where N is the number of GPUs available. If you need to customize the cluster (e.g., mount a model directory or use specific GPUs), you can pass options to `create-cluster.sh` or create the cluster manually—see `code/k3d/README.md` for details.
+The grep output shows GPU information for each node. A complete example output from an 8-GPU A100 node is at `code/k3d/kubectl_describe_node.txt`. In the output, `Capacity` indicates total GPUs detected, `Allocatable` shows how many are available for pod scheduling, and `Allocated` displays current usage as requests/limits (zeros indicate no pods are using GPUs yet). Since k3d passes all host GPUs to each container, every node reports the same GPU count—this is expected behavior for local development. 
+
+
+For cluster customization options such as mounting model directories or selecting specific GPUs, refer to `code/k3d/README.md`.
 
 ### Deploying vLLM on k3d
 
