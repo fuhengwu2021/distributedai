@@ -697,19 +697,71 @@ As your deployment matures and you encounter specific bottlenecks, the other pat
 
 The key is to monitor your metrics and let them guide your evolution. Watch KV cache hit rates to assess routing effectiveness. Track TTFT and TPOT separately to understand where latency comes from. Monitor GPU utilization to identify underutilized capacity. And tune autoscaling parameters based on actual traffic patterns rather than theoretical estimates---set minimum replicas high enough to handle baseline load without cold starts, maximum replicas to accommodate peaks, and target QPS based on observed capacity per instance.
 
-### Multi-Model Serving with llm-d
+### Multi-Model and Multi-Engine Serving
 
-Figure \ref{fig:llmd-multi-model} illustrates how llm-d handles multi-model deployments. The architecture mirrors what we built manually with k3d, but with production-grade components: the Inference Gateway replaces our custom API gateway, InferencePool handles model-aware routing, and ModelService instances wrap vLLM pods with intelligent load balancing and prefix-cache awareness.
+Just as we deployed multiple models and engines with k3d, llm-d supports the same patterns with production-grade infrastructure. The `code/llmd/` directory contains two deployment configurations that mirror what we built manually:
 
-The `code/llmd/llm-d-multi-model/` directory contains complete deployment configurations for this pattern. Each model gets its own ModelService with a Helm values file specifying the model artifact location, GPU requirements, and replica count. The InferencePool automatically discovers these ModelService instances and routes requests based on the `model` field---no manual service mapping required. When a client requests `meta-llama/Llama-3.2-1B-Instruct`, the gateway knows exactly which backend to forward to.
+- `llm-d-multi-model/`: Multiple models (Llama-3.2-1B + Qwen2.5-0.5B) on vLLM
+- `llm-d-multi-engine/`: Same model on multiple engines (vLLM + SGLang)
 
-What makes llm-d's approach superior for production is the intelligence built into every layer. The Inference Gateway doesn't just round-robin requests; it predicts latency based on prompt length and routes accordingly. It tracks which vLLM instances have which prefixes cached, sending repeat requests to instances that can serve them faster. The result is lower latency and higher throughput than a manually configured setup, with less operational overhead.
+#### Multi-Model Routing
 
-One limitation worth noting: llm-d follows a "vLLM-first" design philosophy. The Inference Gateway's intelligent features---prefix-cache aware routing, NIXL-based KV cache transfer, and the inference scheduler---are tightly integrated with vLLM's internals. SGLang support is under active development (tracked in GitHub issue #403), but as of this writing, llm-d's native routing doesn't support engine selection.
-
-However, you can work around this limitation by layering a custom API gateway on top of llm-d's infrastructure. The `code/llmd/llm-d-multi-engine/` directory demonstrates this approach: both vLLM and SGLang are deployed as separate ModelService instances within llm-d's Kubernetes setup, and a custom gateway routes requests based on both the `model` field and an `owned_by` field specifying the engine. This hybrid approach gives you the best of both worlds---llm-d's production-grade Kubernetes orchestration and monitoring, combined with the flexibility to compare or migrate between inference engines. The tradeoff is that you lose llm-d's intelligent routing features (prefix-cache awareness, load prediction) for the SGLang backend, since those require deep vLLM integration.
+Figure \ref{fig:llmd-multi-model} shows llm-d's multi-model architecture. Each model gets its own ModelService, and the InferencePool automatically discovers and routes requests based on the `model` field---no manual service mapping required. This is the key difference from our k3d setup: instead of manually configuring routing rules, llm-d discovers ModelService instances and builds the routing table automatically.
 
 ![llm-d multi-model serving architecture.](img/llmd_multi_model.png){#fig:llmd-multi-model width=80%}
+
+The `llm-d-multi-model/` directory provides a deployment script that handles all the complexity. Deploy both models with:
+
+```bash
+cd code/llmd/llm-d-multi-model
+./deploy.sh
+```
+
+The script creates the cluster, installs the NVIDIA device plugin, sets up llm-d, and deploys both models. Check deployment status:
+
+```bash
+$ kubectl get pods
+NAME                                    READY   STATUS    AGE
+vllm-llama-32-1b                        1/1     Running   5m
+vllm-qwen2-5-0-5b                       1/1     Running   3m
+```
+
+Each model is configured through a Helm values file (`llama-3.2-1b-values.yaml`, `qwen2.5-0.5b-values.yaml`) that specifies the model artifact location, GPU requirements, and replica count. The key configuration is the `modelArtifacts` section that tells llm-d where to fetch the model:
+
+```yaml
+modelArtifacts:
+  uri: "hf://meta-llama/Llama-3.2-1B-Instruct"
+  name: "meta-llama/Llama-3.2-1B-Instruct"
+```
+
+Test routing through the gateway:
+
+```bash
+kubectl port-forward svc/vllm-llama-32-1b 8001:8000 &
+kubectl port-forward svc/vllm-qwen2-5-0-5b 8002:8000 &
+
+# Request Llama model
+$ curl http://localhost:8001/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model": "meta-llama/Llama-3.2-1B-Instruct",
+       "messages": [{"role": "user", "content": "Hello!"}]}'
+{"id":"chatcmpl-...","object":"chat.completion","created":...,
+"model":"meta-llama/Llama-3.2-1B-Instruct","choices":[{"index":0,
+"message":{"role":"assistant","content":"Hello! How can I help you today?"}...
+
+# Request Qwen model
+$ curl http://localhost:8002/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model": "Qwen/Qwen2.5-0.5B-Instruct",
+       "messages": [{"role": "user", "content": "Hello!"}]}'
+{"id":"chatcmpl-...","object":"chat.completion","created":...,
+"model":"Qwen/Qwen2.5-0.5B-Instruct","choices":[{"index":0,
+"message":{"role":"assistant","content":"Hello! How can I assist you?"}...
+```
+
+Unlike our manual k3d setup, llm-d's routing is intelligent: it tracks prefix cache state across instances and routes repeat requests to servers that can serve them faster. The InferencePool monitors each ModelService and builds routing tables automatically---no manual service mapping required.
+
+One limitation worth noting: llm-d follows a "vLLM-first" design philosophy. The Inference Gateway's intelligent features---prefix-cache aware routing, NIXL-based KV cache transfer, and the inference scheduler---are tightly integrated with vLLM's internals. SGLang support is under active development (tracked in GitHub issue #403), but as of this writing, llm-d's native routing doesn't support engine selection. For readers interested in multi-engine deployments with llm-d, the `code/llmd/llm-d-multi-engine/` directory provides a workaround using a custom API gateway layer---see the README for details.
 
 ### Comparing k3d and llm-d Approaches
 
@@ -729,7 +781,9 @@ Table: Comparison of k3d and llm-d deployment approaches {#tbl:k3d-llmd-comparis
 
 :::
 
-The k3d approach we explored earlier is valuable for learning and local development---you understand exactly what each component does because you built it yourself. But for production deployments serving real traffic, llm-d's battle-tested configurations and intelligent routing provide a more robust foundation. The transition is straightforward: the concepts are identical, only the implementation details change.## Summary
+The k3d approach we explored earlier is valuable for learning and local development---you understand exactly what each component does because you built it yourself. But for production deployments serving real traffic, llm-d's battle-tested configurations and intelligent routing provide a more robust foundation. The transition is straightforward: the concepts are identical, only the implementation details change.
+
+## Summary
 
 This chapter has covered building a complete production LLM serving stack. Key takeaways:
 
