@@ -495,7 +495,7 @@ $ curl http://localhost:8080/v1/chat/completions \
 "prompt_logprobs":null,"prompt_token_ids":null,"kv_transfer_params":null}
 ```
 
-Before moving to multi-engine routing, clean up the multi-models deployment to free GPU resources:
+Before moving to multi-engine routing, clean up the multi-models deployment to free GPU resources (this also stops any active port-forward processes):
 
 ```bash
 ./manage-cluster-multi-models.sh stop
@@ -568,17 +568,28 @@ Then send requests with different engine selections:
 
 ```bash
 # Route to vLLM (default)
-curl http://localhost:8080/v1/chat/completions \
+$ curl http://localhost:8080/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{"model": "meta-llama/Llama-3.2-1B-Instruct",
        "messages": [{"role": "user", "content": "Hello!"}]}'
+{"id":"chatcmpl-9583dfa06c9b9669","object":"chat.completion","created":...,
+"model":"meta-llama/Llama-3.2-1B-Instruct","choices":[{"index":0,"message":{
+"role":"assistant","content":"Hello! How can I assist you today?...
+"prompt_logprobs":null,"prompt_token_ids":null,"kv_transfer_params":null}
+```
 
-# Route to SGLang explicitly
-curl http://localhost:8080/v1/chat/completions \
+Route to SGLang explicitly by adding the `inference_server` field:
+
+```bash
+$ curl http://localhost:8080/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{"model": "meta-llama/Llama-3.2-1B-Instruct",
        "inference_server": "sglang",
        "messages": [{"role": "user", "content": "Hello!"}]}'
+{"id":"e02f545aca204f4b975343009b5d3b20","object":"chat.completion","created":...,
+"model":"meta-llama/Llama-3.2-1B-Instruct","choices":[{"index":0,"message":{
+"role":"assistant","content":"Hello! How can I assist you today?...
+"usage":{"prompt_tokens":37,"total_tokens":47,"completion_tokens":10...}
 ```
 
 The gateway also aggregates the `/v1/models` endpoint, returning a combined list of all available models across all backends. For production deployments, you'll want to add authentication (API keys or OAuth tokens), rate limiting (per-client request quotas), and observability (request logging, latency metrics, error tracking). The `code/k3d/gateway/api-gateway.py` includes example middleware for these concerns.
