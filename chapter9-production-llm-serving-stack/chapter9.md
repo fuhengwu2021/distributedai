@@ -766,13 +766,11 @@ This deploys the Gateway API CRDs, creates an InferencePool for each model, and 
 
 ```bash
 kubectl port-forward svc/llm-gateway 8000:8000 &
-
 # Request Llama model
 $ curl http://localhost:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{"model": "meta-llama/Llama-3.2-1B-Instruct",
        "messages": [{"role": "user", "content": "Hello!"}]}'
-
 # Request Qwen model (same port, different model)
 $ curl http://localhost:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
@@ -824,9 +822,6 @@ Building production LLM serving systems requires careful attention to reliabilit
 
 Once you've built your distributed training and inference systems, you need to know how well they're performing. Are you getting the throughput you expect? Is latency acceptable? How efficiently are you using your GPUs? The next chapter teaches you how to benchmark distributed training and inference systems rigorously. We'll cover both performance benchmarking (throughput, latency, scaling efficiency) and accuracy benchmarking (model quality, output correctness), using tools like genai-bench, PyTorch profiler, and custom scripts. By the end, you'll be able to identify bottlenecks, evaluate model accuracy, and optimize your systems effectively.
 
-<!-- include: exercises/torch.md if include_math -->
-<!-- include: exercises/torch.md if include_torch -->
-
 ## References
 
 __LLM Serving Frameworks__
@@ -859,3 +854,6 @@ __Tutorials and Guides__
 
 - vLLM Kubernetes Deployment: \url{https://docs.vllm.ai/en/stable/deployment/k8s/}
 - NVIDIA Container Toolkit: \url{https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/}
+
+<!-- include: exercises/torch.md if include_math -->
+<!-- include: exercises/torch.md if include_torch -->
