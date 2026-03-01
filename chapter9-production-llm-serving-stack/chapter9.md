@@ -309,7 +309,6 @@ kubectl get nodes
 # NAME                         STATUS   ROLES           AGE   VERSION
 # k3d-mycluster-gpu-server-0   Ready    control-plane   41s   v1.35.1+k3s1
 # k3d-mycluster-gpu-agent-0    Ready    <none>          37s   v1.35.1+k3s1
-
 kubectl describe nodes | grep nvidia.com/gpu
 # nvidia.com/gpu: 1
 ```
@@ -320,17 +319,18 @@ You should see `nvidia.com/gpu: N` in the output, where N is the number of GPUs 
 
 With the GPU cluster running, we can now deploy vLLM to serve LLM inference. The `code/k3d/vllm/` directory contains ready-to-use Kubernetes manifests for several models, so you don't need to write YAML from scratch.
 
-Many popular models on Hugging Face are "gated," meaning you need to accept their license terms and authenticate to download them. Llama models fall into this category. If you're deploying a gated model, first create a Kubernetes secret containing your Hugging Face token:
+Many popular models on Hugging Face are "gated," meaning you need to accept their license terms and authenticate to download them. Llama models fall into this category. If you're deploying a gated model, first create a Kubernetes secret using the `HF_TOKEN` environment variable we set earlier:
 
 ```bash
 kubectl create secret generic hf-token-secret --from-literal=token="$HF_TOKEN"
 ```
 
-Now you can deploy a model. The choice depends on your available GPU memory. Phi-tiny-MoE is a lightweight option that works well for testing on smaller GPUs, while Llama-3.2-1B offers better quality but requires approximately 8GB of GPU memory:
+Now you can deploy a model. In production, model selection depends on both your available GPU memory and business requirements such as latency, throughput, and output quality. For this demonstration, we use smaller models. Phi-tiny-MoE is a lightweight option that works well for testing on smaller GPUs, while Llama-3.2-1B offers better quality but requires approximately 8GB of GPU memory:
 
 ```bash
 cd code/k3d/vllm
-kubectl apply -f llama-3.2-1b.yaml      # or ./deploy-phi-tiny-moe.sh for smaller GPUs
+kubectl apply -f llama-3.2-1b.yaml
+# or ./deploy-phi-tiny-moe.sh for smaller GPUs
 ```
 
 The deployment manifests handle the details you'd otherwise need to configure manually: GPU resource requests so Kubernetes schedules the pod on a node with available GPUs, health probes with appropriate timeouts for model loading, volume mounts for caching downloaded weights, and Kubernetes services for network access. Watch the deployment progress with:

@@ -84,7 +84,7 @@ server_box = FancyBboxPatch(
 ax.add_patch(server_box)
 ax.text(3.35, 6.9, 'Control Plane (server-0)', ha='center', va='center', 
         fontsize=14, fontweight='bold')
-ax.text(3.35, 6.55, 'k3s-cuda:v1.33.6-cuda-12.2.0', ha='center', va='center', 
+ax.text(3.35, 6.55, 'k3s-cuda:v1.35.1-cuda-13.0.0', ha='center', va='center', 
         fontsize=14, style='italic', color='black')
 
 # Control plane services
@@ -108,7 +108,7 @@ agent_box = FancyBboxPatch(
 ax.add_patch(agent_box)
 ax.text(8.65, 6.9, 'Worker Node (agent-0)', ha='center', va='center', 
         fontsize=14, fontweight='bold')
-ax.text(8.65, 6.55, 'k3s-cuda:v1.33.6-cuda-12.2.0', ha='center', va='center', 
+ax.text(8.65, 6.55, 'k3s-cuda:v1.35.1-cuda-13.0.0', ha='center', va='center', 
         fontsize=14, style='italic', color='black')
 
 # Worker services
