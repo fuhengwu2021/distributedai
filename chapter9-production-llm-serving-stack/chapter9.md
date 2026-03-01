@@ -712,7 +712,7 @@ cd code/llmd/llm-d-multi-model
 ./deploy.sh
 ```
 
-The script uses the latest vLLM version v0.14.1 at the time of this writing, which matches llm-d v0.5.0. Since vLLM and llm-d are actively developed, you may need to update image versions in the deployment files---see README.md in code/llmd/llm-d-multi-model for instructions.
+The script uses vLLM v0.14.1 at the time of this writing, which matches llm-d v0.5.0. Since vLLM and llm-d are actively developed, you may need to update image versions in the deployment files---see the README for instructions. It also requires a custom k3s-cuda image (the default k3s lacks NVIDIA container toolkit support). Make sure to build a k3s-cuda image matching your CUDA version---run `nvidia-smi` to check, then `cd code/k3d && ./build.sh`.
 
 The script creates the cluster, installs the NVIDIA device plugin, sets up llm-d, and deploys both models. Check deployment status:
 
