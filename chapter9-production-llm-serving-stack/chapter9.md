@@ -316,7 +316,7 @@ kubectl describe nodes | grep nvidia.com/gpu
 ...
 ```
 
-The grep output shows GPU information for each node. A complete example output from an 8-GPU A100 node is at `code/k3d/kubectl_describe_node.txt`. In the output, `Capacity` indicates total GPUs detected, `Allocatable` shows how many are available for pod scheduling, and `Allocated` displays current usage as requests/limits (zeros indicate no pods are using GPUs yet). Since k3d passes all host GPUs to each container, every node reports the same GPU count—this is expected behavior for local development. 
+The grep output shows GPU information for each node. A complete example output from an 8-GPU A100 node is kept at `code/k3d/kubectl_describe_node.txt`. In the output, `Capacity` indicates total GPUs detected, `Allocatable` shows how many are available for pod scheduling, and `Allocated` displays current usage as requests/limits (zeros indicate no pods are using GPUs yet). Since k3d passes all host GPUs to each container, every node reports the same GPU count—this is expected behavior for local development. 
 
 
 For cluster customization options such as mounting model directories or selecting specific GPUs, refer to `code/k3d/README.md`.
@@ -343,10 +343,17 @@ The deployment manifests handle the details you'd otherwise need to configure ma
 
 ```bash
 kubectl get pods -l app=vllm -w
+# NAME                       READY   STATUS              RESTARTS   AGE
+# vllm-llama-32-1b-pod-xxx   0/1     ContainerCreating   0          2m40s
+```
+
+The pod will initially show `ContainerCreating` while Kubernetes pulls the vLLM container image. This can take several minutes depending on your network speed. Once the status changes to `Running`, you can view the logs:
+
+```bash
 kubectl logs -l app=vllm --follow
 ```
 
-Model loading typically takes 2-5 minutes depending on model size and whether the weights are already cached locally. The logs will show download progress if the model needs to be fetched from Hugging Face, followed by the model being loaded into GPU memory. Once the pod shows `Running` status and the logs indicate "Uvicorn running on...", the server is ready.
+Model loading typically takes 2-5 minutes depending on model size and whether the weights are already cached locally. The logs will show download progress if the model needs to be fetched from Hugging Face, followed by the model being loaded into GPU memory. Once the logs indicate "Uvicorn running on...", the server is ready.
 
 To test the API, forward the service port to your local machine and send a request:
 
