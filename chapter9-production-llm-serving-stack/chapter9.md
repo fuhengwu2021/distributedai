@@ -782,9 +782,15 @@ $ curl http://localhost:8000/v1/chat/completions \
 
 Unlike our manual k3d setup where we built a custom API gateway, llm-d's Inference Gateway handles routing automatically using the Kubernetes Gateway API Inference Extension. It also adds intelligence: tracking prefix cache state across instances and routing repeat requests to servers that can serve them faster.
 
-One limitation worth noting: llm-d follows a "vLLM-first" design philosophy. The Inference Gateway's intelligent features---prefix-cache aware routing, NIXL-based KV cache transfer, and the inference scheduler---are tightly integrated with vLLM's internals. SGLang support is under active development (tracked in GitHub issue #403), but as of this writing, llm-d's native routing doesn't support engine selection. For readers interested in multi-engine deployments, the `code/llmd/llm-d-multi-engine/` directory provides a workaround using a custom API gateway layer---see the README for details.
+>NOTES: llm-d follows a "vLLM-first" design philosophy. The Inference Gateway's intelligent features---prefix-cache aware routing, NIXL-based KV cache transfer, and the inference scheduler---are tightly integrated with vLLM's internals. SGLang support is under active development (tracked in GitHub issue #403[^sglang-issue]), but as of this writing, llm-d's native routing doesn't support engine selection. For readers interested in multi-engine deployments, the `code/llmd/llm-d-multi-engine/` directory provides a workaround using a custom API gateway layer---see the README for details.
+
+>NOTEE
+
+[^sglang-issue]: [https://github.com/llm-d/llm-d/issues/403](https://github.com/llm-d/llm-d/issues/403)
 
 ### Comparing k3d and llm-d Approaches
+
+@tbl:k3d-llmd-comparison summarizes the key differences between our manual k3d setup and llm-d's production stack. The most significant differences are in routing and load balancing: while our k3d setup uses a custom API gateway with basic round-robin distribution, llm-d's Inference Gateway is Kubernetes-native and prefix-cache aware---it routes requests to pods that already have relevant KV cache entries, reducing redundant computation. For multi-model deployments, k3d requires manual service mapping in the gateway configuration, whereas llm-d automatically discovers ModelService instances and builds the routing table. The monitoring story is similar: k3d requires manual Prometheus/Grafana setup, while llm-d includes pre-configured dashboards out of the box.
 
 ::: {width=85%}
 
