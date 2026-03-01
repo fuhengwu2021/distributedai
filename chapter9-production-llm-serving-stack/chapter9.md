@@ -374,6 +374,10 @@ curl http://localhost:8000/v1/chat/completions \
   }'
 ```
 
+![vLLM response from Kubernetes deployment.](img/k_vllm_output.png){#fig:k-vllm-output .wrap width=65% align=right-top}
+
+Figure~\ref{fig:k-vllm-output} shows a successful response from the vLLM server running in Kubernetes. The JSON response follows the OpenAI chat completions format, including the model name, generated content, and token usage statistics.
+
 Looking at the deployment manifests, you'll notice several configuration patterns worth understanding. The `--gpu-memory-utilization 0.2` flag tells vLLM to reserve only 20% of GPU memory, which is conservative but useful when running multiple models on shared GPUs. For single-model deployments where you want maximum throughput, increase this to 0.8 or 0.9.
 
 The health probes deserve special attention. Kubernetes uses liveness and readiness probes to determine if a pod is healthy, but LLM models take significant time to load into GPU memory—often several minutes for larger models. The manifests set `initialDelaySeconds` to 120-180 seconds to give the model time to load. Without this delay, Kubernetes would see the health check fail and restart the pod in an endless loop.
