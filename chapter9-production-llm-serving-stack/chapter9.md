@@ -319,7 +319,7 @@ kubectl describe nodes | grep nvidia.com/gpu
 
 ![`kubectl describe nodes` output.](img/k_desc_node.png){#fig:k-desc-node .wrap align=top-right}
 
-As shown in Figure~\ref{fig:k-desc-node}, the output displays GPU information for each node. `Capacity` indicates total GPUs detected, `Allocatable` shows how many are available for pod scheduling, and `Allocated` displays current usage as requests/limits (zeros indicate no pods are using GPUs yet). Since k3d passes all host GPUs to each container, every node reports the same GPU count—this is expected behavior for local development. A complete example output from an 8-GPU A100 node is available at `code/k3d/kubectl_describe_node.txt`. 
+Figure~\ref{fig:k-desc-node} shows a sample output from an 8-GPU A100 node (complete output available at `code/k3d/kubectl_describe_node.txt`). In the output, `Capacity` indicates total GPUs detected, `Allocatable` shows how many are available for pod scheduling, and `Allocated` displays current usage as requests/limits (zeros indicate no pods are using GPUs yet). Since k3d passes all host GPUs to each container, every node reports the same GPU count—this is expected behavior for local development. 
 
 
 For cluster customization options such as mounting model directories or selecting specific GPUs, refer to `code/k3d/README.md`.
@@ -356,7 +356,9 @@ The pod will initially show `ContainerCreating` while Kubernetes pulls the vLLM 
 kubectl logs -l app=vllm --follow
 ```
 
-Model loading typically takes 2-5 minutes depending on model size and whether the weights are already cached locally. The logs will show download progress if the model needs to be fetched from Hugging Face, followed by the model being loaded into GPU memory. Once the logs indicate "Uvicorn running on...", the server is ready.
+![vLLM pod logs](img/k_logs_follow.png){#fig:k-logs-follow .wrap width=70% align=right-top}
+
+Figure~\ref{fig:k-logs-follow} shows typical log output during model startup. The logs display download progress if the model needs to be fetched from Hugging Face, followed by the model being loaded into GPU memory. Model loading typically takes 2-5 minutes depending on model size and whether the weights are already cached locally. Once the logs indicate "Application startup complete.", the server is ready to accept requests.
 
 To test the API, forward the service port to your local machine and send a request:
 
