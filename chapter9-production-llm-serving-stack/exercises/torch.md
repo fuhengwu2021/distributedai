@@ -273,6 +273,7 @@ curl http://localhost:8080/v1/chat/completions \
 ```
 
 __Deliverables:__
+
 - Kubernetes YAML files for vLLM deployments
 - API gateway deployment and service YAML
 - ConfigMap for model-to-service routing
