@@ -378,7 +378,7 @@ curl http://localhost:8000/v1/chat/completions \
 
 Figure~\ref{fig:k-vllm-output} shows a successful response from the vLLM server running in Kubernetes. The JSON response follows the OpenAI chat completions format, including the model name, generated content, and token usage statistics.
 
-Looking at the deployment manifests, you'll notice several configuration patterns worth understanding. The `--gpu-memory-utilization 0.2` flag tells vLLM to reserve only 20% of GPU memory, which is conservative but useful when running multiple models on shared GPUs. For single-model deployments where you want maximum throughput, increase this to 0.8 or 0.9.
+Looking at the deployment manifests (`code/k3d/vllm/llama-3.2-1b.yaml` and `code/k3d/vllm/phi-tiny-moe.yaml`), you'll notice several configuration patterns worth understanding. The `--gpu-memory-utilization 0.2` flag tells vLLM to reserve only 20% of GPU memory, which is conservative but useful when running multiple models on shared GPUs. For single-model deployments where you want maximum throughput, increase this to 0.8 or 0.9.
 
 The health probes deserve special attention. Kubernetes uses liveness and readiness probes to determine if a pod is healthy, but LLM models take significant time to load into GPU memory—often several minutes for larger models. The manifests set `initialDelaySeconds` to 120-180 seconds to give the model time to load. Without this delay, Kubernetes would see the health check fail and restart the pod in an endless loop.
 
@@ -400,21 +400,109 @@ docker rmi k3s-cuda:<your-tag>  # optional, removes the custom image
 
 ### Multi-Model and Multi-Engine Serving
 
-Once you have a single model running, the natural next step is serving multiple models through a unified API. Production deployments rarely serve just one model---you might have different models for different tasks (a small model for simple queries, a larger one for complex reasoning), or you might want to A/B test different models or inference engines.
+With a single vLLM deployment running successfully, we can now explore more sophisticated serving patterns. Production deployments rarely serve just one model---you might have different models for different tasks (a small model for simple queries, a larger one for complex reasoning), or you might want to A/B test different models or inference engines.
+
+#### Multi-Model Routing
+
+The key insight is that an API gateway can route requests based on the `model` field in the OpenAI-compatible request body. When a client sends a request specifying `"model": "meta-llama/Llama-3.2-1B-Instruct"`, the gateway looks up which Kubernetes service hosts that model and forwards the request accordingly. This creates a unified endpoint where clients don't need to know which backend server handles which model.
+
+Figure~\ref{fig:multi-model-routing} illustrates this architecture. Let's build it step by step. First, deploy a second model alongside the Llama model we deployed earlier:
+
+```bash
+cd code/k3d/vllm
+kubectl apply -f phi-tiny-moe.yaml
+kubectl get pods -l app=vllm
+# NAME                                    READY   STATUS    RESTARTS   AGE
+# vllm-llama-32-1b-pod-xxx                1/1     Running   0          10m
+# vllm-phi-tiny-moe-pod-xxx               1/1     Running   0          2m
+```
+
+Now we have two vLLM services running: `vllm-llama-32-1b-service` and `vllm-phi-tiny-moe-service`. Next, deploy the API gateway that routes requests to the appropriate backend:
+
+```bash
+cd code/k3d/gateway
+# Create ConfigMap from gateway code and routing config
+kubectl create configmap vllm-api-gateway-code \
+  --from-file=api-gateway.py=api-gateway.py \
+  --from-file=routing-config.yaml=routing-config.yaml
+kubectl apply -f api-gateway.yaml
+kubectl get pods -l app=vllm-gateway
+```
 
 ![Multi-model routing architecture.](img/multi_model_routing.png){#fig:multi-model-routing width=80%}
 
-The key insight, illustrated in Figure \ref{fig:multi-model-routing}, is that an API gateway can route requests based on the `model` field in the OpenAI-compatible request body. When a client sends a request specifying `"model": "meta-llama/Llama-3.2-1B-Instruct"`, the gateway looks up which Kubernetes service hosts that model and forwards the request accordingly. This creates a unified endpoint where clients don't need to know which backend server handles which model.
+The routing configuration (`routing-config.yaml`) maps model names to Kubernetes services:
 
-The `code/k3d/` directory contains complete examples of this pattern. The `llm-d-multi-model/` subdirectory demonstrates deploying multiple models (Llama-3.2-1B and Qwen2.5-0.5B) with vLLM, each as a separate Kubernetes pod with its own service. An API gateway aggregates these services, providing a single `/v1/chat/completions` endpoint that routes based on the model name.
+```yaml
+routing:
+  - model: "meta-llama/Llama-3.2-1B-Instruct"
+    service_name: "vllm-llama-32-1b-service"
+  - model: "Phi-tiny-MoE-instruct"
+    service_name: "vllm-phi-tiny-moe-service"
+```
+
+Test the gateway by sending requests with different model names:
+
+```bash
+kubectl port-forward svc/vllm-api-gateway 8080:8000 &
+
+# Request routed to Llama
+curl http://localhost:8080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model": "meta-llama/Llama-3.2-1B-Instruct", 
+       "messages": [{"role": "user", "content": "Hello!"}]}'
+
+# Request routed to Phi
+curl http://localhost:8080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model": "Phi-tiny-MoE-instruct", 
+       "messages": [{"role": "user", "content": "Hello!"}]}'
+```
+
+#### Multi-Engine Routing
+
+Taking this further, we can deploy the same model on different inference engines (vLLM and SGLang) and route based on an `inference_server` field. This is useful for benchmarking engines or gradually migrating between them.
 
 ![Multi-engine routing architecture.](img/multi_engine_routing.png){#fig:multi-engine-routing width=80%}
 
-The `llm-d-multi-engine/` subdirectory, illustrated in Figure \ref{fig:multi-engine-routing}, takes this further by deploying the same model (Qwen2.5-0.5B-Instruct) on both vLLM and SGLang. Here, routing uses both the `model` field and an `owned_by` field to select the inference engine---useful for benchmarking or gradually migrating between engines.
+As shown in Figure~\ref{fig:multi-engine-routing}, the gateway parses both `model` and `inference_server` fields to determine routing. Deploy the SGLang backend:
 
-The routing logic itself is straightforward. The gateway maintains a mapping from (model, engine) tuples to Kubernetes service names. When a request arrives, it extracts the model name from the JSON body, optionally checks for an `owned_by` field specifying the engine preference, and forwards to the appropriate backend. If no engine is specified, it defaults to a configured primary (typically vLLM). The gateway also aggregates the `/v1/models` endpoint, returning a combined list of all available models across all backends.
+```bash
+cd code/k3d/sglang
+kubectl apply -f llama-3.2-1b.yaml
+kubectl get pods -l app=sglang
+```
 
-For production deployments, you'll want to add authentication (API keys or OAuth tokens), rate limiting (per-client request quotas), and observability (request logging, latency metrics, error tracking). The `code/k3d/gateway/` directory includes example middleware for these concerns. But the core routing pattern remains the same whether you're running locally on k3d or in a production Kubernetes cluster.
+Update the routing configuration to include engine-specific routes:
+
+```yaml
+routing:
+  - model: "meta-llama/Llama-3.2-1B-Instruct"
+    inference_server: "vllm"
+    service_name: "vllm-llama-32-1b-service"
+  - model: "meta-llama/Llama-3.2-1B-Instruct"
+    inference_server: "sglang"
+    service_name: "sglang-llama-32-1b-service"
+  - model: "meta-llama/Llama-3.2-1B-Instruct"
+    inference_server: null  # Default to vLLM
+    service_name: "vllm-llama-32-1b-service"
+```
+
+Now clients can explicitly select their preferred engine:
+
+```bash
+# Route to vLLM
+curl http://localhost:8080/v1/chat/completions \
+  -d '{"model": "meta-llama/Llama-3.2-1B-Instruct",
+       "inference_server": "vllm", ...}'
+
+# Route to SGLang
+curl http://localhost:8080/v1/chat/completions \
+  -d '{"model": "meta-llama/Llama-3.2-1B-Instruct",
+       "inference_server": "sglang", ...}'
+```
+
+The gateway also aggregates the `/v1/models` endpoint, returning a combined list of all available models across all backends. For production deployments, you'll want to add authentication (API keys or OAuth tokens), rate limiting (per-client request quotas), and observability (request logging, latency metrics, error tracking). The `code/k3d/gateway/api-gateway.py` includes example middleware for these concerns.
 
 
 ## Kubernetes Deployment with llm-d
