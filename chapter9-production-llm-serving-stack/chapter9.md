@@ -756,7 +756,31 @@ $ curl http://localhost:8002/v1/chat/completions \
 "message":{"role":"assistant","content":"Hello! How can I assist you?"}...
 ```
 
-Unlike our manual k3d setup where we built a custom API gateway, llm-d's Inference Gateway handles routing automatically. It also adds intelligence: tracking prefix cache state across instances and routing repeat requests to servers that can serve them faster.
+The example above uses the simplest setup---direct service access without the Inference Gateway. This requires separate port-forwards for each model, similar to accessing raw vLLM pods. For production deployments, llm-d provides the Inference Gateway that routes requests to the correct model based on the `model` field in the request body. Let's add it:
+
+```bash
+./manage-cluster-multi-models.sh start --with-gateway
+```
+
+This deploys the Gateway API CRDs, creates an InferencePool for each model, and sets up HTTPRoutes for model-based routing. Now you can access both models through a single endpoint:
+
+```bash
+kubectl port-forward svc/llm-gateway 8000:8000 &
+
+# Request Llama model
+$ curl http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model": "meta-llama/Llama-3.2-1B-Instruct",
+       "messages": [{"role": "user", "content": "Hello!"}]}'
+
+# Request Qwen model (same port, different model)
+$ curl http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model": "Qwen/Qwen2.5-0.5B-Instruct",
+       "messages": [{"role": "user", "content": "Hello!"}]}'
+```
+
+Unlike our manual k3d setup where we built a custom API gateway, llm-d's Inference Gateway handles routing automatically using the Kubernetes Gateway API Inference Extension. It also adds intelligence: tracking prefix cache state across instances and routing repeat requests to servers that can serve them faster.
 
 One limitation worth noting: llm-d follows a "vLLM-first" design philosophy. The Inference Gateway's intelligent features---prefix-cache aware routing, NIXL-based KV cache transfer, and the inference scheduler---are tightly integrated with vLLM's internals. SGLang support is under active development (tracked in GitHub issue #403), but as of this writing, llm-d's native routing doesn't support engine selection. For readers interested in multi-engine deployments, the `code/llmd/llm-d-multi-engine/` directory provides a workaround using a custom API gateway layer---see the README for details.
 
