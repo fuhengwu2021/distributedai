@@ -793,7 +793,7 @@ Unlike our manual k3d setup where we built a custom API gateway, llm-d's Inferen
 ::: {width=85%}
 
 | Feature | k3d (Manual) | llm-d (Production) |
-|---------|--------------|---------------------|
+|-------------|----------------|---------------------|
 | **Setup** | Manual YAML files | Helm charts (automated) |
 | **Routing** | Custom API Gateway | Inference Gateway (K8s native) |
 | **Load Balancing** | Basic round-robin | Intelligent (prefix-cache aware) |
@@ -810,17 +810,13 @@ The k3d approach we explored earlier is valuable for learning and local developm
 
 ## Summary
 
-This chapter has covered building a complete production LLM serving stack. Key takeaways:
+Serving LLMs in production involves far more than loading weights and accepting requests. We explored inference internals---tokenization, attention, KV caching---to understand why frameworks like vLLM and SGLang handle the complex orchestration of batching and memory management for us.
 
-1. **Production systems are complex:** Multiple components work together (tokenizer, model runner, gateway, monitoring)
-2. **Routing is critical:** Intelligent routing improves performance and cost
-3. **Canary deployments enable safe rollouts:** Gradual traffic shifting with automated rollback
-4. **Observability is essential:** Distributed tracing and metrics are crucial for debugging and optimization
-5. **Cost optimization matters:** Spot instances, model selection, and autoscaling reduce costs
+We built a multi-model stack from scratch using k3d, gaining hands-on insight into services, routing, and API gateways. We then contrasted this with llm-d, where the same concepts---InferencePools, model-aware routing, health checks---are packaged into production-ready Helm charts with automatic model discovery.
 
-Building production LLM serving systems requires careful attention to reliability, scalability, and cost. The patterns and techniques covered in this chapter provide a solid foundation for building such systems.
+Production systems demand more than correctness: observability for debugging, canary deployments for safe rollouts, and cost optimization through autoscaling. The journey from laptop to millions of requests is substantial, but the patterns remain consistent: understand your workload, measure everything, automate what you can.
 
-Once you've built your distributed training and inference systems, you need to know how well they're performing. Are you getting the throughput you expect? Is latency acceptable? How efficiently are you using your GPUs? The next chapter teaches you how to benchmark distributed training and inference systems rigorously. We'll cover both performance benchmarking (throughput, latency, scaling efficiency) and accuracy benchmarking (model quality, output correctness), using tools like genai-bench, PyTorch profiler, and custom scripts. By the end, you'll be able to identify bottlenecks, evaluate model accuracy, and optimize your systems effectively.
+With serving infrastructure in place, a natural question arises: how well is it performing? The next chapter addresses this directly---benchmarking throughput, latency, and scaling efficiency with tools like genai-bench and PyTorch profiler.
 
 ## References
 
