@@ -543,7 +543,7 @@ sglang-llama-32-1b-service   ClusterIP   10.43.249.196   <none>        8000/TCP 
 vllm-llama-32-1b-service     ClusterIP   10.43.89.85     <none>        8000/TCP   21m
 ```
 
-The routing configuration includes engine-specific routes:
+The routing configuration (`code/k3d/gateway/routing-config.yaml`) includes engine-specific routes, allowing clients to select their preferred inference engine:
 
 ```yaml
 routing:
@@ -567,7 +567,6 @@ kubectl port-forward svc/vllm-api-gateway 8080:8000 &
 Then send requests with different engine selections:
 
 ```bash
-# Route to vLLM (default)
 $ curl http://localhost:8080/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{"model": "meta-llama/Llama-3.2-1B-Instruct",
