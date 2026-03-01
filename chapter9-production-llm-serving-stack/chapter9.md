@@ -309,14 +309,17 @@ kubectl get nodes
 # NAME                         STATUS   ROLES           AGE   VERSION
 # k3d-mycluster-gpu-server-0   Ready    control-plane   41s   v1.35.1+k3s1
 # k3d-mycluster-gpu-agent-0    Ready    <none>          37s   v1.35.1+k3s1
-kubectl describe nodes | grep nvidia.com/gpu
-#   nvidia.com/gpu:     8
-...
-#   nvidia.com/gpu     0         0
-...
 ```
 
-The grep output shows GPU information for each node. A complete example output from an 8-GPU A100 node is kept at `code/k3d/kubectl_describe_node.txt`. In the output, `Capacity` indicates total GPUs detected, `Allocatable` shows how many are available for pod scheduling, and `Allocated` displays current usage as requests/limits (zeros indicate no pods are using GPUs yet). Since k3d passes all host GPUs to each container, every node reports the same GPU count—this is expected behavior for local development. 
+Then verify that GPUs are accessible to the cluster:
+
+```bash
+kubectl describe nodes | grep nvidia.com/gpu
+```
+
+![`kubectl describe nodes` output.](img/k_desc_node.png){#fig:k-desc-node .wrap align=top-right}
+
+As shown in Figure~\ref{fig:k-desc-node}, the output displays GPU information for each node. `Capacity` indicates total GPUs detected, `Allocatable` shows how many are available for pod scheduling, and `Allocated` displays current usage as requests/limits (zeros indicate no pods are using GPUs yet). Since k3d passes all host GPUs to each container, every node reports the same GPU count—this is expected behavior for local development. A complete example output from an 8-GPU A100 node is available at `code/k3d/kubectl_describe_node.txt`. 
 
 
 For cluster customization options such as mounting model directories or selecting specific GPUs, refer to `code/k3d/README.md`.
