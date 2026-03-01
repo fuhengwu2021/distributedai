@@ -514,7 +514,36 @@ cd code/k3d
 ./manage-cluster-multi-engines.sh start
 ```
 
-This creates a `multi-engines` namespace and deploys Llama-3.2-1B on both vLLM and SGLang. The routing configuration includes engine-specific routes:
+This creates a `multi-engines` namespace and deploys Llama-3.2-1B on both vLLM and SGLang. We can check the status of deployment by running:
+
+```bash
+$ ./manage-cluster-multi-engines.sh status
+==========================================
+k3d Cluster Status: mycluster-gpu
+==========================================
+📊 Cluster list:
+NAME            SERVERS   AGENTS   LOADBALANCER
+mycluster-gpu   1/1       1/1      true
+Switched to context "k3d-mycluster-gpu".
+📊 Kubernetes nodes:
+NAME                         STATUS   ROLES           AGE     VERSION
+k3d-mycluster-gpu-agent-0    Ready    <none>          6h16m   v1.35.1+k3s1
+k3d-mycluster-gpu-server-0   Ready    control-plane   6h16m   v1.35.1+k3s1
+📊 Namespaces:
+NAME              STATUS   AGE
+multi-engines     Active   21m
+multi-models      Active   64m
+📊 Pods in namespace multi-engines:
+NAME                                      READY   STATUS    RESTARTS   AGE
+sglang-llama-32-1b-pod-7dc599696d-67f9r   1/1     Running   0          21m
+vllm-llama-32-1b-pod-76895c5cfb-m9bbw     1/1     Running   0          21m
+📊 Services in namespace multi-engines:
+NAME                         TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)    AGE
+sglang-llama-32-1b-service   ClusterIP   10.43.249.196   <none>        8000/TCP   21m
+vllm-llama-32-1b-service     ClusterIP   10.43.89.85     <none>        8000/TCP   21m
+```
+
+The routing configuration includes engine-specific routes:
 
 ```yaml
 routing:
@@ -529,7 +558,13 @@ routing:
     service_name: "vllm-llama-32-1b-service.multi-engines.svc.cluster.local"
 ```
 
-Now clients can explicitly select their preferred engine:
+Now clients can explicitly select their preferred engine. First, set up port forwarding to access the gateway:
+
+```bash
+kubectl port-forward svc/vllm-api-gateway 8080:8000 &
+```
+
+Then send requests with different engine selections:
 
 ```bash
 # Route to vLLM (default)
