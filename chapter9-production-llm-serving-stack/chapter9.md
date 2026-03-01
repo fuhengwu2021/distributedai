@@ -712,6 +712,8 @@ cd code/llmd/llm-d-multi-model
 ./deploy.sh
 ```
 
+The script uses the latest vLLM version v0.14.1 at the time of this writing, which matches llm-d v0.5.0. Since vLLM and llm-d are actively developed, you may need to update image versions in the deployment files---see README.md in code/llmd/llm-d-multi-model for instructions.
+
 The script creates the cluster, installs the NVIDIA device plugin, sets up llm-d, and deploys both models. Check deployment status:
 
 ```bash
