@@ -402,43 +402,46 @@ docker rmi k3s-cuda:<your-tag>  # optional, removes the custom image
 
 With a single vLLM deployment running successfully, we can now explore more sophisticated serving patterns. Production deployments rarely serve just one model---you might have different models for different tasks (a small model for simple queries, a larger one for complex reasoning), or you might want to A/B test different models or inference engines.
 
+The `code/k3d/` directory provides two management scripts that automate these deployment patterns:
+
+- `manage-cluster-multi-models.sh`: Deploys multiple models (Llama-3.2-1B + Phi-tiny-MoE) using a single engine (vLLM)
+- `manage-cluster-multi-engines.sh`: Deploys the same model (Llama-3.2-1B) on multiple engines (vLLM + SGLang)
+
 #### Multi-Model Routing
 
 The key insight is that an API gateway can route requests based on the `model` field in the OpenAI-compatible request body. When a client sends a request specifying `"model": "meta-llama/Llama-3.2-1B-Instruct"`, the gateway looks up which Kubernetes service hosts that model and forwards the request accordingly. This creates a unified endpoint where clients don't need to know which backend server handles which model.
 
-Figure~\ref{fig:multi-model-routing} illustrates this architecture. Let's build it step by step. First, deploy a second model alongside the Llama model we deployed earlier:
-
-```bash
-cd code/k3d/vllm
-kubectl apply -f phi-tiny-moe.yaml
-kubectl get pods -l app=vllm
-# NAME                                    READY   STATUS    RESTARTS   AGE
-# vllm-llama-32-1b-pod-xxx                1/1     Running   0          10m
-# vllm-phi-tiny-moe-pod-xxx               1/1     Running   0          2m
-```
-
-Now we have two vLLM services running: `vllm-llama-32-1b-service` and `vllm-phi-tiny-moe-service`. Next, deploy the API gateway that routes requests to the appropriate backend:
-
-```bash
-cd code/k3d/gateway
-# Create ConfigMap from gateway code and routing config
-kubectl create configmap vllm-api-gateway-code \
-  --from-file=api-gateway.py=api-gateway.py \
-  --from-file=routing-config.yaml=routing-config.yaml
-kubectl apply -f api-gateway.yaml
-kubectl get pods -l app=vllm-gateway
-```
-
 ![Multi-model routing architecture.](img/multi_model_routing.png){#fig:multi-model-routing width=80%}
 
-The routing configuration (`routing-config.yaml`) maps model names to Kubernetes services:
+Figure~\ref{fig:multi-model-routing} illustrates this architecture. The easiest way to deploy it is using the management script:
+
+```bash
+cd code/k3d
+./manage-cluster-multi-models.sh start
+```
+
+This script creates a `multi-models` namespace, deploys both vLLM models (Llama-3.2-1B and Phi-tiny-MoE), and sets up the API gateway. You can also deploy manually step by step:
+
+```bash
+# Create namespace
+kubectl create namespace multi-models
+
+# Deploy models
+kubectl apply -f vllm/llama-3.2-1b.yaml -n multi-models
+kubectl apply -f vllm/phi-tiny-moe.yaml -n multi-models
+
+# Deploy API gateway
+cd gateway && ./deploy-gateway.sh
+```
+
+The routing configuration (`gateway/routing-config.yaml`) maps model names to Kubernetes services:
 
 ```yaml
 routing:
   - model: "meta-llama/Llama-3.2-1B-Instruct"
-    service_name: "vllm-llama-32-1b-service"
+    service_name: "vllm-llama-32-1b-service.multi-models.svc.cluster.local"
   - model: "Phi-tiny-MoE-instruct"
-    service_name: "vllm-phi-tiny-moe-service"
+    service_name: "vllm-phi-tiny-moe-service.multi-models.svc.cluster.local"
 ```
 
 Test the gateway by sending requests with different model names:
@@ -465,41 +468,43 @@ Taking this further, we can deploy the same model on different inference engines
 
 ![Multi-engine routing architecture.](img/multi_engine_routing.png){#fig:multi-engine-routing width=80%}
 
-As shown in Figure~\ref{fig:multi-engine-routing}, the gateway parses both `model` and `inference_server` fields to determine routing. Deploy the SGLang backend:
+As shown in Figure~\ref{fig:multi-engine-routing}, the gateway parses both `model` and `inference_server` fields to determine routing. Use the multi-engine management script:
 
 ```bash
-cd code/k3d/sglang
-kubectl apply -f llama-3.2-1b.yaml
-kubectl get pods -l app=sglang
+cd code/k3d
+./manage-cluster-multi-engines.sh start
 ```
 
-Update the routing configuration to include engine-specific routes:
+This creates a `multi-engines` namespace and deploys Llama-3.2-1B on both vLLM and SGLang. The routing configuration includes engine-specific routes:
 
 ```yaml
 routing:
   - model: "meta-llama/Llama-3.2-1B-Instruct"
     inference_server: "vllm"
-    service_name: "vllm-llama-32-1b-service"
+    service_name: "vllm-llama-32-1b-service.multi-engines.svc.cluster.local"
   - model: "meta-llama/Llama-3.2-1B-Instruct"
     inference_server: "sglang"
-    service_name: "sglang-llama-32-1b-service"
+    service_name: "sglang-llama-32-1b-service.multi-engines.svc.cluster.local"
   - model: "meta-llama/Llama-3.2-1B-Instruct"
     inference_server: null  # Default to vLLM
-    service_name: "vllm-llama-32-1b-service"
+    service_name: "vllm-llama-32-1b-service.multi-engines.svc.cluster.local"
 ```
 
 Now clients can explicitly select their preferred engine:
 
 ```bash
-# Route to vLLM
+# Route to vLLM (default)
 curl http://localhost:8080/v1/chat/completions \
+  -H "Content-Type: application/json" \
   -d '{"model": "meta-llama/Llama-3.2-1B-Instruct",
-       "inference_server": "vllm", ...}'
+       "messages": [{"role": "user", "content": "Hello!"}]}'
 
-# Route to SGLang
+# Route to SGLang explicitly
 curl http://localhost:8080/v1/chat/completions \
+  -H "Content-Type: application/json" \
   -d '{"model": "meta-llama/Llama-3.2-1B-Instruct",
-       "inference_server": "sglang", ...}'
+       "inference_server": "sglang",
+       "messages": [{"role": "user", "content": "Hello!"}]}'
 ```
 
 The gateway also aggregates the `/v1/models` endpoint, returning a combined list of all available models across all backends. For production deployments, you'll want to add authentication (API keys or OAuth tokens), rate limiting (per-client request quotas), and observability (request logging, latency metrics, error tracking). The `code/k3d/gateway/api-gateway.py` includes example middleware for these concerns.

@@ -108,11 +108,11 @@ service2_box = FancyBboxPatch(
 ax.add_patch(service2_box)
 ax.text(7.25, 1.55, 'vLLM Service 2', ha='center', va='center',
         fontsize=12, fontweight='bold', color='#2E7D32')
-ax.text(7.25, 1.2, '(Qwen2.5-0.5B)', ha='center', va='center',
+ax.text(7.25, 1.2, '(Phi-tiny-MoE)', ha='center', va='center',
         fontsize=12, color='black')
-ax.text(7.25, 0.85, 'Pod: vllm-qwen-0.5b', ha='center', va='center',
+ax.text(7.25, 0.85, 'Pod: vllm-phi-tiny-moe', ha='center', va='center',
         fontsize=12, color='black')
-ax.text(7.25, 0.55, 'Service: vllm-qwen-0.5b:8000', ha='center', va='center',
+ax.text(7.25, 0.55, 'Service: vllm-phi-tiny-moe:8000', ha='center', va='center',
         fontsize=12, color='black')
 
 # Legend

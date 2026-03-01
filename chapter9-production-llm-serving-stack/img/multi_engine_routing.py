@@ -94,13 +94,13 @@ vllm_box = FancyBboxPatch(
 ax.add_patch(vllm_box)
 ax.text(2.75, 2.35, 'vLLM Service', ha='center', va='center',
         fontsize=11, fontweight='bold', color='#2E7D32')
-ax.text(2.75, 2.0, '(Qwen2.5-0.5B)', ha='center', va='center',
+ax.text(2.75, 2.0, '(Llama-3.2-1B)', ha='center', va='center',
         fontsize=10, color='black')
-ax.text(2.75, 1.65, 'Pod: vllm-qwen-0.5b', ha='center', va='center',
+ax.text(2.75, 1.65, 'Pod: vllm-llama-32-1b', ha='center', va='center',
         fontsize=10, color='black')
-ax.text(2.75, 1.35, 'Service: vllm-qwen-0.5b:8000', ha='center', va='center',
+ax.text(2.75, 1.35, 'Service: vllm-llama-32-1b:8000', ha='center', va='center',
         fontsize=10, color='black')
-ax.text(2.75, 1.0, 'owned_by: "vllm"', ha='center', va='center',
+ax.text(2.75, 1.0, 'inference_server: "vllm"', ha='center', va='center',
         fontsize=11, fontweight='bold', color='#2E7D32')
 ax.text(2.75, 0.65, 'Image: vllm/vllm-openai:v0.12.0', ha='center', va='center',
         fontsize=10, style='italic', color='black')
@@ -116,13 +116,13 @@ sglang_box = FancyBboxPatch(
 ax.add_patch(sglang_box)
 ax.text(7.25, 2.35, 'SGLang Service', ha='center', va='center',
         fontsize=11, fontweight='bold', color='#E65100')
-ax.text(7.25, 2.0, '(Qwen2.5-0.5B)', ha='center', va='center',
+ax.text(7.25, 2.0, '(Llama-3.2-1B)', ha='center', va='center',
         fontsize=10, color='black')
-ax.text(7.25, 1.65, 'Pod: sglang-qwen-0.5b', ha='center', va='center',
+ax.text(7.25, 1.65, 'Pod: sglang-llama-32-1b', ha='center', va='center',
         fontsize=10, color='black')
-ax.text(7.25, 1.35, 'Service: sglang-qwen-0.5b:8000', ha='center', va='center',
+ax.text(7.25, 1.35, 'Service: sglang-llama-32-1b:8000', ha='center', va='center',
         fontsize=10, color='black')
-ax.text(7.25, 1.0, 'owned_by: "sglang"', ha='center', va='center',
+ax.text(7.25, 1.0, 'inference_server: "sglang"', ha='center', va='center',
         fontsize=11, fontweight='bold', color='#E65100')
 ax.text(7.25, 0.65, 'Image: lmsysorg/sglang:v0.5.6', ha='center', va='center',
         fontsize=10, style='italic', color='black')
