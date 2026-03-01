@@ -21,7 +21,7 @@
 
 ## The Performance Gap in Distributed Systems
 
-You've built the distributed AI system. DDP synchronizes gradients across your 8-GPU cluster. FSDP shards your 70B parameter model across nodes. vLLM serves inference requests with continuous batching. The production stack from Chapter 9 routes traffic to the right model instances. Everything *works*—but is it working *well*?
+You've built the distributed AI system. DDP synchronizes gradients across your 8-GPU cluster. FSDP shards your 70B parameter model across nodes. vLLM serves inference requests with continuous batching. The production stack from Chapter \ref{chap:production-llm-serving-stack} routes traffic to the right model instances. Everything *works*—but is it working *well*?
 
 This is the question that separates functional systems from optimized ones. A training run that completes is not the same as a training run that efficiently utilizes your \$100,000 worth of GPUs. An inference endpoint that returns responses is not the same as one that meets your 200ms P99 latency SLA. The difference between "working" and "working well" can mean days of wasted training time, violated service agreements, and unnecessary cloud costs.
 
@@ -102,7 +102,7 @@ __Communication Overhead__ quantifies the hidden tax of distributed training. Ev
 
 ![Training iteration time breakdown by phase and GPU count](img/training_breakdown.png)
 
-The figure above illustrates a common pattern: as you scale from 1 GPU to 16 GPUs, communication overhead grows from 0% to over 50% of iteration time. This is why scaling efficiency decreases—you're spending more time synchronizing and less time computing. Understanding this breakdown is the first step toward optimization.
+The figure above illustrates a common pattern in distributed training. On the left, absolute iteration time drops as we add GPUs---from 155ms on a single GPU to 33ms on 16 GPUs. But the right panel reveals the hidden cost: communication overhead grows from 0% (single GPU has nothing to synchronize) to 55% on 16 GPUs. At that point, more than half of each iteration is spent on gradient synchronization rather than actual computation. This is why scaling efficiency decreases---you're paying for 16 GPUs but the communication overhead means you're not getting 16x the throughput. Understanding this breakdown is the first step toward optimization: if communication dominates, you might benefit from gradient compression, larger batch sizes to amortize sync costs, or overlapping communication with computation.
 
 ### PyTorch Profiler
 

@@ -5,8 +5,10 @@ Shows time spent in each phase of distributed training.
 import matplotlib.pyplot as plt
 import numpy as np
 
+from math4ai import save_figure
+
 def create_training_breakdown_diagram():
-    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+    fig, axes = plt.subplots(1, 2, figsize=(10, 5))
     
     # Data for different GPU configurations
     configs = ['1 GPU', '4 GPUs', '8 GPUs', '16 GPUs']
@@ -71,17 +73,17 @@ def create_training_breakdown_diagram():
     y = np.arange(len(configs))
     height = 0.5
     
-    ax2.barh(y, compute_pct, height, label='Compute (Forward + Backward)', color='#4CAF50')
-    ax2.barh(y, comm_pct, height, left=compute_pct, label='Communication', color='#FF9800')
+    ax2.barh(y, compute_pct, height, label='Compute', color='#4CAF50')
+    ax2.barh(y, comm_pct, height, left=compute_pct, label='Commun', color='#FF9800')
     ax2.barh(y, other_pct, height, left=np.array(compute_pct) + np.array(comm_pct), 
-             label='Other (Optimizer + Data)', color='#607D8B')
+             label='Other', color='#607D8B')
     
     ax2.set_xlabel('Percentage of Iteration Time (%)', fontsize=12)
     ax2.set_ylabel('Configuration', fontsize=12)
     ax2.set_title('Time Distribution by Category', fontsize=14, fontweight='bold')
     ax2.set_yticks(y)
     ax2.set_yticklabels(configs)
-    ax2.legend(loc='lower right', fontsize=9)
+    ax2.legend(loc='lower left', fontsize=9)
     ax2.set_xlim(0, 100)
     ax2.grid(True, alpha=0.3, axis='x')
     
@@ -93,20 +95,9 @@ def create_training_breakdown_diagram():
             ax2.text(comp + comm/2, i, f'{comm:.0f}%', ha='center', va='center',
                     fontsize=10, fontweight='bold', color='white')
     
-    # Add insight annotation
-    ax2.annotate('Communication overhead\nincreases with scale', 
-                xy=(70, 3), xytext=(85, 1.5),
-                fontsize=10, ha='center',
-                bbox=dict(boxstyle='round', facecolor='#FFF3E0', edgecolor='#FF9800'),
-                arrowprops=dict(arrowstyle='->', color='#FF9800', lw=1.5))
     
     plt.tight_layout()
-    plt.savefig('training_breakdown.png', dpi=150, bbox_inches='tight',
-                facecolor='white', edgecolor='none')
-    plt.savefig('training_breakdown.pdf', bbox_inches='tight',
-                facecolor='white', edgecolor='none')
-    plt.close()
+    save_figure(__file__)
 
 if __name__ == '__main__':
     create_training_breakdown_diagram()
-    print("Generated: training_breakdown.png")
