@@ -495,6 +495,12 @@ $ curl http://localhost:8080/v1/chat/completions \
 "prompt_logprobs":null,"prompt_token_ids":null,"kv_transfer_params":null}
 ```
 
+Before moving to multi-engine routing, clean up the multi-models deployment to free GPU resources:
+
+```bash
+./manage-cluster-multi-models.sh stop
+```
+
 #### Multi-Engine Routing
 
 Taking this further, we can deploy the same model on different inference engines (vLLM and SGLang) and route based on an `inference_server` field. This is useful for benchmarking engines or gradually migrating between them.
