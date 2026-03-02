@@ -397,7 +397,7 @@ To see tensor parallelism in action at a lower level, you can run the pure PyTor
 torchrun --nproc_per_node=2 code/tensor_parallel_mlp.py
 ```
 
-This example implements column-parallel and row-parallel linear layers from scratch, showing exactly how weight matrices are split and how the all-reduce combines partial results. Running it helps build intuition for what Megatron does under the hood.
+This example implements column-parallel and row-parallel linear layers from scratch, showing exactly how weight matrices are split and how the all-reduce combines partial results. Running it helps build intuition for what Megatron does under the hood. An example log is located at `code/tensor_parallel_mlp.log`.
 
 ### Pipeline Parallelism: Sharding the Depth
 
@@ -484,6 +484,8 @@ torchrun --nproc_per_node=2 code/sp_demo.py --mode sequence_parallel
 # Context parallelism via ring attention (2 GPUs)
 torchrun --nproc_per_node=2 code/sp_demo.py --mode ring_attention
 ```
+
+Example logs for these runs are in `code/sequence_parallel.log` and `code/ring_attention.log`.
 
 ### DeepSpeed-Ulysses: An Alternative to Ring Attention
 
