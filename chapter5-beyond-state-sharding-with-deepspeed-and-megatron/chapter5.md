@@ -306,13 +306,38 @@ ds_config = {
 }
 ```
 
-The `zero_hpz_partition_size` should match the number of GPUs per node in your cluster (2 in our example). To experiment with these optimizations:
+The `zero_hpz_partition_size` should match the number of GPUs per node in your cluster. To experiment with individual optimizations:
 
 ```bash
 deepspeed --num_gpus=2 code/zero_pp_example.py --enable_qwz
 deepspeed --num_gpus=2 code/zero_pp_example.py --enable_hpz
+```
+
+To enable all three optimizations together:
+
+```bash
 deepspeed --num_gpus=2 code/zero_pp_example.py --enable_qwz --enable_hpz --enable_qgz
 ```
+
+You should see output like:
+
+```
+Model: 124.0M parameters
+World size: 2
+ZeRO++ features:
+  qwZ (Quantized Weights): True
+  hpZ (Hierarchical Partitioning): True
+  qgZ (Quantized Gradients): True
+...
+Using quantizer for weights: CUDAQuantizer
+...
+Step 0, Loss: 10.9776
+...
+ZeRO++ training complete!
+Peak GPU memory: 4.00 GB
+```
+
+The `CUDAQuantizer` message confirms INT8 quantization is active. Note that ZeRO++ requires FP16 precision—the quantization features dequantize to FP16, so using BF16 will cause dtype mismatches.
 
 ZeRO++ is most valuable for large-scale multi-node training where inter-node communication is the bottleneck. For single-node training or small clusters, the benefits are modest since intra-node communication is already fast.
 
