@@ -149,3 +149,15 @@ print(f"Estimated GPUs needed: {strategy['estimated_gpu_count']}")
 print(f"Memory per GPU: {strategy['memory_per_gpu_gb']:.1f} GB")
 ```
 
+
+
+## Expected Learning Outcomes
+
+After completing these exercises, you should be able to:
+
+- Query GPU hardware properties programmatically using PyTorch and CUDA APIs
+- Calculate memory requirements for training large models with different precisions and optimizers
+- Parse and interpret GPU topology information from `nvidia-smi`
+- Identify NVLink vs PCIe connectivity between GPUs
+- Recommend appropriate parallelism strategies based on model size and hardware topology
+- Understand the relationship between GPU interconnects and parallelism efficiency
