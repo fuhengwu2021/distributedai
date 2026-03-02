@@ -581,10 +581,10 @@ Megatron Core provides GPU-optimized building blocks: attention layers with tens
 
 Beyond the basic building blocks, Megatron Core includes the infrastructure that large-scale training requires: activation recomputation to trade compute for memory, distributed checkpointing that saves and loads sharded model states efficiently, and FP8 precision support optimized for NVIDIA's latest GPUs (Hopper, Ada, Blackwell). The distributed optimizer shards optimizer states across data-parallel ranks, complementing the computation sharding we've discussed.
 
-Megatron Core requires cuDNN and NCCL. Install them first, then:
+Megatron Core requires python package pybind11 and system libraries cuDNN and NCCL. Install them first, then:
 
 ```bash
-pip install --no-build-isolation megatron-core[mlm,dev]
+pip install --no-build-isolation megatron-core[mlm,dev] pybind11
 
 # Or use NVIDIA's container with cuDNN and NCCL pre-installed
 docker run --gpus all -it nvcr.io/nvidia/pytorch:25.04-py3
@@ -673,6 +673,7 @@ __LLaMA-3 8B with FP8 Training (8 GPUs):__
 This configuration trains a LLaMA-3 8B model on a single 8-GPU node with long context (8K tokens) and FP8 precision.
 
 ```bash
+export CUDA_DEVICE_MAX_CONNECTIONS=1
 torchrun --nproc_per_node=8 pretrain_gpt.py \
     --use-mcore-models \
     --num-layers 32 \
@@ -692,6 +693,7 @@ torchrun --nproc_per_node=8 pretrain_gpt.py \
     --overlap-param-gather \
     --micro-batch-size 1 \
     --global-batch-size 128 \
+    --max-position-embeddings 8192 \
     --bf16
 ```
 
