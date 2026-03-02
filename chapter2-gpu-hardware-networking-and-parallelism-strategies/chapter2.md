@@ -37,7 +37,7 @@ When someone says "this cluster delivers 500 PFLOPS," you need to ask: at what p
 
 The growth in computational demand for AI has been staggering. Large language models require computational resources that grow by orders of magnitude over a few years, depending on workload and model scaling, while hardware capabilities grow only about 3x in the same period. This gap is why distributed training isn't optional—it's __the only way__ to train modern models in reasonable time.
 
-![GPU Memory Capacity vs Model Memory Requirements](img/computational_growth_gap.png){#fig:computational-growth-gap .wrap width=60% align=top-right lines=8}
+![GPU Memory Capacity vs Model Memory Requirements](img/computational_growth_gap.png){#fig:computational-growth-gap .wrap width=60% align=top-right lines=12}
 
 As shown in @fig:computational-growth-gap, model memory requirements have grown exponentially while single-GPU memory capacity has increased more gradually. This widening gap makes distributed training not just beneficial, but essential for training modern large-scale models within reasonable timeframes.[^computational-gap-data]
 
@@ -990,7 +990,6 @@ This script displays essential GPU information:
 ```python
 #LINENUM
 import torch
-
 print(f"CUDA available: {torch.cuda.is_available()}") #HL
 print(f"Number of GPUs: {torch.cuda.device_count()}") #HL
 for i in range(torch.cuda.device_count()):
@@ -1104,6 +1103,7 @@ Bandwidth: 2156.32 GB/s
 ```
 
 Typical values:
+
 - **H100**: 2-3 TB/s (2000-3000 GB/s)
 - **A100**: 1.5-2 TB/s (1500-2000 GB/s)
 - **H200**: 2-3 TB/s (2000-3000 GB/s)
@@ -1152,7 +1152,7 @@ bandwidth_mb_per_s = total_data_mb / elapsed
 CODE_EXPLAIN_START:
 - 3: Creates a tensor on each GPU
 - 6: AllReduce operation synchronizes data across all GPUs
-- 12: Calculates total data transferred (each GPU sends and receives)
+- 15: Calculates total data transferred (each GPU sends and receives)
 CODE_EXPLAIN_END
 
 Example output for 2 GPUs with NVLink:
