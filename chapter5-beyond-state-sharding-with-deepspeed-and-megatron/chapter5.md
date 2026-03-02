@@ -508,13 +508,10 @@ In practice, DeepSpeed-Ulysses shines in scenarios where you want sequence paral
 The accompanying `code/ulysses_demo.py` implements the core Ulysses algorithm from scratch. It demonstrates the two all-to-all operations: `all_to_all_seq_to_head` transposes from (batch, local_seq, num_heads, head_dim) to (batch, full_seq, local_heads, head_dim), and `all_to_all_head_to_seq` reverses this transformation. Between these two operations, each GPU runs standard self-attention on its subset of heads—no partial softmax accumulation required.
 
 ```bash
-# Run Ulysses demo with 2 GPUs
 torchrun --nproc_per_node=2 code/ulysses_demo.py
-# Run with 4 GPUs (heads must be divisible by world_size)
-torchrun --nproc_per_node=4 code/ulysses_demo.py
 ```
 
-When should you choose Ulysses over ring attention? If you're already in the DeepSpeed ecosystem and want straightforward sequence parallelism with moderate parallelism degrees, Ulysses is the easier path. If you're scaling to very long sequences (100K+ tokens) with large parallelism degrees, ring attention's communication overlap may provide better efficiency.
+An example run is in `code/ulysses_demo.log`. When should you choose Ulysses over ring attention? If you're already in the DeepSpeed ecosystem and want straightforward sequence parallelism with moderate parallelism degrees, Ulysses is the easier path. If you're scaling to very long sequences (100K+ tokens) with large parallelism degrees, ring attention's communication overlap may provide better efficiency.
 
 
 ### Expert Parallelism: Scaling MoE Models
