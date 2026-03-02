@@ -668,6 +668,8 @@ Concrete configurations help solidify understanding. The examples below are base
 git clone https://github.com/NVIDIA/Megatron-LM.git && cd Megatron-LM
 ```
 
+The repository contains extensive documentation in `docs/` and example scripts in `examples/`. For production configurations, refer to `examples/pretrain_llama_*.sh` and `examples/pretrain_gpt_*.sh`.
+
 __LLaMA-3 8B with Long Context (8 × 80GB GPUs):__
 
 This configuration trains a LLaMA-3 8B model with 8K context on a single 8-GPU node (A100-80GB, H100, H200, etc.).
