@@ -581,12 +581,12 @@ Megatron Core provides GPU-optimized building blocks: attention layers with tens
 
 Beyond the basic building blocks, Megatron Core includes the infrastructure that large-scale training requires: activation recomputation to trade compute for memory, distributed checkpointing that saves and loads sharded model states efficiently, and FP8 precision support optimized for NVIDIA's latest GPUs (Hopper, Ada, Blackwell). The distributed optimizer shards optimizer states across data-parallel ranks, complementing the computation sharding we've discussed.
 
-Getting started is straightforward:
+Megatron Core requires cuDNN and NCCL. Install them first, then:
 
 ```bash
 pip install --no-build-isolation megatron-core[mlm,dev]
 
-# Or use NVIDIA's container with everything pre-installed
+# Or use NVIDIA's container with cuDNN and NCCL pre-installed
 docker run --gpus all -it nvcr.io/nvidia/pytorch:25.04-py3
 ```
 
