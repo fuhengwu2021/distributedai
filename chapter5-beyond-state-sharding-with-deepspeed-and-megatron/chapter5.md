@@ -662,7 +662,7 @@ If none of these apply—your layers fit, your sequences are moderate, you're no
 
 ### Real-World Training Configurations
 
-Theory is useful, but seeing real configurations helps solidify understanding. Here are production-ready examples based on actual Megatron training scripts. Note that `pretrain_gpt.py` is part of the Megatron-LM repository—clone it and run these commands from within:
+Concrete configurations help solidify understanding. The examples below are based on actual Megatron training scripts. The `pretrain_gpt.py` script is part of the Megatron-LM repository:
 
 ```bash
 git clone https://github.com/NVIDIA/Megatron-LM.git && cd Megatron-LM
