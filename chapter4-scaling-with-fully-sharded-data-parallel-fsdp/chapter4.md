@@ -689,7 +689,7 @@ The key pattern is wrapping your training loop with `profile()` and using `recor
 
 ```python
 from torch.profiler import profile, record_function, ProfilerActivity
-
+rank = dist.get_rank()
 with profile(
     activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
     record_shapes=True,
@@ -704,12 +704,14 @@ with profile(
         with record_function("optimizer"):
             optimizer.step()
             optimizer.zero_grad()
-
-print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=30))
-prof.export_chrome_trace("fsdp_trace.json")
+if rank == 0:
+    print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=30))
+    prof.export_chrome_trace(f"fsdp_trace_rank{rank}.json")
 ```
 
-The trace file is in Chrome trace format. See Section~\ref{sec:ddp-profiling} in Chapter 3 for how to open and interpret these traces. The short version: open `chrome://tracing` in Chrome, click "Load", and select the `.json` file. In the timeline, look for all-gather and reduce-scatter operations—ideally they overlap with computation. If you see them blocking, prefetching might help. Also check peak memory usage (`profile_memory=True` enables this) to see if activations are eating more than expected.
+Only rank 0 prints and exports the trace. Since FSDP runs the same operations across all ranks synchronously, the timing patterns are nearly identical---examining one rank's trace is usually sufficient. If you suspect load imbalance or stragglers, you can remove the `if rank == 0` guard to export traces from all ranks and compare them.
+
+The trace file `fsdp_trace_rank0.json` is in Chrome trace format. See Section~\ref{sec:ddp-profiling} in Chapter~\ref{chap:distributed-training-with-pytorch-ddp} for how to open and interpret these traces. The short version: open `chrome://tracing` in Chrome, click "Load", and select the `.json` file. In the timeline, look for all-gather and reduce-scatter operations—ideally they overlap with computation. If you see them blocking, prefetching might help. Also check peak memory usage (`profile_memory=True` enables this) to see if activations are eating more than expected.
 
 ### Optimizing Communication
 
