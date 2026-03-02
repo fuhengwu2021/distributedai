@@ -668,13 +668,12 @@ Concrete configurations help solidify understanding. The examples below are base
 git clone https://github.com/NVIDIA/Megatron-LM.git && cd Megatron-LM
 ```
 
-__LLaMA-3 8B with FP8 Training (8 GPUs):__
+__LLaMA-3 8B with Long Context (8 × 80GB GPUs):__
 
-This configuration trains a LLaMA-3 8B model on a single 8-GPU node with long context (8K tokens) and FP8 precision.
+This configuration trains a LLaMA-3 8B model with 8K context on 8 GPUs with 80GB memory (A100-80GB, H100, H200, B200, etc.). FP8 provides speedup on Hopper and newer GPUs; on A100s it falls back to BF16.
 
 ```bash
-export CUDA_DEVICE_MAX_CONNECTIONS=1
-torchrun --nproc_per_node=8 pretrain_gpt.py \
+CUDA_DEVICE_MAX_CONNECTIONS=1 torchrun --nproc_per_node=8 pretrain_gpt.py \
     --use-mcore-models \
     --num-layers 32 \
     --hidden-size 4096 \
@@ -697,7 +696,9 @@ torchrun --nproc_per_node=8 pretrain_gpt.py \
     --bf16
 ```
 
-The model architecture flags (`--num-layers`, `--hidden-size`, `--ffn-hidden-size`, `--num-attention-heads`) define the LLaMA-3 8B structure. `--group-query-attention` with `--num-query-groups 8` enables Grouped-Query Attention, where 32 query heads share 8 KV heads—this reduces KV cache memory significantly. For parallelism, we skip tensor parallelism (`--tensor-model-parallel-size 1`) since each layer fits on one GPU, but use context parallelism (`--context-parallel-size 2`) to handle the 8K sequence by splitting it across 2 GPUs. FP8 training (`--fp8-format hybrid`, `--fp8-param-gather`) provides speedup on H100 GPUs. The distributed optimizer with overlap flags maximizes memory efficiency and hides communication latency.
+For 40GB GPUs (A100-40GB), reduce model size by lowering `--num-layers`, `--hidden-size`, and `--ffn-hidden-size`.
+
+The model architecture flags define the LLaMA-3 8B structure. `--group-query-attention` with `--num-query-groups 8` enables Grouped-Query Attention, where 32 query heads share 8 KV heads—reducing KV cache memory significantly. For parallelism, we skip tensor parallelism (`--tensor-model-parallel-size 1`) since each layer fits on one GPU, but use context parallelism (`--context-parallel-size 2`) to split the 8K sequence across 2 GPUs. The distributed optimizer with overlap flags maximizes memory efficiency.
 
 __GPT-3 175B Scale (128 GPUs):__
 
