@@ -544,11 +544,10 @@ The `--moe-grouped-gemm` flag is worth noting: when a GPU hosts multiple experts
 The accompanying `code/expert_parallel_demo.py` is a from-scratch implementation that demonstrates the core EP mechanics without Megatron dependencies. It shows how a router assigns tokens to experts, how all-to-all communication dispatches tokens to their destination GPUs, how each GPU processes tokens with its local expert, and how another all-to-all returns results. The demo prints token distribution statistics so you can see how routing decisions affect load balance.
 
 ```bash
-# Run with 2 experts (2 GPUs)
 torchrun --nproc_per_node=2 code/expert_parallel_demo.py
-# Run with 4 experts (4 GPUs)
-torchrun --nproc_per_node=4 code/expert_parallel_demo.py
 ```
+
+An example run is in `code/expert_parallel_demo.log`.
 
 ### Why FSDP2 Cannot Replace Megatron
 
@@ -663,7 +662,11 @@ If none of these apply—your layers fit, your sequences are moderate, you're no
 
 ### Real-World Training Configurations
 
-Theory is useful, but seeing real configurations helps solidify understanding. Here are production-ready examples based on actual Megatron training scripts. Note that `pretrain_gpt.py` is part of the Megatron-LM repository—clone it from https://github.com/NVIDIA/Megatron-LM and run these commands from within that repository.
+Theory is useful, but seeing real configurations helps solidify understanding. Here are production-ready examples based on actual Megatron training scripts. Note that `pretrain_gpt.py` is part of the Megatron-LM repository—clone it and run these commands from within:
+
+```bash
+git clone https://github.com/NVIDIA/Megatron-LM.git && cd Megatron-LM
+```
 
 __LLaMA-3 8B with FP8 Training (8 GPUs):__
 
