@@ -693,6 +693,7 @@ CUDA_DEVICE_MAX_CONNECTIONS=1 torchrun --nproc_per_node=8 pretrain_gpt.py \
     --micro-batch-size 1 \
     --global-batch-size 128 \
     --max-position-embeddings 8192 \
+    --mock-data \
     --bf16
 ```
 
@@ -715,6 +716,7 @@ CUDA_DEVICE_MAX_CONNECTIONS=1 torchrun --nproc_per_node=8 --nnodes=16 \
     --micro-batch-size 1 \
     --global-batch-size 1536 \
     --use-distributed-optimizer \
+    --mock-data \
     --bf16
 ```
 
@@ -743,6 +745,7 @@ CUDA_DEVICE_MAX_CONNECTIONS=1 torchrun --nproc_per_node=8 --nnodes=8 \
     --overlap-param-gather \
     --micro-batch-size 1 \
     --global-batch-size 256 \
+    --mock-data \
     --bf16
 ```
 
