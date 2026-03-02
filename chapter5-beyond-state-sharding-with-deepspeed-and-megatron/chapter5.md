@@ -755,13 +755,15 @@ To tie everything together, let's look at how to actually run a Megatron trainin
 Running on a single node with 4 GPUs:
 
 ```bash
-CUDA_DEVICE_MAX_CONNECTIONS=1 torchrun --nproc_per_node=4 code/train_megatron_mcore.py
+CUDA_DEVICE_MAX_CONNECTIONS=1 torchrun --nproc_per_node=4 \
+code/train_megatron_mcore.py
 ```
 
 For multi-node training, specify the cluster topology. On node 0:
 
 ```bash
-CUDA_DEVICE_MAX_CONNECTIONS=1 torchrun --nproc_per_node=4 --nnodes=2 --node_rank=0 \
+CUDA_DEVICE_MAX_CONNECTIONS=1 torchrun --nproc_per_node=4 --nnodes=2 \
+    --node_rank=0 \
     --master_addr=node0 --master_port=29500 \
     code/train_megatron_mcore.py
 ```
