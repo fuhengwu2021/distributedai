@@ -670,7 +670,7 @@ git clone https://github.com/NVIDIA/Megatron-LM.git && cd Megatron-LM
 
 __LLaMA-3 8B with Long Context (8 × 80GB GPUs):__
 
-This configuration trains a LLaMA-3 8B model with 8K context on 8 GPUs with 80GB memory (A100-80GB, H100, H200, B200, etc.). FP8 provides speedup on Hopper and newer GPUs; on A100s it falls back to BF16.
+This configuration trains a LLaMA-3 8B model with 8K context on a single 8-GPU node (A100-80GB, H100, H200, etc.).
 
 ```bash
 CUDA_DEVICE_MAX_CONNECTIONS=1 torchrun --nproc_per_node=8 pretrain_gpt.py \
@@ -696,16 +696,16 @@ CUDA_DEVICE_MAX_CONNECTIONS=1 torchrun --nproc_per_node=8 pretrain_gpt.py \
     --bf16
 ```
 
-For 40GB GPUs (A100-40GB), reduce model size by lowering `--num-layers`, `--hidden-size`, and `--ffn-hidden-size`.
-
-The model architecture flags define the LLaMA-3 8B structure. `--group-query-attention` with `--num-query-groups 8` enables Grouped-Query Attention, where 32 query heads share 8 KV heads—reducing KV cache memory significantly. For parallelism, we skip tensor parallelism (`--tensor-model-parallel-size 1`) since each layer fits on one GPU, but use context parallelism (`--context-parallel-size 2`) to split the 8K sequence across 2 GPUs. The distributed optimizer with overlap flags maximizes memory efficiency.
+The model architecture flags define the LLaMA-3 8B structure. `--group-query-attention` with `--num-query-groups 8` enables Grouped-Query Attention, where 32 query heads share 8 KV heads—reducing KV cache memory significantly. For parallelism, we skip tensor parallelism (`--tensor-model-parallel-size 1`) since each layer fits on one GPU, but use context parallelism (`--context-parallel-size 2`) to split the 8K sequence across 2 GPUs. The FP8 flags (`--fp8-format`, `--fp8-param-gather`) provide speedup on Hopper and newer GPUs; remove them for A100s. For 40GB GPUs, reduce model size by lowering `--num-layers`, `--hidden-size`, and `--ffn-hidden-size`.
 
 __GPT-3 175B Scale (128 GPUs):__
 
 This configuration scales to 175B parameters across 16 nodes (128 GPUs total), requiring both tensor and pipeline parallelism.
 
 ```bash
-torchrun --nproc_per_node=8 --nnodes=16 pretrain_gpt.py \
+CUDA_DEVICE_MAX_CONNECTIONS=1 torchrun --nproc_per_node=8 --nnodes=16 \
+    pretrain_gpt.py \
+    --use-mcore-models \
     --num-layers 96 \
     --hidden-size 12288 \
     --num-attention-heads 96 \
@@ -715,7 +715,7 @@ torchrun --nproc_per_node=8 --nnodes=16 pretrain_gpt.py \
     --micro-batch-size 1 \
     --global-batch-size 1536 \
     --use-distributed-optimizer \
-    --fp16
+    --bf16
 ```
 
 At this scale, a single layer with hidden dimension 12288 benefits from tensor parallelism across all 8 GPUs within a node (`--tensor-model-parallel-size 8`). The 96 layers are distributed across 16 pipeline stages (`--pipeline-model-parallel-size 16`), with each stage handling 6 layers. The effective data parallelism is 128 / (8 × 16) = 1, meaning all GPUs are dedicated to model parallelism. The large `--global-batch-size 1536` is achieved through gradient accumulation across many micro-batches.
@@ -725,7 +725,8 @@ __Mixtral 8x7B MoE (64 GPUs):__
 This configuration trains a Mixture-of-Experts model with 8 experts distributed across GPUs.
 
 ```bash
-torchrun --nproc_per_node=8 --nnodes=8 pretrain_gpt.py \
+CUDA_DEVICE_MAX_CONNECTIONS=1 torchrun --nproc_per_node=8 --nnodes=8 \
+    pretrain_gpt.py \
     --use-mcore-models \
     --num-layers 32 \
     --hidden-size 4096 \
@@ -745,7 +746,7 @@ torchrun --nproc_per_node=8 --nnodes=8 pretrain_gpt.py \
     --bf16
 ```
 
-The MoE-specific flags define the sparse architecture: `--num-experts 8` creates 8 expert networks per MoE layer, and `--expert-model-parallel-size 8` distributes them one per GPU within the expert-parallel group. `--moe-router-topk 2` means each token is routed to 2 experts. The optimization flags `--moe-grouped-gemm` and `--moe-permute-fusion` batch expert computations and fuse token rearrangement operations for efficiency. Pipeline parallelism (`--pipeline-model-parallel-size 4`) distributes the 32 layers across 4 stages, while tensor parallelism is disabled for the MoE layers since expert parallelism handles the distribution.
+The MoE-specific flags define the sparse architecture: `--num-experts 8` creates 8 expert networks per MoE layer, and `--expert-model-parallel-size 8` distributes them one per GPU within the expert-parallel group. `--moe-router-topk 2` means each token is routed to 2 experts. The optimization flags `--moe-grouped-gemm` and `--moe-permute-fusion` batch expert computations and fuse token rearrangement operations for efficiency. Pipeline parallelism (`--pipeline-model-parallel-size 4`) distributes the 32 layers across 4 stages. Tensor parallelism is set to 1 since expert parallelism already distributes the computation.
 
 ### Complete Training Example with Megatron
 
@@ -754,30 +755,30 @@ To tie everything together, let's look at how to actually run a Megatron trainin
 Running on a single node with 4 GPUs:
 
 ```bash
-torchrun --nproc_per_node=4 code/train_megatron_mcore.py
+CUDA_DEVICE_MAX_CONNECTIONS=1 torchrun --nproc_per_node=4 code/train_megatron_mcore.py
 ```
 
-For multi-node training, you need to specify the cluster topology. On node 0:
+For multi-node training, specify the cluster topology. On node 0:
 
 ```bash
-torchrun --nproc_per_node=4 --nnodes=2 --node_rank=0 \
-  --master_addr=node0 --master_port=29500 \
-  code/train_megatron_mcore.py
+CUDA_DEVICE_MAX_CONNECTIONS=1 torchrun --nproc_per_node=4 --nnodes=2 --node_rank=0 \
+    --master_addr=node0 --master_port=29500 \
+    code/train_megatron_mcore.py
 ```
 
 And on node 1, the same command with `--node_rank=1`. The script uses Megatron Core's `GPTModel`, which has tensor parallelism built in—you don't manually implement the column-parallel and row-parallel patterns. Megatron's DDP wrapper handles gradient synchronization with optimized communication overlap, and the distributed optimizer shards optimizer states automatically.
 
-For models that need both computation sharding and aggressive state sharding, you can combine Megatron's tensor parallelism with Megatron-FSDP:
+For models that need both computation sharding and aggressive state sharding, combine Megatron's tensor parallelism with Megatron-FSDP by adding these flags:
 
 ```bash
---use-megatron-fsdp
---data-parallel-sharding-strategy optim_grads_params
---tensor-model-parallel-size 4
---overlap-grad-reduce
+--use-megatron-fsdp \
+--data-parallel-sharding-strategy optim_grads_params \
+--tensor-model-parallel-size 4 \
+--overlap-grad-reduce \
 --overlap-param-gather
 ```
 
-This configuration gives you the best of both worlds: tensor parallelism splits large matrix multiplications across GPUs, while FSDP shards parameters, gradients, and optimizer states across the data-parallel dimension. The overlap flags ensure that communication happens concurrently with computation whenever possible.
+This combination gives you the best of both worlds: tensor parallelism splits large matrix multiplications across GPUs, while FSDP shards parameters, gradients, and optimizer states across the data-parallel dimension. The overlap flags ensure that communication happens concurrently with computation whenever possible.
 
 A few additional optimizations worth enabling in production. `--tp-comm-overlap` overlaps tensor parallelism's all-reduce with computation. `--sequence-parallel` reduces activation memory by sharding along the sequence dimension for LayerNorm and Dropout. `--calculate-per-token-loss` optimizes gradient scaling for variable-length sequences.
 
