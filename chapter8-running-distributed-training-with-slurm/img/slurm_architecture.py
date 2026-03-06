@@ -5,10 +5,7 @@ SLURM Architecture: slurmctld, slurmd, slurmdbd and job flow.
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from matplotlib.patches import FancyArrowPatch
-import os
-import sys
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'shared', 'math4ai'))
-from figure_utils import save_figure
+from math4ai import save_figure
 
 fig, ax = plt.subplots(figsize=(10, 6))
 ax.set_axis_off()
