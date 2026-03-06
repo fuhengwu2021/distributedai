@@ -6,6 +6,8 @@ import os
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 
+from math4ai import save_figure
+
 COLORS = {
     "params": "#3498db",
     "grads": "#e74c3c", 
@@ -112,20 +114,7 @@ def main():
     
     plt.tight_layout()
     plt.subplots_adjust(bottom=0.12)
-    
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    script_name = os.path.splitext(os.path.basename(__file__))[0]
-    output_path = os.path.join(script_dir, f"{script_name}.png")
-    plt.savefig(
-        output_path,
-        dpi=300,
-        bbox_inches="tight",
-        facecolor="white",
-        edgecolor="none",
-        pad_inches=0.08,
-    )
-    print(f"Saved figure to: {output_path}")
-    plt.close()
+    save_figure(__file__)
 
 if __name__ == "__main__":
     main()

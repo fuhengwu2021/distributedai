@@ -7,6 +7,8 @@ import matplotlib.patches as mpatches
 from matplotlib.patches import FancyBboxPatch, Circle
 import numpy as np
 
+from math4ai import save_figure
+
 # Set up figure with white background
 fig, ax = plt.subplots(1, 1, figsize=(12, 5))
 fig.patch.set_facecolor('white')
@@ -79,10 +81,4 @@ ax.text(6.0, 4.8, 'Tokens Per Second (TPS) Timeline',
         ha='center', va='center', fontsize=12, color=text_color, fontweight='bold')
 
 plt.tight_layout()
-plt.savefig('img/tps_timeline.png', dpi=150, facecolor='white', 
-            edgecolor='none', bbox_inches='tight', pad_inches=0.2)
-plt.savefig('img/tps_timeline.pdf', facecolor='white', 
-            edgecolor='none', bbox_inches='tight', pad_inches=0.2)
-plt.close()
-
-print("Generated: img/tps_timeline.png and img/tps_timeline.pdf")
+save_figure(__file__)

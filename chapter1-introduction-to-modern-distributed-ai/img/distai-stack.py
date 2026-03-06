@@ -17,7 +17,7 @@ sys.path.insert(
         "shared",
     ),
 )
-from math4ai import configure_math_fonts
+from math4ai import configure_math_fonts, save_figure
 
 # Configure matplotlib fonts (MANDATORY)
 configure_math_fonts()
@@ -90,22 +90,5 @@ ax.set_yticks([])
 ax.axis("off")
 
 plt.tight_layout()
-
-# ---------------------------------------------------------------------
-# Save figure (standard Math4AIML pattern)
-# ---------------------------------------------------------------------
-script_dir = os.path.dirname(os.path.abspath(__file__))
-script_name = os.path.splitext(os.path.basename(__file__))[0]
-output_path = os.path.join(script_dir, f"{script_name}.png")
-
-plt.savefig(
-    output_path,
-    dpi=300,
-    bbox_inches="tight",
-    facecolor="white",
-    pad_inches=0.03,
-)
-print(f"Saved figure to: {output_path}")
-
-plt.close()
+save_figure(__file__)
 

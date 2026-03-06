@@ -1,6 +1,10 @@
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'shared'))
+from math4ai import save_figure
 
 def draw_broadcast_diagram():
     # Create figure and axes
@@ -84,15 +88,7 @@ def draw_broadcast_diagram():
     ax.axis('off')  # Turn off the actual plot axes (ticks, spines)
     
     plt.tight_layout()
-    
-    # Save figure (standard pattern: same name as script)
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    script_name = os.path.splitext(os.path.basename(__file__))[0]
-    output_path = os.path.join(script_dir, f'{script_name}.png')
-    plt.savefig(output_path, dpi=300, bbox_inches='tight', 
-                facecolor='white', edgecolor='none', pad_inches=0.03)
-    print(f"Saved figure to: {output_path}")
-    plt.close()  # Close to free memory
+    save_figure(__file__)
 
 if __name__ == "__main__":
     draw_broadcast_diagram()

@@ -7,6 +7,8 @@ import matplotlib.patches as mpatches
 from matplotlib.patches import FancyBboxPatch, Circle, Rectangle
 import numpy as np
 
+from math4ai import save_figure
+
 # Set up figure with white background
 fig, ax = plt.subplots(1, 1, figsize=(14, 6))
 fig.patch.set_facecolor('white')
@@ -169,10 +171,5 @@ ax.text(7.0, 5.7, 'Inter-token Latency (ITL)',
         ha='center', va='center', fontsize=14, color=text_dark, fontweight='bold')
 
 plt.tight_layout()
-plt.savefig('img/itl_pipeline.png', dpi=150, facecolor='white', 
-            edgecolor='none', bbox_inches='tight', pad_inches=0.2)
-plt.savefig('img/itl_pipeline.pdf', facecolor='white', 
-            edgecolor='none', bbox_inches='tight', pad_inches=0.2)
-plt.close()
+save_figure(__file__)
 
-print("Generated: img/itl_pipeline.png and img/itl_pipeline.pdf")

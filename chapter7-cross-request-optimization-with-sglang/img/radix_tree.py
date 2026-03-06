@@ -16,7 +16,7 @@ import sys
 
 # Add shared directory to path for math4ai imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'shared'))
-from math4ai import configure_math_fonts
+from math4ai import configure_math_fonts, save_figure
 
 configure_math_fonts()
 
@@ -78,15 +78,5 @@ ax.add_patch(FancyBboxPatch((6.5, legend_y - 0.2), 0.4, 0.4, boxstyle="round,pad
                             facecolor=unique_color, edgecolor='#F9A825', linewidth=1))
 ax.text(7.1, legend_y, 'Unique suffix (computed per request)', ha='left', va='center', fontsize=13)
 
-# Save figure
 plt.tight_layout(pad=0.1)
-script_dir = os.path.dirname(os.path.abspath(__file__))
-script_name = os.path.splitext(os.path.basename(__file__))[0]
-output_path = os.path.join(script_dir, f'{script_name}.png')
-plt.savefig(output_path, dpi=300, bbox_inches='tight', facecolor='white', edgecolor='none', pad_inches=0.02)
-print(f"Saved figure to: {output_path}")
-
-# Also save PDF
-pdf_path = os.path.join(script_dir, f'{script_name}.pdf')
-plt.savefig(pdf_path, bbox_inches='tight', facecolor='white', edgecolor='none', pad_inches=0.02)
-print(f"Saved figure to: {pdf_path}")
+save_figure(__file__)

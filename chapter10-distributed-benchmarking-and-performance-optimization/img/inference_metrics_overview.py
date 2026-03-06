@@ -7,6 +7,8 @@ import matplotlib.patches as mpatches
 from matplotlib.patches import FancyBboxPatch, FancyArrowPatch, Rectangle
 import numpy as np
 
+from math4ai import save_figure
+
 # Set up figure with white background
 fig, ax = plt.subplots(1, 1, figsize=(14, 6))
 fig.patch.set_facecolor('white')
@@ -183,10 +185,4 @@ ax.text(mid_x, bracket_y - 0.5, 'Generation time', ha='center', va='top',
         fontsize=11, color=text_color, fontweight='normal', style='italic')
 
 plt.tight_layout()
-plt.savefig('img/inference_metrics_overview.png', dpi=150, facecolor='white', 
-            edgecolor='none', bbox_inches='tight', pad_inches=0.2)
-plt.savefig('img/inference_metrics_overview.pdf', facecolor='white', 
-            edgecolor='none', bbox_inches='tight', pad_inches=0.2)
-plt.close()
-
-print("Generated: img/inference_metrics_overview.png and img/inference_metrics_overview.pdf")
+save_figure(__file__)

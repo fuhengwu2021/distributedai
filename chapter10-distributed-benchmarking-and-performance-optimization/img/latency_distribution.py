@@ -6,6 +6,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy import stats
 
+from math4ai import save_figure
+
 def create_latency_distribution_diagram():
     fig, axes = plt.subplots(1, 2, figsize=(14, 6))
     
@@ -94,12 +96,7 @@ def create_latency_distribution_diagram():
                 arrowprops=dict(arrowstyle='->', color='#C62828', lw=1.5))
     
     plt.tight_layout()
-    plt.savefig('latency_distribution.png', dpi=150, bbox_inches='tight',
-                facecolor='white', edgecolor='none')
-    plt.savefig('latency_distribution.pdf', bbox_inches='tight',
-                facecolor='white', edgecolor='none')
-    plt.close()
+    save_figure(__file__)
 
 if __name__ == '__main__':
     create_latency_distribution_diagram()
-    print("Generated: latency_distribution.png")

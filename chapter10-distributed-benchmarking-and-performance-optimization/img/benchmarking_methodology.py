@@ -7,6 +7,8 @@ import matplotlib.patches as mpatches
 from matplotlib.patches import FancyBboxPatch, FancyArrowPatch
 import numpy as np
 
+from math4ai import save_figure
+
 def create_benchmarking_methodology_diagram():
     fig, ax = plt.subplots(1, 1, figsize=(14, 10))
     ax.set_xlim(0, 14)
@@ -94,12 +96,7 @@ def create_benchmarking_methodology_diagram():
     ax.text(10.1, 0.5, '• Scaling efficiency (%)', fontsize=9, ha='left', color='#37474F')
     
     plt.tight_layout()
-    plt.savefig('benchmarking_methodology.png', dpi=150, bbox_inches='tight',
-                facecolor='white', edgecolor='none')
-    plt.savefig('benchmarking_methodology.pdf', bbox_inches='tight',
-                facecolor='white', edgecolor='none')
-    plt.close()
+    save_figure(__file__)
 
 if __name__ == '__main__':
     create_benchmarking_methodology_diagram()
-    print("Generated: benchmarking_methodology.png")

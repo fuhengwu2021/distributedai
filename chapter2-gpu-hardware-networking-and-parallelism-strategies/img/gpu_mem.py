@@ -12,15 +12,10 @@ import sys
 
 # Add shared directory to path for math4ai imports
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'shared'))
-from math4ai import configure_math_fonts
+from math4ai import configure_math_fonts, save_figure
 
 # Configure matplotlib for math expressions
 configure_math_fonts()
-
-# Save figure (standard pattern: same name as script)
-script_dir = os.path.dirname(os.path.abspath(__file__))
-script_name = os.path.splitext(os.path.basename(__file__))[0]
-output_path = os.path.join(script_dir, f'{script_name}.png')
 
 # Data for a generic modern high-end GPU (e.g., NVIDIA H100/A100 class)
 levels = ["Registers", "L1 / Shared Memory", "L2 Cache", "VRAM (HBM/GDDR)"]
@@ -72,7 +67,4 @@ ax.text(0.7, 4, 'Latency ↑', rotation=90,
 
 # No title - captions are provided in markdown
 plt.tight_layout()
-plt.savefig(output_path, dpi=300, bbox_inches='tight',
-            facecolor='white', edgecolor='none', pad_inches=0.03)
-print(f"Saved figure to: {output_path}")
-plt.close()
+save_figure(__file__)

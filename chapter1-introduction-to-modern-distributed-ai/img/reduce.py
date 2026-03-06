@@ -13,7 +13,7 @@ import sys
 # Add shared directory to path for math4ai imports
 # (Assumes this script is located in chapterX-topic/img/)
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'shared'))
-from math4ai import configure_math_fonts
+from math4ai import configure_math_fonts, save_figure
 
 # Configure matplotlib for math expressions
 configure_math_fonts()
@@ -116,14 +116,7 @@ def draw_reduce_diagram():
     ax.axis('off')  # Turn off axes/ticks for diagrammatic look
     
     plt.tight_layout()
-
-    # --- Save Figure (Standard Pattern) ---
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    script_name = os.path.splitext(os.path.basename(__file__))[0]
-    output_path = os.path.join(script_dir, f'{script_name}.png')
-    
-    plt.savefig(output_path, dpi=300, bbox_inches='tight', facecolor='white')
-    print(f"Saved figure to: {output_path}")
+    save_figure(__file__)
 
 if __name__ == "__main__":
     draw_reduce_diagram()

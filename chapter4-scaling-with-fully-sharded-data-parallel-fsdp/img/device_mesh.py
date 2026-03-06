@@ -8,6 +8,8 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import numpy as np
 
+from math4ai import save_figure
+
 COLORS = {
     "gpu": "#3498db",
     "node": "#ecf0f1",
@@ -81,19 +83,7 @@ def main():
     panel_2d_mesh(ax2)
     
     plt.tight_layout(pad=1.0)
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    script_name = os.path.splitext(os.path.basename(__file__))[0]
-    output_path = os.path.join(script_dir, f"{script_name}.png")
-    plt.savefig(
-        output_path,
-        dpi=300,
-        bbox_inches="tight",
-        facecolor="white",
-        edgecolor="none",
-        pad_inches=0.08,
-    )
-    print(f"Saved figure to: {output_path}")
-    plt.close()
+    save_figure(__file__)
 
 if __name__ == "__main__":
     main()

@@ -7,6 +7,10 @@ Right subplot: BF16 (Bfloat16) precision - single stacked bar showing 64-72GB ra
 import matplotlib.pyplot as plt
 import numpy as np
 import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'shared'))
+from math4ai import save_figure
 
 # Colors for each component
 colors = ['#2E86AB', '#A23B72', '#F18F01', '#C73E1D']
@@ -97,13 +101,4 @@ ax2.axhline(y=80, color='red', linestyle='--', linewidth=2, alpha=0.7, label='A1
 ax2.legend(loc='center left', fontsize=9, framealpha=0.9, bbox_to_anchor=(1.02, 0.5))
 
 plt.tight_layout(rect=[0, 0, 0.95, 1])
-
-# Save figure (standard pattern: same name as script)
-script_dir = os.path.dirname(os.path.abspath(__file__))
-script_name = os.path.splitext(os.path.basename(__file__))[0]
-output_path = os.path.join(script_dir, f'{script_name}.png')
-plt.savefig(output_path, dpi=300, bbox_inches='tight', 
-            facecolor='white', edgecolor='none', pad_inches=0.03)
-print(f"Saved figure to: {output_path}")
-
-plt.close()
+save_figure(__file__)

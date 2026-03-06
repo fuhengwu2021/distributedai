@@ -13,7 +13,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'shared'))
-from math4ai import configure_math_fonts
+from math4ai import configure_math_fonts, save_figure
 configure_math_fonts()
 
 
@@ -140,15 +140,8 @@ def main():
     draw_vllm_side(ax, center_x=2.75)
     draw_sglang_side(ax, center_x=8.25)
     
-    # Save
     plt.tight_layout(pad=0.1)
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    script_name = os.path.splitext(os.path.basename(__file__))[0]
-    output_path = os.path.join(script_dir, f'{script_name}.png')
-    plt.savefig(output_path, dpi=300, bbox_inches='tight', 
-                facecolor='white', edgecolor='none', pad_inches=0.02)
-    print(f"Saved figure to: {output_path}")
-    plt.close()
+    save_figure(__file__)
 
 
 if __name__ == '__main__':

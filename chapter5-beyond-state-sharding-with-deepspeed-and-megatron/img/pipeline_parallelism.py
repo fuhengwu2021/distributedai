@@ -3,6 +3,8 @@ import matplotlib.patches as patches
 import numpy as np
 import os
 
+from math4ai import save_figure
+
 # Colors
 COLORS = {
     'forward': '#4CAF50',      # Green
@@ -151,14 +153,7 @@ def main():
     draw_pipeline_1f1b(ax2)
     
     plt.tight_layout()
-    
-    # Save to the same folder as this script
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    script_name = os.path.splitext(os.path.basename(__file__))[0]
-    output_path = os.path.join(script_dir, f"{script_name}.png")
-    plt.savefig(output_path, dpi=150, bbox_inches='tight', facecolor='white')
-    plt.close()
-    print(f"Saved figure to: {output_path}")
+    save_figure(__file__)
 
 
 if __name__ == "__main__":

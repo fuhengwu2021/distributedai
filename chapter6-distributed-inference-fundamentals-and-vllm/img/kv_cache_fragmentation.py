@@ -9,6 +9,8 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import os
 
+from math4ai import save_figure
+
 
 def draw_kv_cache_fragmentation():
     fig, ax = plt.subplots(figsize=(10, 4))
@@ -102,15 +104,8 @@ def draw_kv_cache_fragmentation():
     ax.set_aspect('equal')
     ax.axis('off')
     
-    # Save figure following the standard pattern
     plt.tight_layout(pad=0.1)
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    script_name = os.path.splitext(os.path.basename(__file__))[0]
-    output_path = os.path.join(script_dir, f'{script_name}.png')
-    plt.savefig(output_path, dpi=300, bbox_inches='tight', 
-                facecolor='white', edgecolor='none', pad_inches=0)
-    print(f"Saved figure to: {output_path}")
-    plt.close()
+    save_figure(__file__)
 
 
 if __name__ == '__main__':

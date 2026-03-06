@@ -6,6 +6,10 @@ Shows how weights, activations, gradients, and optimizer states occupy VRAM at d
 import matplotlib.pyplot as plt
 import numpy as np
 import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'shared'))
+from math4ai import save_figure
 
 # Memory sizes for a 7B model with BF16 and Adam (in GB)
 weights = 14  # Model weights (always in memory)
@@ -135,13 +139,4 @@ ax.annotate('Peak Memory', xy=(x_pos[1], total_backward), xytext=(x_pos[1] + .8,
             fontsize=12, fontweight='bold', color='red', ha='center')
 
 plt.tight_layout()
-
-# Save figure (standard pattern: same name as script)
-script_dir = os.path.dirname(os.path.abspath(__file__))
-script_name = os.path.splitext(os.path.basename(__file__))[0]
-output_path = os.path.join(script_dir, f'{script_name}.png')
-plt.savefig(output_path, dpi=300, bbox_inches='tight', 
-            facecolor='white', edgecolor='none', pad_inches=0.03)
-print(f"Saved figure to: {output_path}")
-
-plt.close()
+save_figure(__file__)

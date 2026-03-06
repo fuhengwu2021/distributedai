@@ -10,6 +10,8 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import os
 
+from math4ai import save_figure
+
 COLORS = {
     'gpu0': '#4CAF50',
     'gpu1': '#2196F3',
@@ -101,13 +103,7 @@ def main():
     draw_ulysses(ax)
     
     plt.tight_layout()
-    
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    script_name = os.path.splitext(os.path.basename(__file__))[0]
-    output_path = os.path.join(script_dir, f"{script_name}.png")
-    plt.savefig(output_path, dpi=150, bbox_inches='tight', facecolor='white')
-    plt.close()
-    print(f"Saved figure to: {output_path}")
+    save_figure(__file__)
 
 
 if __name__ == "__main__":

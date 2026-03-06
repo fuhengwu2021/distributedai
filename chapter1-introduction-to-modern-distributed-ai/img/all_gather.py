@@ -3,7 +3,7 @@ import matplotlib.patches as patches
 import os
 
 
-from math4ai import configure_math_fonts
+from math4ai import configure_math_fonts, save_figure
 
 # Configure matplotlib for math expressions
 configure_math_fonts()
@@ -94,15 +94,7 @@ def draw_allgather_diagram_v2():
     ax.text(8, -0.8, r"out[Y*count+i] = inY[i]", fontsize=14, ha='center', fontfamily='monospace')
 
     plt.tight_layout()
-    
-    # Save figure (standard pattern: same name as script)
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    script_name = os.path.splitext(os.path.basename(__file__))[0]
-    output_path = os.path.join(script_dir, f'{script_name}.png')
-    plt.savefig(output_path, dpi=300, bbox_inches='tight', 
-                facecolor='white', edgecolor='none', pad_inches=0.03)
-    print(f"Saved figure to: {output_path}")
-    plt.close()  # Close to free memory
+    save_figure(__file__)
 
 if __name__ == '__main__':
     draw_allgather_diagram_v2()

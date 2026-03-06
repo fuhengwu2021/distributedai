@@ -8,6 +8,10 @@ import matplotlib.pyplot as plt
 from matplotlib.ticker import MultipleLocator
 import re
 import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'shared'))
+from math4ai import save_figure
 
 # Table data: [Model Name, Parameters, Company, Year, Release Date (decimal year)]
 # Release dates converted to decimal years for precise plotting
@@ -180,15 +184,8 @@ def create_model_comparison_plot():
     #        transform=ax.transAxes, fontsize=8, verticalalignment='top',
     #         bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
     
-    # Save figure (standard pattern: same name as script)
     plt.tight_layout()
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    script_name = os.path.splitext(os.path.basename(__file__))[0]
-    output_path = os.path.join(script_dir, f'{script_name}.png')
-    plt.savefig(output_path, dpi=300, bbox_inches='tight', 
-                facecolor='white', edgecolor='none', pad_inches=0.03)
-    print(f"Saved figure to: {output_path}")
-    plt.close()  # Close to free memory
+    save_figure(__file__)
 
 if __name__ == '__main__':
     create_model_comparison_plot()

@@ -6,6 +6,8 @@ import os
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 
+from math4ai import save_figure
+
 COLORS = {
     "shard_colors": ["#3498db", "#e74c3c", "#2ecc71", "#f1c40f"],
     "node_border": "#2c3e50",
@@ -115,20 +117,7 @@ def main():
     panel_hpz(ax2)
     
     plt.tight_layout()
-    
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    script_name = os.path.splitext(os.path.basename(__file__))[0]
-    output_path = os.path.join(script_dir, f"{script_name}.png")
-    plt.savefig(
-        output_path,
-        dpi=300,
-        bbox_inches="tight",
-        facecolor="white",
-        edgecolor="none",
-        pad_inches=0.08,
-    )
-    print(f"Saved figure to: {output_path}")
-    plt.close()
+    save_figure(__file__)
 
 if __name__ == "__main__":
     main()

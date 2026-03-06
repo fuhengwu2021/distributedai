@@ -12,7 +12,7 @@ import matplotlib.patches as patches
 import os
 import sys
 
-from math4ai import configure_math_fonts
+from math4ai import configure_math_fonts, save_figure
 configure_math_fonts()
 
 
@@ -169,15 +169,8 @@ def main():
     ax.set_ylim(-0.2, 5.2)
     ax.axis('off')
     
-    # Save
     plt.tight_layout(pad=0.1)
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    script_name = os.path.splitext(os.path.basename(__file__))[0]
-    output_path = os.path.join(script_dir, f'{script_name}.png')
-    plt.savefig(output_path, dpi=300, bbox_inches='tight', 
-                facecolor='white', edgecolor='none', pad_inches=0.02)
-    print(f"Saved figure to: {output_path}")
-    plt.close()
+    save_figure(__file__)
 
 
 if __name__ == '__main__':

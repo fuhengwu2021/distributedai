@@ -1,8 +1,13 @@
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import os
+import sys
 
-def draw_npu_icon(filename):
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'shared'))
+from math4ai import save_figure
+
+
+def draw_npu_icon():
     # Set up the figure and axis
     fig, ax = plt.subplots(figsize=(5, 5))
     ax.set_aspect('equal')
@@ -46,13 +51,8 @@ def draw_npu_icon(filename):
     limit = 0.55
     ax.set_xlim(-limit, limit)
     ax.set_ylim(-limit, limit)
-    plt.savefig(filename, dpi=300, bbox_inches='tight', 
-                facecolor='white', edgecolor='none', pad_inches=0.03)
-    plt.close()
+    save_figure(__file__)
 
-# Save figure (standard pattern: same name as script)
-script_dir = os.path.dirname(os.path.abspath(__file__))
-script_name = os.path.splitext(os.path.basename(__file__))[0]
-output_path = os.path.join(script_dir, f'{script_name}.png')
-draw_npu_icon(output_path)
-print(f"Saved figure to: {output_path}")
+
+if __name__ == '__main__':
+    draw_npu_icon()

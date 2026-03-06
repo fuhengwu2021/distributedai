@@ -5,6 +5,8 @@ Shows ideal linear scaling vs actual scaling with efficiency percentages.
 import matplotlib.pyplot as plt
 import numpy as np
 
+from math4ai import save_figure
+
 def create_scaling_efficiency_diagram():
     fig, axes = plt.subplots(1, 2, figsize=(14, 6))
     
@@ -89,12 +91,7 @@ def create_scaling_efficiency_diagram():
              bbox=dict(boxstyle='round', facecolor='#E3F2FD', alpha=0.8))
     
     plt.tight_layout()
-    plt.savefig('scaling_efficiency.png', dpi=150, bbox_inches='tight',
-                facecolor='white', edgecolor='none')
-    plt.savefig('scaling_efficiency.pdf', bbox_inches='tight',
-                facecolor='white', edgecolor='none')
-    plt.close()
+    save_figure(__file__)
 
 if __name__ == '__main__':
     create_scaling_efficiency_diagram()
-    print("Generated: scaling_efficiency.png")

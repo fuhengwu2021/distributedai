@@ -11,15 +11,12 @@ from matplotlib.patches import FancyBboxPatch, ConnectionPatch
 import os
 import sys
 
-# Import GPU and CPU drawing functions
 script_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, script_dir)
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'shared'))
+from math4ai import save_figure
 from gpu import draw_gpu_shape
 from cpu import draw_cpu_shape
-
-# Save figure (standard pattern: same name as script)
-script_name = os.path.splitext(os.path.basename(__file__))[0]
-output_path = os.path.join(script_dir, f'{script_name}.png')
 
 # Create figure
 # Calculate optimal figure size based on content
@@ -154,8 +151,5 @@ ax.text(n2_x, gpu_y + 0.15, 'NVSwitch', fontsize=14, ha='center', va='center',
 ax.set_xlim(0.2, 5.8)
 ax.set_ylim(1.2, 3.0)
 plt.tight_layout(pad=0)
-plt.savefig(output_path, dpi=300, bbox_inches='tight', pad_inches=0,
-            facecolor='white', edgecolor='none')
-print(f"Saved figure to: {output_path}")
-plt.close()
+save_figure(__file__)
 

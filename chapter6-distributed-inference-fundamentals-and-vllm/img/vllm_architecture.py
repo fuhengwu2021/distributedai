@@ -1,6 +1,8 @@
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 
+from math4ai import save_figure
+
 
 def draw_vllm_architecture():
     fig, ax = plt.subplots(figsize=(10, 6))
@@ -73,9 +75,7 @@ def draw_vllm_architecture():
                                     connectionstyle='arc3,rad=0'))
 
     plt.tight_layout()
-    plt.savefig('vllm_architecture.png', dpi=150, bbox_inches='tight',
-                facecolor='white', edgecolor='none')
-    plt.close()
+    save_figure(__file__)
 
 
 if __name__ == '__main__':

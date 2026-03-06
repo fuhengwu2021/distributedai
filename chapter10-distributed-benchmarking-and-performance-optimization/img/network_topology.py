@@ -7,6 +7,8 @@ import matplotlib.patches as mpatches
 from matplotlib.patches import FancyBboxPatch, Circle, FancyArrowPatch, Rectangle
 import numpy as np
 
+from math4ai import save_figure
+
 def create_network_topology_diagram():
     fig, axes = plt.subplots(1, 2, figsize=(14, 7))
     
@@ -130,12 +132,7 @@ def create_network_topology_diagram():
              ha='center', va='center', fontsize=9, color='#37474F')
     
     plt.tight_layout()
-    plt.savefig('network_topology.png', dpi=150, bbox_inches='tight',
-                facecolor='white', edgecolor='none')
-    plt.savefig('network_topology.pdf', bbox_inches='tight',
-                facecolor='white', edgecolor='none')
-    plt.close()
+    save_figure(__file__)
 
 if __name__ == '__main__':
     create_network_topology_diagram()
-    print("Generated: network_topology.png")

@@ -18,7 +18,7 @@ import sys
 
 # Add shared directory to path for math4ai imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'shared'))
-from math4ai import configure_math_fonts
+from math4ai import configure_math_fonts, save_figure
 
 configure_math_fonts()
 
@@ -106,15 +106,5 @@ draw_arrow(ax, (5, 2.2), (5, 1.7))
 draw_box(ax, 2.5, 0.8, 5, 0.8, 'API Server', facecolor=server_color, edgecolor='#F57C00', fontsize=11, bold=True)
 ax.text(7.8, 1.2, 'Returns responses', ha='left', va='center', fontsize=9, color='#666666', style='italic')
 
-# Save figure
 plt.tight_layout(pad=0.1)
-script_dir = os.path.dirname(os.path.abspath(__file__))
-script_name = os.path.splitext(os.path.basename(__file__))[0]
-output_path = os.path.join(script_dir, f'{script_name}.png')
-plt.savefig(output_path, dpi=300, bbox_inches='tight', facecolor='white', edgecolor='none', pad_inches=0.02)
-print(f"Saved figure to: {output_path}")
-
-# Also save PDF
-pdf_path = os.path.join(script_dir, f'{script_name}.pdf')
-plt.savefig(pdf_path, bbox_inches='tight', facecolor='white', edgecolor='none', pad_inches=0.02)
-print(f"Saved figure to: {pdf_path}")
+save_figure(__file__)
