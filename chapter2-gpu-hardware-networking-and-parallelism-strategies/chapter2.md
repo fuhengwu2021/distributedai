@@ -961,8 +961,8 @@ Understanding your hardware topology and bandwidth characteristics is crucial be
 The code examples are available in the `code/` directory. If you haven't already, clone the repository:
 
 ```bash
-git clone https://github.com/fuhengwu2021/coderepo.git
-cd coderepo/chapter2-gpu-hardware-networking-and-parallelism-strategies
+git clone https://github.com/PacktPublishing/Distributed-AI-Systems
+cd Distributed-AI-Systems/chapter2-gpu-hardware-networking-and-parallelism-strategies
 ```
 
 You'll need a machine with at least one GPU (preferably multiple GPUs) to run these examples. For multi-GPU tests, you'll need 2 or more GPUs connected via NVLink or PCIe.
