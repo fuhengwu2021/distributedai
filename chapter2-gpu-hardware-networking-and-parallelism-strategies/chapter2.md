@@ -1124,20 +1124,16 @@ The script times `dist.all_reduce` and reports two bandwidth numbers. **Algorith
 ```python
 #LINENUM
 import torch.distributed as dist
-
 size = size_mb * 1024 * 1024 // 4  # float32 elements per GPU
 tensor = torch.ones(size, device=f'cuda:{local_rank}') #HL
-
 for _ in range(warmup):
     dist.all_reduce(tensor, op=dist.ReduceOp.SUM) #HL
 torch.cuda.synchronize()
-
 start = time.time()
 for _ in range(iterations):
     dist.all_reduce(tensor, op=dist.ReduceOp.SUM)
 torch.cuda.synchronize()
 elapsed = time.time() - start
-
 size_bytes = size_mb * 1024 * 1024
 n = world_size
 alg_bytes = size_bytes * n * iterations
@@ -1147,8 +1143,8 @@ bus_bw_gb_s = bus_bytes / (1024**3) / elapsed  # equals alg_bw * 2*(n-1)/n
 ```
 CODE_EXPLAIN_START:
 - 3: Tensor size in float32 elements on each GPU
-- 6: AllReduce sums tensors across all ranks
-- 16: Ring AllReduce moves ~2×(n−1)×size bytes on the network per iteration (NCCL may pick tree instead)
+- 5: AllReduce sums tensors across all ranks
+- 15: Ring AllReduce moves ~2×(n−1)×size bytes on the network per iteration (NCCL may pick tree instead)
 CODE_EXPLAIN_END
 
 Example output for 2 GPUs with NVLink (numbers vary by hardware and driver):
