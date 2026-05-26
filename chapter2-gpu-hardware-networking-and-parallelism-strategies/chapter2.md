@@ -26,22 +26,18 @@ In Chapter 1, we established why distributed AI is essential—models have grown
 
 Computational power, or compute capacity, measures how many operations a system can perform per second. For AI workloads, we care about __floating-point operations per second (FLOPS)__. The scale is exponential: a single modern GPU like the H200 delivers around 1,000 TFLOPS (teraFLOPS, or $10^{12}$ operations per second) for FP16 operations. A cluster with 1000 such GPUs gives you roughly 1,000 PFLOPS (petaFLOPS, $10^{15}$ operations per second), or 1 EFLOPS (exaFLOPS, $10^{18}$ operations per second): 1000 GPUs × 1000 TFLOPS = $10^{6}$ TFLOPS = 1000 PFLOPS = 1 EFLOPS.
 
-But here's the thing: raw FLOPS numbers don't tell the whole story. In practice, you'll see different precision formats used for different purposes:
+![GPU Memory Capacity vs Model Memory Requirements](img/computational_growth_gap.png){#fig:computational-growth-gap .wrap width=60% align=top-right lines=15}
 
-- **FP64 (double precision)**: 64 bits, used in traditional HPC for scientific computing where precision matters
-- **FP32 (single precision)**: 32 bits, common baseline for training
-- **FP16/BF16 (half precision)**: 16 bits, standard for modern AI training—cuts memory and bandwidth in half
-- **FP8/FP4**: 8 or 4 bits, used for inference and quantization
+But here's the thing: raw FLOPS numbers don't tell the whole story. Peak throughput depends on precision—FP64 for traditional HPC, FP32 as a training baseline, FP16/BF16 for modern AI training, FP8 and lower for inference and quantization (see the precision-format table in Chapter~\ref{chap:introduction-to-modern-distributed-ai}). When someone says "this cluster delivers 500 PFLOPS," ask at what precision: an HPC cluster might quote FP64, while an AI cluster quotes FP16 or BF16. The same hardware can show very different numbers depending on which format you measure.
 
-When someone says "this cluster delivers 500 PFLOPS," you need to ask: at what precision? An HPC cluster might quote FP64 numbers, while an AI cluster quotes FP16 or BF16. The same hardware can show very different numbers depending on which precision you're measuring.
 
 The growth in computational demand for AI has been staggering. Large language models require computational resources that grow by orders of magnitude over a few years, depending on workload and model scaling, while hardware capabilities grow only about 3x in the same period. This gap is why distributed training isn't optional—it's __the only way__ to train modern models in reasonable time.
 
-![GPU Memory Capacity vs Model Memory Requirements](img/computational_growth_gap.png){#fig:computational-growth-gap .wrap width=60% align=top-right lines=12}
-
 As shown in @fig:computational-growth-gap, model memory requirements have grown exponentially while single-GPU memory capacity has increased more gradually. This widening gap makes distributed training not just beneficial, but essential for training modern large-scale models within reasonable timeframes.[^computational-gap-data]
 
-[^computational-gap-data]: GPU memory capacity data from NVIDIA specifications: A100 (2020, 80GB), H100 (2022, 80GB HBM3), H200 (2023, 141GB HBM3e), B200 (2024, 192GB). Model memory requirements calculated from published parameter counts (see @tbl:model-comparison) using BF16 precision (2 bytes per parameter): GPT-3 175B (2020, ~350GB), LLaMA-2 70B (2022, 140GB), DeepSeek-V2 236B (2024, ~472GB), DeepSeek-V3 671B (2025, ~1342GB), Gemini-3-Pro ~7.5T (2025, ~15TB). Values shown represent single-GPU memory requirements for model weights only; actual training requires additional memory for gradients, optimizer states, and activations, further necessitating distributed training.
+[^computational-gap-data]: GPU memory capacity data from NVIDIA specifications: A100 (2020, 80GB), H100 (2022, 80GB HBM3), H200 (2023, 141GB HBM3e), B200 (2024, 192GB). Model memory requirements calculated from published parameter counts (see @tbl:model-comparison) using BF16 precision (2 bytes per parameter): GPT-3 175B (2020, ~350GB), LLaMA-2 70B (2022, 140GB), DeepSeek-V2 236B (2024, ~472GB), DeepSeek-V3 671B (2025, ~1342GB), Gemini-3-Pro ~2–3T (2025, ~4–6TB). Values shown represent single-GPU memory requirements for model weights only; actual training requires additional memory for gradients, optimizer states, and activations, further necessitating distributed training.
+
+[^h100-te]: NVIDIA, "NVIDIA H100 Tensor Core GPU Architecture," whitepaper, 2022, https://resources.nvidia.com/en-us-hopper-architecture (Transformer Engine with FP8; up to 6× training throughput on transformer models vs A100). For independently audited results on large language-model training, see NVIDIA, "Breaking MLPerf Training Records with NVIDIA H100 GPUs," Technical Blog, 2023, https://developer.nvidia.com/blog/breaking-mlperf-training-records-with-nvidia-h100-gpus/ (MLPerf Training 3.0; GPT-3 175B and BERT with Transformer Engine and FP8).
 
 ### Why Clusters?
 
@@ -56,7 +52,7 @@ A **cluster** is a group of computers (nodes) connected by high-speed networks, 
 ![AI Cluster](img/ai_cluster_demo.png){#fig:ai-cluster .block width=100% align=top-right}
 
 
-As illustrated in @fig:ai-cluster, an AI cluster consists of multiple nodes, each containing multiple CPUs and GPUs (typically 8 GPUs per node in modern systems). Within each node, GPUs are connected via NVSwitch, providing all-to-all connectivity at NVLink speeds (300-900 GB/s per GPU, aggregate bidirectional). Between nodes, GPUs communicate via high-speed networks such as InfiniBand (200-400 Gb/s per link), enabling distributed training and inference across the entire cluster. This architecture allows work to be coordinated across all available resources. The cluster shown demonstrates how memory can be scaled by distributing model parameters, gradients, and optimizer states across GPUs, while compute can be scaled by parallelizing workloads across nodes. Each node operates as an independent server with its own CPUs, memory, and storage, but the high-speed network connections (NVSwitch within nodes, InfiniBand between nodes) allow them to work together as a unified system for large-scale AI workloads.
+As illustrated in @fig:ai-cluster, an AI cluster consists of multiple nodes, each containing multiple CPUs and GPUs (typically 8 GPUs per node in modern systems). Intra-node, GPUs are connected via NVSwitch, providing all-to-all connectivity at NVLink speeds (300-900 GB/s per GPU on Ampere–Hopper systems, up to 1.8 TB/s on Blackwell B200; all figures aggregate bidirectional per GPU). Inter-node, GPUs communicate via high-speed networks such as InfiniBand (200-400 Gb/s per link), enabling distributed training and inference across the entire cluster. This architecture allows work to be coordinated across all available resources. The cluster shown demonstrates how memory can be scaled by distributing model parameters, gradients, and optimizer states across GPUs, while compute can be scaled by parallelizing workloads across nodes. Each node operates as an independent server with its own CPUs, memory, and storage, but the high-speed network connections (NVSwitch intra-node, InfiniBand inter-node) allow them to work together as a unified system for large-scale AI workloads.
 
 Clusters aren't new—they've been used in high-performance computing (HPC) for decades. What's different for AI is the communication patterns. HPC workloads often do large, infrequent data exchanges. AI training does frequent, smaller exchanges (gradient synchronization every step), which makes network bandwidth and latency critical. We will discuss how to run distributed training jobs on SLURM-managed clusters in Chapter~\ref{chap:running-distributed-training-with-slurm}.
 
@@ -66,9 +62,9 @@ An **AI cluster** is a cluster specifically designed for AI workloads. Unlike ge
 
 **For training**, AI clusters need:
 
-- **High-bandwidth interconnects**: Gradient synchronization happens every training step. If communication is slow, GPUs sit idle waiting for gradients. NVLink (300-900 GB/s per GPU, aggregate bidirectional) within nodes and InfiniBand (200-400 Gb/s per link) between nodes are standard.
+- **High-bandwidth interconnects**: Gradient synchronization happens every training step. If communication is slow, GPUs sit idle waiting for gradients. NVLink (300-900 GB/s per GPU on Ampere–Hopper, up to 1.8 TB/s on Blackwell B200) intra-node and InfiniBand (200-400 Gb/s per link) inter-node are standard.
 - **Large aggregate memory**: Model parameters, gradients, and optimizer states are sharded across GPUs. A 70B model might need 8-16 GPUs just to fit in memory, even with techniques like FSDP (see Chapter~\ref{chap:scaling-with-fully-sharded-data-parallel-fsdp}).
-- **Fast storage**: Training datasets are large (ImageNet is 150 GB, text datasets can be terabytes). You need fast parallel filesystems or object storage to keep data pipelines fed.
+- **Fast storage**: Training datasets are large (ImageNet is 150 GB, text datasets can be terabytes). You need fast parallel filesystems or object storage inter-node, plus fast local NVMe per node (see CPU pairing below).
 
 **For inference**, the requirements shift (see Chapter~\ref{chap:distributed-inference-fundamentals-and-vllm} and Chapter~\ref{chap:production-llm-serving-stack}):
 
@@ -76,7 +72,7 @@ An **AI cluster** is a cluster specifically designed for AI workloads. Unlike ge
 - **Efficient memory usage**: KV caches for attention mechanisms can consume significant memory. You need to balance cache size (for longer context) against memory limits.
 - **Load balancing**: Inference workloads are bursty. You need to route requests efficiently across GPUs and handle traffic spikes.
 
-The hardware topology—how GPUs connect within a node and how nodes connect to each other—directly impacts what parallelism strategies work. A cluster where all GPUs are connected via NVSwitch (all-to-all connectivity) can use tensor parallelism effectively. A cluster where GPUs are only connected via PCIe will struggle with communication-heavy strategies.
+The hardware topology—how GPUs connect intra-node and how nodes connect inter-node—directly impacts what parallelism strategies work. A cluster where all GPUs are connected via NVSwitch (all-to-all connectivity) can use tensor parallelism effectively. A cluster where GPUs are only connected via PCIe will struggle with communication-heavy strategies.
 
 ### Key Metrics for AI Clusters
 
@@ -92,13 +88,17 @@ MFU tells you if you're compute-bound or limited by something else. A well-optim
 
 For a 70B parameter transformer model training on H100 GPUs, you might see:
 
-- **Theoretical FLOPs per iteration**: ~80 TFLOP (depends on batch size, sequence length)
-- **Iteration time**: 0.27 seconds
-- **Actual FLOPS per second**: ~80 TFLOP / 0.27 s ≈ 296 TFLOPS
-- **Peak H100 FLOPS**: ~1000 TFLOPS (FP16)
-- **MFU**: 296/1000 = 29.6%
+- **Theoretical FLOPs per iteration**: ~860 TFLOP (depends on batch size, sequence length)
+- **Iteration time**: ~2.0 seconds
+- **Actual FLOPS per second**: ~860 TFLOP / 2.0 s ≈ 430 TFLOPS
+- **Peak H100 FLOPS**: ~989 TFLOPS (BF16)
+- **MFU**: 430/989 ≈ 43%
 
-That 30% MFU means 70% of your hardware is idle. Common causes: memory bandwidth saturation, communication overhead, or small batch sizes that don't keep GPUs busy.
+That puts you in the 40-60% range many teams aim for on large models. If MFU is much lower (say, 20%), you're likely hitting memory bandwidth limits, communication overhead, or small batch sizes that don't keep GPUs busy.
+
+You can run the same check on your own training jobs. Start with how many tokens each step touches—on one GPU that's usually microbatch size times sequence length; multiply by data-parallel width if you want the whole cluster. For a dense transformer, a workable FLOP estimate is about six times the parameter count per token (forward and backward combined)[^mfu-flops]. Your trainer logs give you step time; divide those FLOPs by wall-clock seconds and by the peak matmul rate from the datasheet at the precision you train in—BF16 or FP16 on an H100, not the FP8 number on the marketing slide. The 70B walk-through above is just those pieces plugged into one line.
+
+[^mfu-flops]: Chowdhery et al., "PaLM: Scaling Language Modeling with Pathways," *Journal of Machine Learning Research* 24 (2023): 1–113, Appendix B (6N matmul FLOPs per token and model FLOPs utilization). Kaplan et al., "Scaling Laws for Neural Language Models," arXiv:2001.08361, 2020.
 
 **Linear scaling** measures how well performance scales with cluster size. The formula is:
 
@@ -171,8 +171,8 @@ A PUE of 1.0 means all power goes to IT equipment (impossible in practice). Real
 
 **Communication latency** is critical for distributed training. AllReduce latency should be:
 
-- **Within a node (NVLink)**: < 1 ms for typical gradient sizes
-- **Between nodes (InfiniBand)**: < 5 ms for cross-node communication
+- **Intra-node (NVLink)**: < 1 ms for typical gradient sizes
+- **Inter-node (InfiniBand)**: < 5 ms for inter-node communication
 - **P99 latency**: The 99th percentile latency matters more than average—one slow node can stall the entire training job
 
 When you're benchmarking a cluster, measure these metrics at different scales: 8 GPUs, 64 GPUs, 512 GPUs, 2048 GPUs. The metrics that degrade with scale (like linear scaling or communication efficiency) tell you where your bottlenecks are.
@@ -209,7 +209,7 @@ When you run distributed training, here's what happens:
 2. **CPU manages memory**: CPU allocates GPU memory, transfers data from CPU RAM to GPU memory, and coordinates multi-GPU communication.
 3. **CPU handles communication**: For multi-node training, CPU processes handle network communication (InfiniBand, Ethernet) and coordinate with NCCL for GPU collectives.
 
-As shown in @fig:cpu-gpu-interaction, the PCIe connection between CPU and GPU is often a bottleneck. PCIe Gen 4 x16 gives you about 31.5 GB/s per direction (~63 GB/s bidirectional), while NVLink between GPUs gives 300-1800 GB/s per GPU (aggregate bidirectional). This is why you want GPUs to communicate directly via NVLink, not through the CPU.
+As shown in @fig:cpu-gpu-interaction, the PCIe connection between CPU and GPU is often a bottleneck. PCIe Gen 4 x16 gives you about 31.5 GB/s per direction (~63 GB/s bidirectional), while NVLink between GPUs gives 300-900 GB/s per GPU on Ampere–Hopper (up to 1.8 TB/s on Blackwell B200), aggregate bidirectional. This is why you want GPUs to communicate directly via NVLink, not through the CPU.
 
 
 ### NUMA and CPU Affinity
@@ -231,6 +231,7 @@ For a typical 8-GPU server:
 - **CPU cores**: You want at least 2-4 CPU cores per GPU for data loading and orchestration. An 8-GPU system should have 16-32 CPU cores minimum.
 - **Memory**: CPU RAM should be 1.5-2x GPU memory for data staging. With 8×80GB GPUs, you want at least 1 TB CPU RAM.
 - **PCIe lanes**: Each GPU needs PCIe x16. An 8-GPU system needs 128 PCIe lanes, which typically means dual-socket CPUs (AMD EPYC or Intel Xeon).
+- **NVMe storage**: For an 8-GPU training node, target **~10–20 GB/s aggregate sequential read** from local NVMe (e.g., two to four PCIe Gen4/Gen5 drives, often RAID-0) so dataloaders and checkpoint I/O do not stall the GPUs. Terabyte-scale datasets usually live on a cluster parallel filesystem; local NVMe still matters for per-node cache and scratch space.
 
 The CPU doesn't need to be the latest generation—it's not doing the compute. But it needs enough cores and PCIe bandwidth to keep GPUs busy. Now let's turn to the component that does the heavy lifting: GPUs.
 
@@ -286,7 +287,7 @@ nvidia-smi topo -m
 
 This shows the topology matrix. The output can be dense, but here's what to look for:
 
-If you see `NV18`, `NV12`, or `NV4` between GPUs, you have NVLink. That's good—those links give you 300-900 GB/s per GPU (aggregate bidirectional) depending on the generation, way faster than PCIe. In a well-configured system like a DGX or HGX box, you'll see all GPUs connected via NVLink through an NVSwitch, meaning every GPU can talk to every other GPU at full speed.
+If you see `NV18`, `NV12`, or `NV4` between GPUs, you have NVLink. That's good—those links give you 300-900 GB/s per GPU on Ampere–Hopper (up to 1.8 TB/s on Blackwell B200), aggregate bidirectional, way faster than PCIe. In a well-configured system like a DGX or HGX box, you'll see all GPUs connected via NVLink through an NVSwitch, meaning every GPU can talk to every other GPU at full speed.
 
 If you see `PIX` or `PXB` between GPUs, they're only connected via PCIe. That works, but you'll hit bandwidth limits faster. You might also see `NODE` or `SYS`, which means the connection crosses NUMA boundaries—another thing that can slow things down.
 
@@ -305,13 +306,13 @@ One more thing: notice the CPU affinity column. GPUs 0-3 might be on NUMA node 0
 
 ### Key Architecture Milestones
 
-**Fermi (2010)** introduced the first complete GPU computing architecture with CUDA cores and ECC memory support. **Pascal (2016)** was the breakthrough for AI—it introduced NVLink (160 GB/s per GPU, aggregate bidirectional), enabling multi-GPU systems that could actually communicate fast enough for distributed training.
+**Through Pascal (2016):** Fermi and Pascal established CUDA and early NVLink for multi-GPU systems—you are unlikely to see them in production AI clusters today.
 
-**Volta (2017)** added Tensor Cores, specialized units for matrix multiplication that accelerated deep learning by 10-100x. This is when GPUs stopped being just graphics cards and became AI accelerators. **Ampere (2020)** with the A100 brought Tensor Core 3.0, supporting TF32 and BF16, plus NVLink 3.0 (600 GB/s per GPU, aggregate bidirectional) and NVSwitch for 8-GPU all-to-all connectivity.
+**Volta and Ampere (2017–2020):** Volta introduced Tensor Cores; the A100 (Ampere) added TF32/BF16, NVLink 3.0 (600 GB/s per GPU), and NVSwitch. A100s remain common for inference and older training fleets, but new large-scale training builds have moved on.
 
-**Hopper (2022)** with the H100 pushed things further: FP8 precision, Transformer Engine for dynamic precision switching, and NVLink 4.0 (900 GB/s per GPU, aggregate bidirectional). The H200 added more HBM3e memory (141 GB vs H100's 80 GB HBM3), which matters when you're training large models.
+**Hopper (2022)** is the current workhorse for distributed training. The H100 brought FP8, Transformer Engine for dynamic precision switching, and NVLink 4.0 (900 GB/s per GPU, aggregate bidirectional). The H200 keeps the same compute but adds HBM3e capacity (141 GB vs 80 GB on H100)—important when model state and activations dominate memory.
 
-**Blackwell (2024)** is the current generation. The B200 doubles NVLink bandwidth to 1.8 TB/s per GPU (aggregate bidirectional) and introduces dual-die design—each B200 chip is actually two dies connected internally. This means a single B200 has roughly the compute of two H100s, but with better memory bandwidth (8 TB/s vs 3 TB/s per GPU).
+**Blackwell (2024)** is the high-end NVIDIA training generation if you're building a new cluster today. Roadmaps already name successors such as Vera Rubin, so check SKU lists and lead times with your vendor or cloud provider before you commit. The B200 doubles NVLink bandwidth to 1.8 TB/s per GPU (aggregate bidirectional), uses a dual-die package (two dies per module), and raises HBM bandwidth to 8 TB/s per GPU—roughly 2× the transformer training throughput of an H100 at scale.
 
 ### What These Numbers Mean for Training
 
@@ -321,7 +322,7 @@ When you're choosing GPUs for distributed training, you care about three things:
 
 HBM bandwidth matters too. The A100 has 2 TB/s, H100 has 3 TB/s, and B200 has 8 TB/s (all per GPU). However, interconnect bandwidth (NVLink/InfiniBand) is typically the main bottleneck for gradient synchronization across GPUs. HBM bandwidth primarily affects local operations like reduce kernels and fused operators—higher HBM bandwidth means faster local reductions and memory-bound operations.
 
-**Compute throughput**: This is where Tensor Cores shine. The H100 delivers about 1 PFLOP for FP16, while the B200 hits 2.25 PFLOP. But raw FLOPS don't tell the whole story—you need to look at what precision you're actually using. FP8 training can be 2x faster than FP16, but not all models train well at FP8. The Transformer Engine in Hopper and Blackwell architectures automatically switches between FP8 and FP16 during training, which is why you see claims of "6x faster" for certain workloads.
+**Compute throughput**: This is where Tensor Cores shine. The H100 delivers about 1 PFLOP for FP16, while the B200 hits 2.25 PFLOP. But raw FLOPS don't tell the whole story—you need to look at what precision you're actually using. FP8 training can be 2x faster than FP16, but not all models train well at FP8. Hopper's Transformer Engine (carried forward on Blackwell) automatically switches between FP8 and FP16 during training; NVIDIA's H100 architecture whitepaper reports **up to 6× higher training throughput on transformer workloads vs A100** when FP8 and Transformer Engine are enabled[^h100-te]—not a guarantee for every model or stack.
 
 **Interconnect bandwidth**: NVLink bandwidth (per GPU, aggregate bidirectional) determines how fast GPUs can synchronize gradients. A100 has 600 GB/s, H100 has 900 GB/s, and B200 has 1.8 TB/s (all per GPU, aggregate bidirectional). When you're doing data parallelism, you're doing AllReduce operations every step. Faster NVLink means less communication overhead.
 
@@ -329,13 +330,13 @@ HBM bandwidth matters too. The A100 has 2 TB/s, H100 has 3 TB/s, and B200 has 8 
 
 NVIDIA ships GPUs in different form factors depending on your needs:
 
-**HGX (Hyperscale GPU eXchange)** is a baseboard module that OEMs integrate into servers. An HGX H100 has 8 H100 GPUs connected via NVSwitch, giving you 640 GB total HBM and 7.2 TB/s system aggregate NVLink bandwidth (8 GPUs × 900 GB/s per GPU). You buy this from server vendors like Dell, Supermicro, or Inspur, who add CPUs, storage, and networking.
+**HGX (Hyperscale GPU eXchange)** is a baseboard module that OEMs integrate into servers. An HGX H100 has 8 H100 GPUs connected via NVSwitch, giving you 640 GB total HBM, 900 GB/s NVLink per GPU, and about 3.6 TB/s NVSwitch bisection bandwidth across the baseboard. You buy this from server vendors like Dell, Supermicro, or Inspur, who add CPUs, storage, and networking.
 
 **DGX (Deep GPU Xceleration)** is NVIDIA's complete system. A DGX H100 is a pre-integrated server with 8 H100s, AMD EPYC CPUs, NVMe storage, and InfiniBand networking. It's more expensive but comes with optimized software stack and support. DGX systems are what most AI companies use for training—they're tested, documented, and just work.
 
-**SuperPOD** scales beyond a single server. A DGX SuperPOD connects multiple DGX systems (typically 32-64 nodes) via InfiniBand, creating a cluster with thousands of GPUs. The GB200 SuperPOD connects 8 GB200 NVL72 units (each with 72 GPUs) for a total of 576 GPUs with 1 PB/s system aggregate NVLink bandwidth.
+**SuperPOD** scales beyond a single server. A DGX SuperPOD connects multiple DGX systems (typically 32-64 nodes) via InfiniBand, creating a cluster with thousands of GPUs. The GB200 SuperPOD connects 8 GB200 NVL72 units (each with 72 GPUs, on the order of 130 TB/s NVLink capacity per rack per NVIDIA specifications) for a total of 576 GPUs, with additional NVLink switching between racks.
 
-The GB200 NVL72 is interesting—it's a liquid-cooled rack unit with 36 GB200 superchips (72 GPUs total) connected via NVLink. NVIDIA markets it as a "single massive GPU" because the NVLink topology makes all 72 GPUs appear as one unified memory space. This is what you'd use for training trillion-parameter models.
+The GB200 NVL72 is interesting—it's a liquid-cooled rack unit with 36 GB200 superchips (72 GPUs total) connected via NVLink. NVIDIA markets it as a "single massive GPU" because NVLink ties the rack together with very high bandwidth—but that is marketing, not a programming model. You still run 72 GPUs with explicit parallelism (TP/PP/DP, collectives, and deliberate tensor placement); frameworks shard the model for you. Do not expect transparent unified memory like CPU NUMA. The benefit is fast intra-rack communication for trillion-parameter training, not one logical device with no distributed code.
 
 ### Choosing the Right GPU
 
@@ -345,9 +346,9 @@ For most distributed training, you'll be choosing between H100, H200, or B200. H
 
 - **H200**: Same compute as H100 but 141 GB memory. Use this if you're memory-bound—larger models, longer sequences, or when you want bigger batch sizes. The extra memory costs more but can reduce the number of GPUs you need.
 
-- **B200**: Latest generation, 192 GB memory, 8 TB/s bandwidth, 1.8 TB/s NVLink. Use this for new deployments where you want maximum performance. The dual-die design means you get roughly 2x the compute of H100, but you'll pay for it.
+- **B200**: Flagship Blackwell for training—192 GB HBM, 8 TB/s memory bandwidth, 1.8 TB/s NVLink per GPU. Use it when you need maximum throughput and can get capacity; the dual-die design gives you roughly 2× the H100's compute, at a premium, and availability varies by quarter and region.
 
-One thing to watch: GPU availability. As of 2024, H100s are still hard to get, and B200s are even scarcer. If you're building a cluster, factor in lead times—it can take 6-12 months from order to delivery.
+One thing to watch: **availability** matters as much as the spec sheet. Demand spikes and product transitions often leave older GPUs in production while newer SKUs ramp, so lead times, cloud quotas, and which generation is easiest to buy can flip quarter to quarter. Confirm any backlog rumor with your vendor or cloud provider before you freeze a design—high-demand parts have seen multi-month waits in past cycles, and that eases or returns as new silicon ships. Roadmap announcements beyond Blackwell can reshuffle what you can actually source, so check again when you're ready to buy.
 
 For inference, the calculus changes. B200's FP4 performance (20 PFLOP) makes it attractive for high-throughput inference, but the cost per request matters more than peak FLOPS. Many inference deployments still use A100 or even consumer GPUs because they're cheaper and good enough.
 
@@ -355,7 +356,7 @@ For inference, the calculus changes. B200's FP4 performance (20 PFLOP) makes it 
 
 **Tensor Cores** are the secret sauce. They're specialized units that do matrix multiplication 10-100x faster than CUDA cores. Every modern training framework (PyTorch, TensorFlow, JAX) uses them automatically through cuBLAS and cuDNN. You don't need to write special code—just make sure you're using FP16/BF16/FP8 precision.
 
-**Transformer Engine** (Hopper and Blackwell) automatically switches between FP8 and FP16 during training. It monitors activation statistics and uses FP8 when safe, FP16 when needed for accuracy. This is why you see claims of "6x faster training" for transformer models—the hardware is doing precision optimization automatically.
+**Transformer Engine** (Hopper and Blackwell) automatically switches between FP8 and FP16 during training. It monitors activation statistics and uses FP8 when safe, FP16 when needed for accuracy—the source of the up-to-6× transformer training claims cited above[^h100-te].
 
 **MIG (Multi-Instance GPU)** on A100 and H100 lets you partition a single GPU into multiple virtual GPUs. Each partition gets dedicated memory and compute. This is useful for cloud providers who want to rent GPU time to multiple customers, but for training large models, you'll want the full GPU.
 
@@ -387,23 +388,19 @@ TPU v1 had a 256×256 systolic array (65,536 PEs) running at 700 MHz, giving abo
 
 ### TPU Generations
 
-**TPU v1 (2016)** was inference-only. It used INT8 quantization (weights and activations converted from FP32 to 8-bit integers), 8 GB DDR3 memory, and connected via PCIe 3.0. It was fast for inference but couldn't train models because INT8 isn't stable for gradient computation.
+Google's line evolved in a few jumps that still show up in papers and pod design: **v1 (2016)** was inference-only (INT8 over PCIe); **v2** added BF16 training, HBM, and chip-to-chip links; **v4** added **Sparse Core** for embeddings, **3D torus** pods at thousands of chips, and **optical circuit switching (OCS)**. Early generations are no longer offered on GCP, but those milestones explain the vocabulary in older write-ups.
 
-**TPU v2 (2017)** added training support. Key changes: HBM memory (16 GB, 600 GB/s bandwidth), BF16 support for training (bfloat16 keeps FP32's exponent range but reduces mantissa bits), and chip-to-chip interconnects. Four TPU v2 chips form a module, and 64 modules (256 chips total) form a TPU v2 Pod with 11.5 PFLOPS peak performance.
-
-**TPU v3 (2018)** doubled MXU count (4 per chip vs 2 in v2), increased clock speed (940 MHz vs 700 MHz), and doubled HBM capacity (32 GB). The v3 Pod scales to 1,024 chips with 100+ PFLOPS. It also switched to liquid cooling, which allowed higher power (450W vs 280W) and better performance.
-
-**TPU v4 (2021)** moved to 7nm process, doubled MXUs again (8 per chip), and added **Sparse Core** units for embedding layers. The v4 Pod uses 3D torus topology (vs 2D in v2/v3) to connect 4,096 chips, delivering 1.1 exaflops of BF16 compute. It also introduced optical circuit switching (OCS) for chip-to-chip communication, reducing latency and power compared to electrical switches.
+On Google Cloud, the currently relevant public TPU families include **v5e/v5p**, **Trillium**, **TPU7x/Ironwood**, and the newer eighth-generation **TPU 8t/8i** line, though availability depends on region, quota, and deployment mode. Peak FLOPS, memory per chip, pod size, and regional availability change every generation, but the stack stays the same: **JAX or TensorFlow through XLA**, with `jax.jit` and pod sharding as in the section below. Check [Google Cloud TPU documentation](https://cloud.google.com/tpu/docs) for which SKUs you can bind.
 
 ### TPU Pod Architecture
 
-A **TPU Pod** is Google's term for a TPU cluster. Unlike GPU clusters that use InfiniBand switches, TPU Pods use custom interconnects:
+A **TPU Pod** is Google's term for a TPU cluster. Unlike GPU clusters that use InfiniBand switches, TPU Pods use custom interconnects. Newer generations scale pod size and fabric details; the ideas below come from v2–v4 designs but still describe how traffic tends to flow on a torus:
 
-- **2D Torus** (v2/v3): Chips arranged in a 2D grid where each chip connects to four neighbors. Data can wrap around edges, forming a torus. This gives high bandwidth between adjacent chips but longer paths for distant communication.
+- **2D torus** (early pods): Chips on a grid, each with four neighbors (edges wrap). Good local bandwidth; distant pairs take more hops.
 
-- **3D Torus** (v4): Chips arranged in a 3D cube. Each chip connects to six neighbors (up/down, left/right, forward/back). This reduces network diameter compared to 2D, meaning fewer hops for distant communication. A 4×4×4 cube (64 chips) is the basic unit, and 64 cubes form a 4,096-chip Pod.
+- **3D torus** (from v4 onward): Six neighbors per chip (a 3D mesh with wraparound). Shorter diameter than 2D for the same chip count—important at pod scale.
 
-- **Optical Circuit Switching (OCS)**: TPU v4 uses MEMS-based optical switches (Palomar) to route light signals between chips. This avoids electrical-to-optical conversion, reducing latency and power. The OCS can reconfigure routes dynamically, which helps with fault tolerance—if a chip fails, routes can be reconfigured around it.
+- **Optical circuit switching (OCS)**: Introduced at v4 scale—MEMS optical switches route light between chips with less conversion loss. Routes can be reconfigured for fault tolerance.
 
 The torus topology is different from GPU clusters' Clos/fat-tree networks. Torus is cheaper (fewer switches, simpler wiring) and has lower latency for local communication, but it's less flexible for scaling and load balancing. Clos networks are non-blocking (any input can talk to any output at full bandwidth simultaneously), while torus networks can have congestion.
 
@@ -422,12 +419,15 @@ The torus topology is different from GPU clusters' Clos/fat-tree networks. Torus
 - You're using PyTorch (TPU support exists but GPU is first-class)
 - You need to run on-premise or multi-cloud
 - Your workload has sparse operations or irregular patterns
+- You need practical debugging—opaque XLA errors, weaker profilers than NVIDIA Nsight, and little public community support unless you are a large Google/GCP customer
 
 **Performance characteristics:**
 
-- TPUs excel at dense matrix ops. A TPU v4 chip delivers about 275 TOPS for BF16, comparable to an H100's FP16 performance.
+- TPUs excel at dense matrix ops. Per-chip peak FLOPS varies by generation (v4 was about 275 TFLOPS BF16; Trillium, Ironwood, and 8th-gen SKUs are higher—see GCP specs)—roughly Ampere-class per chip at the v4 era, not H100-class (~990 TFLOPS BF16/FP16 dense). End-to-end transformer training can still be competitive at pod scale when XLA and the workload match the stack.
 - GPUs are more general-purpose. They handle sparse operations, custom kernels, and mixed workloads better.
 - TPU software stack (XLA compiler) is highly optimized but less flexible. You compile your model to XLA, and the compiler generates optimized code. This can be faster than GPU for supported operations but harder to debug.
+
+**Debugging and tooling:** On GPUs you get mature tools (`nvidia-smi`, Nsight, PyTorch profiler) and a large community. On TPUs, failures often show up as **opaque XLA compilation errors** (long compiler logs, little line-level context), profiling is less mature, and help is mostly **GCP/Google channels**—not Stack Overflow depth. For teams learning distributed training, that friction is a real cost next to FLOPS and price per hour.
 
 **Cost and availability:**
 
@@ -437,21 +437,17 @@ The torus topology is different from GPU clusters' Clos/fat-tree networks. Torus
 
 ### TPU Programming Model
 
-TPUs use **XLA (Accelerated Linear Algebra)** compiler. You write code in TensorFlow or JAX, and XLA compiles it to TPU instructions. This is different from GPUs where you write CUDA kernels or use libraries like cuDNN.
+TPUs run through **XLA (Accelerated Linear Algebra)**. You write TensorFlow or JAX code; XLA lowers it to TPU instructions. That is a different workflow from GPUs, where you typically rely on CUDA kernels and libraries such as cuDNN rather than a whole-program compile step.
 
-The compilation step means TPUs have higher startup latency—your first run compiles the graph, which can take minutes. Subsequent runs are fast. GPUs have lower startup latency but may have more runtime overhead.
+The trade-off is startup time. The first run compiles the full graph and can take minutes; later runs reuse the compiled binary and are much faster. GPUs usually start quicker but may carry more per-step runtime overhead.
 
-For distributed training on TPUs, you use TensorFlow's distribution strategies or JAX's `pmap`/`pjit`. The torus topology means communication patterns matter—you want to keep communication local when possible. XLA's compiler optimizes for this automatically, but understanding the topology helps when debugging performance.
+For multi-chip training, TensorFlow distribution strategies remain common. In JAX, use **`jax.jit` with sharding annotations**—`PartitionSpec` and `NamedSharding` on a device mesh—to describe how tensors map across the pod; use `jax.shard_map` when you need explicit per-chip logic. Placement still matters on a torus: shard tensors so most traffic stays between neighbors, and let XLA optimize the rest. Poor layouts still show up as slow steps or confusing errors at debug time.
 
-### Sparse Core: TPU v4's Secret Weapon
+### Sparse Core (since v4)
 
-TPU v4 introduced **Sparse Core** units specifically for embedding layers. Embedding layers are common in recommendation systems and NLP—they map discrete IDs (user IDs, word IDs) to dense vectors. The computation is sparse (most entries are zero) and doesn't map well to matrix multiplication units.
+**Sparse Core** debuted on TPU v4 and remains part of later training-oriented generations (including embedding-heavy **TPU 8t** workloads). Embedding layers map discrete IDs to dense vectors; access is irregular and does not fit pure systolic matmuls. Sparse Core tiles fetch and process those lookups with dedicated HBM paths—algorithm-hardware co-design that GPUs usually handle in software.
 
-Sparse Core has 16 tiles, each with its own HBM channel and a programmable vector processing unit. It can fetch sparse data, process it, and flush results back efficiently. Google claims Sparse Core accelerates embedding-heavy models by 5-7x while using only 5% of die area and power.
-
-This is an example of algorithm-hardware co-design: Google identified that embeddings are a bottleneck, so they built dedicated hardware. GPUs handle embeddings in software, which works but isn't as efficient.
-
-If you're training recommendation models or models with large embedding tables, TPU v4's Sparse Core is a significant advantage. For transformer-only models, it doesn't matter as much.
+If you train recommendation models or models with large embedding tables, check whether your GCP SKU includes Sparse Core. For transformer-only workloads it matters less.
 
 Beyond GPUs and TPUs, another class of accelerators has emerged: Neural Processing Units (NPUs), which represent a broader category of domain-specific AI chips. While less common in large-scale training, NPUs are worth understanding as they represent a different tradeoff between flexibility and efficiency.
 
@@ -463,15 +459,17 @@ Beyond GPUs and TPUs, another class of accelerators has emerged: Neural Processi
 
 ### What Makes NPUs Different
 
-NPUs are built around **AI Cores**—specialized units optimized for matrix multiplication, convolution, and other neural network primitives. Unlike GPUs that evolved from graphics hardware, NPUs are designed specifically for AI from day one.
+NPUs are built around **AI Cores**—specialized units optimized for matrix multiplication, convolution, and other neural network primitives. Early GPUs grew out of graphics; today's training GPUs lean on similar specialized blocks (Tensor Cores, matrix units), so the historical "GPU vs NPU" story is as much about **software and go-to-market** as about a fundamentally different die.
 
-The architecture tradeoff: CPUs are general-purpose (good at everything, great at nothing), GPUs are parallel processors (great at parallel workloads, less flexible), and NPUs are domain-specific (excellent at AI, limited elsewhere). NPUs allocate most of their silicon to AI Cores and memory bandwidth, with minimal control logic.
+The architecture tradeoff is a useful mental model, not a hard boundary:
 
-Major NPU vendors include:
+- **CPUs** — general-purpose control and orchestration.
+- **GPUs** — throughput-oriented parallel processors with a large software stack.
+- **NPUs** — AI-first designs that trade flexibility for efficiency.
 
-- **Cambricon MLU**: Company focusing on edge and cloud AI acceleration.
-- **Tesla Dojo**: Custom NPU for Tesla's autonomous driving training.
-- **Google Edge TPU**: Smaller TPU variant for edge devices.
+**Convergence:** Those lines are blurring. Modern datacenter GPUs are less "graphics chips" every generation—NVIDIA **Tensor Cores** are domain-specific matrix engines for training and inference, and AMD **MI300X** (CDNA3) dedicates much of the die to matrix units and HBM in ways that look very NPU-like. Pure NPUs still differ in software (proprietary stacks, edge focus), but when you're choosing hardware you're usually comparing **degrees of specialization**, not three separate species. Ecosystem (CUDA/ROCm, PyTorch, NCCL) still matters more than the label on the slide.
+
+You'll still run into a mixed deployment landscape. **Huawei Ascend** (910C and later) pairs datacenter NPUs with rack-scale **SuperPoD** systems on custom interconnects—common in China and some export markets. **AWS Trainium** is Amazon's training ASIC on EC2, from **Trainium2** instances up to multi-rack clusters. **Google's Edge TPU** is a separate, low-power line for edge inference, not the cloud TPU pods in the previous section. Regional vendors such as **Cambricon MLU** matter where their stacks and supply chains fit your workload. Specs and SKUs change fast—check vendor docs before you lock in hardware.
 
 ### NPU Architecture: AI Cores and Memory
 
@@ -483,7 +481,7 @@ NPU architecture centers on **AI Cores**—dedicated compute units for neural ne
 
 Memory hierarchy is critical. NPUs use high-bandwidth memory (HBM) similar to GPUs, but the memory subsystem is often simpler—fewer cache levels, more direct paths to compute units. This reduces latency but requires careful memory management.
 
-Training-focused NPUs typically have 16-32 GB HBM2/HBM3 with 1-2 TB/s bandwidth and deliver 200-300 TFLOPS for FP16. The architecture uses multiple AI Cores per chip, optimized for matrix multiplication and neural network operations.
+Training-focused datacenter NPUs today often ship **64–128+ GB HBM** per chip with **hundreds of TFLOPS** of BF16/FP16 peak (vendor-dependent—well above the early 200–300 TFLOPS class). The architecture still centers on many AI Cores per die and matrix-heavy execution.
 
 ### Training vs Inference NPUs
 
@@ -543,29 +541,23 @@ One challenge: NPU interconnects are often proprietary. Unlike InfiniBand which 
 
 ### The NPU Landscape
 
-The NPU market is fragmented. Unlike GPUs where NVIDIA dominates, NPUs have multiple vendors with different architectures:
+NPUs don't look like GPUs. NVIDIA still dominates global GPU training; NPUs split across hyperscalers, regions, and short product cycles. Tesla has wound down Dojo; Graphcore was acquired by SoftBank and is no longer a standalone comparison point. What you'll actually encounter are **hyperscaler stacks**—**Trainium** on AWS, **Ascend SuperPoD** on Huawei Cloud—and edge parts like **Google's Edge TPU**, each with its own collectives and compilers.
 
-- **Cambricon**: Focuses on edge and cloud inference
-- **Graphcore IPU**: UK company with a different architecture (not strictly an NPU but similar)
-- **Tesla Dojo**: Custom solution for Tesla's specific needs
-
-This fragmentation means less software support, fewer frameworks, and more vendor lock-in. But it also means innovation and competition, which can drive better performance for specific use cases.
-
-For distributed training, NPUs are viable but require more vendor-specific knowledge than GPUs. If you're building a new cluster and have access to both, GPUs are usually the safer choice due to ecosystem maturity. But NPUs can be compelling for specific regions, workloads, or cost constraints.
+For distributed training, NPUs are viable where the vendor stack matches your framework and region, but expect **more porting work than CUDA/NCCL**. GPUs remain the default for multi-cloud and research flexibility; NPUs can win on **cost, locality, or tuned workloads** in specific deployments.
 
 Now that we've covered the compute hardware (CPUs, GPUs, TPUs, and NPUs), we need to understand how these components communicate. The interconnect technology—how chips talk to each other—is often the bottleneck in distributed training. Fast interconnects enable efficient gradient synchronization and data movement, while slow interconnects can cripple performance regardless of how powerful your compute hardware is.
 
 ## High-Speed Interconnects: The Network Backbone
 
-There are several ways GPUs connect, and which one matters depends on whether you're talking about communication within a single server or across multiple servers.
+There are several ways GPUs connect, and which one matters depends on whether you're talking about intra-node or inter-node communication.
 
 **Within a single server:**
 
 **PCIe** is what you get by default. Every GPU connects to the CPU via PCIe, and if there's no NVLink, GPUs talk to each other through the CPU too. It works, but it's the slowest option—typically 16-64 GB/s depending on PCIe generation. The latency is also higher since everything goes through the CPU.
 
-**NVLink** is NVIDIA's direct GPU-to-GPU interconnect. When two GPUs have NVLink between them, they can talk directly without involving the CPU. Bandwidth is much higher—300-900 GB/s per GPU (aggregate bidirectional) depending on the generation. The catch is that not all systems have it, and even when they do, not all GPU pairs might be connected.
+**NVLink** is NVIDIA's direct GPU-to-GPU interconnect. When two GPUs have NVLink between them, they can talk directly without involving the CPU. Bandwidth is much higher—300-900 GB/s per GPU on Ampere–Hopper (up to 1.8 TB/s on Blackwell B200), aggregate bidirectional. The catch is that not all systems have it, and even when they do, not all GPU pairs might be connected.
 
-**NVSwitch** is what you see in high-end systems like DGX or HGX boxes. It's essentially a switch that connects all GPUs via NVLink, giving you all-to-all connectivity. Every GPU can talk to every other GPU at full NVLink speed simultaneously. This is what you want for large-scale distributed training within a single node.
+**NVSwitch** is what you see in high-end systems like DGX or HGX boxes. It's essentially a switch that connects all GPUs via NVLink, giving you all-to-all connectivity. Every GPU can talk to every other GPU at full NVLink speed simultaneously. This is what you want for large-scale distributed training intra-node.
 
 **Across multiple servers:**
 
@@ -581,13 +573,13 @@ Standard Ethernet (TCP/IP) works, but it's slower. You're looking at 10-100 Gb/s
 
 **RoCE (RDMA over Converged Ethernet)** is the interesting one. As the name suggests, it's RDMA over Ethernet instead of InfiniBand. So RDMA isn't exclusive to InfiniBand—it's a capability that can be implemented over different network technologies. RoCE v2 gives you the same RDMA benefits (GPU-to-GPU direct memory access, bypassing the CPU) but over standard Ethernet infrastructure. Bandwidth is comparable—100-400 Gb/s depending on the NIC—but latency is typically higher than InfiniBand, and you need proper switch configuration (DCB/PFC) to avoid packet loss under load.
 
-The practical difference: InfiniBand is purpose-built for HPC workloads and tends to be more reliable at scale. RoCE works well in cloud environments where you're already using Ethernet infrastructure, but you need to tune it carefully. Many cloud providers offer both options—AWS has EFA (Elastic Fabric Adapter) which supports both InfiniBand and RoCE, and Google Cloud has similar offerings.
+The practical difference: InfiniBand is purpose-built for HPC workloads and tends to be more reliable at scale. RoCE works when you're already on Ethernet infrastructure, but you need to tune it carefully (DCB/PFC, lossless fabrics).
 
-For most on-premise clusters, InfiniBand is still the default choice. But if you're in a cloud environment or have existing Ethernet infrastructure, RoCE is a viable alternative. The bandwidth and latency characteristics matter a lot when you're synchronizing gradients across hundreds of GPUs, so test both if you have the option.
+For most on-prem clusters, InfiniBand is still the default choice. If you have existing Ethernet infrastructure instead, RoCE is a viable alternative. Bandwidth and latency still dominate gradient sync at scale, so benchmark what your environment actually provides.
 
 If you're buying hardware, DGX systems are pre-integrated—NVIDIA ships you a complete system with GPUs, CPUs, networking (including InfiniBand), and software stack. HGX is more modular—it's a baseboard design that OEMs use to build custom servers. Both can include NVSwitch for intra-node communication and InfiniBand for inter-node.
 
-To actually measure your interconnect bandwidth, you can use NCCL tests or write a simple benchmark. The `code/bandwidth_test.py` script gives you a basic single-GPU test. For multi-GPU within a node, you'll want to use `nccl-tests`. For multi-node, NCCL tests will show you the InfiniBand bandwidth between nodes.
+To actually measure your interconnect bandwidth, you can use NCCL tests or write a simple benchmark. The `code/bandwidth_test.py` script gives you a basic single-GPU test. For multi-GPU intra-node, you'll want to use `nccl-tests`. For inter-node clusters, NCCL tests will show you InfiniBand bandwidth.
 
 Understanding hardware is only half the story. To write efficient distributed training code, you also need to understand how chips are programmed. The programming model (how you write code) and execution model (how hardware runs it) are different layers, and knowing both helps when debugging performance or porting code between platforms.
 
@@ -736,19 +728,21 @@ Now that we understand how individual chips work and how they're programmed, we 
 
 ## Distributed Communication: Patterns and Primitives
 
-When you're running distributed training, GPUs need to communicate. The main patterns you'll see are:
+Chapter~\ref{chap:introduction-to-modern-distributed-ai} defines Broadcast, AllReduce, AllGather, ReduceScatter, and the rest, with diagrams and runnable demos. Those calls describe *what* must happen between ranks; in production, **NCCL** (PyTorch's default GPU backend, `backend="nccl"`) implements them over the interconnects above. CPU-only or debugging jobs may use Gloo instead. The training mappings you will see again in later chapters: **AllReduce** for DDP gradient sync (Chapter~\ref{chap:distributed-training-with-pytorch-ddp}); **ReduceScatter** and **AllGather** for FSDP-style sharding (Chapter~\ref{chap:scaling-with-fully-sharded-data-parallel-fsdp}); **AllGather** every layer in tensor parallelism (below).
 
-**Broadcast** sends data from one GPU (usually rank 0) to all others. You use this during initialization to get the same model weights on every GPU.
+A 900 GB/s NVLink or 400 Gb/s InfiniBand port is an upper bound, not your AllReduce throughput. Collectives add startup latency, and NCCL may choose ring- or tree-style algorithms depending on message size and topology. Frameworks also hide some of the cost: DDP buckets gradients so AllReduce can overlap with backward compute (Chapter~\ref{chap:distributed-training-with-pytorch-ddp}). That is why the interconnect section ended with NCCL benchmarks—effective collective bandwidth is what limits training, not the peak number on a slide.
 
-**AllReduce** aggregates data from all GPUs and distributes the result back. This is what DDP (see Chapter~\ref{chap:distributed-training-with-pytorch-ddp}) uses for gradient synchronization—each GPU computes gradients on its local data, then AllReduce averages them across all GPUs.
+NCCL discovers the same topology you inspect with `nvidia-smi topo -m` (hands-on below): NVLink versus PCIe between GPUs, NICs for inter-node traffic. When communication is slow or hangs, try these before you change parallelism strategy:
 
-**ReduceScatter** and **AllGather** show up in sharded parallelism. ReduceScatter splits the result across GPUs, while AllGather collects data from all GPUs into each GPU.
+- **`NCCL_DEBUG=INFO`** — prints which paths and algorithms NCCL picked (NVLink, PCIe, InfiniBand). Run a short job; turn off for long production runs.
+- **`NCCL_IB_DISABLE=1`** — disables InfiniBand/RoCE so traffic falls back to TCP sockets. Helps isolate a bad IB setup; use `NCCL_IB_DISABLE=0` (or unset) on clusters that should train over IB.
+- **`NCCL_TOPO_FILE=/path/to/topo.xml`** — overrides auto-discovered topology when visibility is wrong (containers, odd PCIe trees, partial GPU sets). Rare; see NCCL documentation for the XML format.
 
-The thing to watch with communication is not just raw bandwidth, but also startup latency and whether you can overlap it with computation. A fast interconnect helps, but if your communication pattern has high latency, you'll still wait. DDP tries to overlap communication with computation by bucketing gradients, which we'll cover in Chapter~\ref{chap:distributed-training-with-pytorch-ddp}.
+On multi-node clusters, set **`NCCL_SOCKET_IFNAME`** (e.g. `ib0`) so NCCL uses the high-speed NIC from the interconnect section, not a management Ethernet port. Additional flags are covered with DDP troubleshooting in Chapter~\ref{chap:distributed-training-with-pytorch-ddp}.
 
-You can benchmark these operations yourself. The `code/allreduce_microbench.py` script shows a basic example, though you'll need to initialize the process group first (we'll cover that in Chapter~\ref{chap:distributed-training-with-pytorch-ddp}).
+The hands-on at the end of this chapter closes the loop: after `topo -m`, run `code/allreduce_microbench.py` with `torchrun` (same launch pattern as `distributed_basic_test.py` in Chapter~\ref{chap:introduction-to-modern-distributed-ai}) to measure AllReduce on your real links. Compare the printed bus bandwidth to the NVLink and InfiniBand ranges above—that gap tells you how much headroom parallelism strategy can buy.
 
-With hardware, interconnects, and communication primitives covered, we can now address the central question: how do you actually split work across multiple GPUs? This brings us to parallelism strategies—the different ways to distribute computation, model state, and data across devices.
+With links, collectives, and NCCL behavior on the table, the next question is how to split model and batch across GPUs: the parallelism strategies that follow.
 
 ## Parallelism: Core Strategies
 
@@ -772,7 +766,7 @@ The following table provides a canonical taxonomy of all parallelization and sca
 | Context Parallelism | Computation | Long-context attention/KV split | Inference | vLLM (Chapter~\ref{chap:distributed-inference-fundamentals-and-vllm}) / SGLang (Chapter~\ref{chap:request-level-routing-and-sglang}) |
 | Pipeline Parallelism (PP) | Computation | Inter-layer / stage split | Training / Inference | GPipe / DeepSpeed PP (Chapter~\ref{chap:beyond-state-sharding-with-deepspeed-and-megatron}) |
 | Expert Parallelism (MoE EP) | Computation | Sparse conditional compute | Training / Inference | DeepSpeed-MoE (Chapter~\ref{chap:beyond-state-sharding-with-deepspeed-and-megatron}) |
-| Operator / Intra-op Parallelism | Computation | Generic op-level sharding (SPMD) | Training / Inference | XLA SPMD / JAX pjit / PyTorch DTensor |
+| Operator / Intra-op Parallelism | Computation | Generic op-level sharding (SPMD) | Training / Inference | XLA SPMD / JAX `jit`+sharding / PyTorch DTensor |
 
 ### The Three Questions for Parallelism Determination
 
@@ -869,7 +863,7 @@ __Step 5: Hybrid combinations__
 
 Most large models use combinations:
 
-- **DP + TP**: Data parallelism across nodes, tensor parallelism within nodes
+- **DP + TP**: Data parallelism inter-node, tensor parallelism intra-node
 - **DP + PP**: Data parallelism with pipeline stages
 - **DP + TP + PP**: All three combined for very large models
 - **DP + EP**: Data parallelism with expert parallelism for MoE
@@ -882,6 +876,16 @@ If memory is still insufficient:
 - **CPU/NVMe offloading**: Move optimizer states or parameters off GPU (slower but enables larger models)
 
 ![Training Strategy Decision Tree](img/training_tree.png){#fig:training-strategy-tree}
+
+### Key Considerations for Training
+
+**Network topology matters.** If you're on a system where some GPU pairs are connected via NVLink and others via PCIe, try to keep communication-heavy operations (like tensor parallelism) on the NVLink-connected pairs. PyTorch and most frameworks don't do this automatically, so you might need to set process groups or device placement manually.
+
+**Interconnect speed determines what's feasible.** Tensor parallelism requires communication every layer, so you need fast interconnects (NVLink for intra-node, InfiniBand for inter-node). If you only have PCIe, avoid tensor parallelism—stick with FSDP/ZeRO or pipeline parallelism.
+
+**Memory vs. throughput tradeoff.** FSDP/ZeRO maximize memory efficiency but don't necessarily improve throughput. Tensor parallelism can improve throughput (by splitting large layers) but uses more memory per GPU. Pipeline parallelism can improve throughput if you have enough GPUs and can keep the pipeline full.
+
+**Start simple, add complexity only if needed.** Most models can be trained with just DDP or FSDP. Each additional parallelism strategy adds complexity and potential failure modes.
 
 ### Inference Strategy Decision Tree
 
@@ -928,25 +932,11 @@ For inference, KV cache can be a major memory bottleneck, especially with long c
 
 ### Key Considerations for Inference
 
-**Latency vs. throughput tradeoff.** Training optimizes for throughput (samples per second). Inference often optimizes for latency (time to first token, time per token). Model parallelism can increase latency due to communication, so use it only when necessary.
-
-**KV cache is the new bottleneck.** Unlike training, inference needs to store KV cache for attention. With long contexts and many concurrent requests, KV cache can easily exceed GPU memory. PagedAttention and similar techniques are essential.
-
-**Batching improves efficiency.** Even with model parallelism, batching multiple requests improves GPU utilization. Dynamic batching (grouping requests of similar length) is common in production systems (see Chapter~\ref{chap:production-llm-serving-stack}).
-
-**Quantization is more feasible in inference.** You can use INT8 or even INT4 quantization in inference without retraining (using quantization-aware techniques). This can 2-4x reduce memory and improve throughput.
-
-**Start with single-GPU, scale only if needed.** Most models can be served on a single GPU with quantization and optimized kernels. Only use model parallelism if the model truly doesn't fit or you need to serve many concurrent requests.
-
-### Key Considerations
-
-**Network topology matters.** If you're on a system where some GPU pairs are connected via NVLink and others via PCIe, try to keep communication-heavy operations (like tensor parallelism) on the NVLink-connected pairs. PyTorch and most frameworks don't do this automatically, so you might need to set process groups or device placement manually.
-
-**Interconnect speed determines what's feasible.** Tensor parallelism requires communication every layer, so you need fast interconnects (NVLink for intra-node, InfiniBand for inter-node). If you only have PCIe, avoid tensor parallelism—stick with FSDP/ZeRO or pipeline parallelism.
-
-**Memory vs. throughput tradeoff.** FSDP/ZeRO maximize memory efficiency but don't necessarily improve throughput. Tensor parallelism can improve throughput (by splitting large layers) but uses more memory per GPU. Pipeline parallelism can improve throughput if you have enough GPUs and can keep the pipeline full.
-
-**Start simple, add complexity only if needed.** Most models can be trained with just DDP or FSDP. Each additional parallelism strategy adds complexity and potential failure modes.
+- **Latency vs. throughput.** Serving cares about TTFT and per-token latency; model parallelism adds communication every layer—use only when needed (Chapter~\ref{chap:distributed-inference-fundamentals-and-vllm}, Chapter~\ref{chap:production-llm-serving-stack}).
+- **KV cache.** Unlike training, memory is dominated by KV cache at long context and high concurrency; PagedAttention and related techniques are essential (Chapter~\ref{chap:distributed-inference-fundamentals-and-vllm}).
+- **Batching and replicas.** Replicate and batch requests before reaching for TP (Chapter~\ref{chap:distributed-inference-fundamentals-and-vllm}, Chapter~\ref{chap:request-level-routing-and-sglang}, Chapter~\ref{chap:production-llm-serving-stack}).
+- **Quantization.** INT8/INT4 often fits a model on one GPU without retraining (Chapter~\ref{chap:distributed-inference-fundamentals-and-vllm}).
+- **Start simple.** Single GPU with quantization and fused kernels before TP/PP (Chapter~\ref{chap:distributed-inference-fundamentals-and-vllm}).
 
 ### Practical Tips
 
@@ -979,7 +969,7 @@ You'll need a machine with at least one GPU (preferably multiple GPUs) to run th
 
 ### Step 1: Inspect GPU Hardware
 
-Start by verifying your GPU setup and gathering basic hardware information. Run the `check_cuda.py` script:
+Start by verifying your GPU setup and gathering basic hardware information. Run the `check_cuda.py` script (expect **well under a second**):
 
 ```bash
 python code/check_cuda.py
@@ -1025,7 +1015,7 @@ This confirms your GPUs are detected and shows memory capacity, compute capabili
 
 ### Step 2: Inspect Hardware Topology
 
-To understand how your GPUs are connected, use `nvidia-smi` to inspect the topology:
+To understand how your GPUs are connected, use `nvidia-smi` to inspect the topology (runs **instantly**—no training job):
 
 ```bash
 nvidia-smi topo -m
@@ -1064,13 +1054,16 @@ Before testing inter-GPU communication, establish a baseline by measuring single
 python code/bandwidth_test.py
 ```
 
-The script measures bandwidth by copying data within GPU memory:
+Expect **a few seconds** on a modern GPU (200 warmup-style iterations over 64 MB tensors).
+
+The script measures bandwidth by copying data within GPU memory. Each `copy_` reads `a` and writes `b`, so we count **2×** the tensor size per iteration (combined read+write traffic):
 
 ```python
 #LINENUM
 import torch
 import time
 size_mb = 64
+iterations = 200
 nbytes = size_mb * 1024 * 1024
 a = torch.randn(nbytes // 4, device='cuda')
 b = torch.empty_like(a) #HL
@@ -1084,25 +1077,27 @@ for _ in range(iterations):
     b.copy_(a)
 torch.cuda.synchronize()
 t1 = time.time()
-bandwidth_gb_per_s = (nbytes * iterations) / (1024**3) / (t1 - t0)
-print(f"Bandwidth: {bandwidth_gb_per_s:.2f} GB/s")
+bytes_moved = 2 * nbytes * iterations  # read a + write b per iteration
+bandwidth_gb_per_s = bytes_moved / (1024**3) / (t1 - t0)
+print(f"Effective bandwidth (read+write): {bandwidth_gb_per_s:.2f} GB/s")
 ```
 CODE_EXPLAIN_START:
 - 5: Creates a tensor on GPU (float32 = 4 bytes per element)
 - 6: Creates an empty tensor of the same size
-- 9: Copies data within GPU memory
+- 10: Copies data within GPU memory
+- 18: Each copy moves 2× nbytes (read from `a`, write to `b`)
 CODE_EXPLAIN_END
 
-Example results:
+Example results (hardware-dependent):
 
 ```
 GPU Memory Bandwidth Test
 Data size: 64 MB
 Iterations: 200
-Bandwidth: 2156.32 GB/s
+Effective bandwidth (read+write): 1980.45 GB/s
 ```
 
-Typical values:
+Typical effective copy bandwidth (read+write combined):
 
 - **H100**: 2-3 TB/s (2000-3000 GB/s)
 - **A100**: 1.5-2 TB/s (1500-2000 GB/s)
@@ -1112,7 +1107,7 @@ If your measured bandwidth is significantly lower, you might have memory bandwid
 
 ### Step 4: Benchmark Inter-GPU Communication
 
-For distributed training, inter-GPU communication bandwidth is often more critical than single-GPU memory bandwidth. The `allreduce_microbench.py` script measures AllReduce performance across multiple GPUs:
+For distributed training, inter-GPU communication bandwidth is often more critical than single-GPU memory bandwidth. The `allreduce_microbench.py` script measures AllReduce performance across multiple GPUs—launch with `torchrun` the same way you ran `distributed_basic_test.py` in Chapter~\ref{chap:introduction-to-modern-distributed-ai}. With the defaults below (100 MB tensors, 50 iterations), expect **roughly a few seconds to tens of seconds** on 2–4 GPUs—not minutes.
 
 ```bash
 torchrun --nproc_per_node=2 code/allreduce_microbench.py
@@ -1124,55 +1119,58 @@ For 4 GPUs:
 torchrun --nproc_per_node=4 code/allreduce_microbench.py
 ```
 
-The script tests different tensor sizes to show how bandwidth scales with message size:
+The script times `dist.all_reduce` and reports two bandwidth numbers. **Algorithm bandwidth** is what NCCL benchmarks use: each rank holds `size_mb`, and all `n` ranks participate, so useful throughput is `n × size / time`. **Bus bandwidth** adjusts for how much data actually crosses the interconnect in a ring AllReduce—about `2×(n−1)/n` of the per-rank tensor size on each of the `n` ranks, or **`2×(n−1)×size` total** per iteration:
 
 ```python
 #LINENUM
 import torch.distributed as dist
 
-size = size_mb * 1024 * 1024 // 4  # Convert MB to float32 elements
+size = size_mb * 1024 * 1024 // 4  # float32 elements per GPU
 tensor = torch.ones(size, device=f'cuda:{local_rank}') #HL
 
-# Warmup
 for _ in range(warmup):
     dist.all_reduce(tensor, op=dist.ReduceOp.SUM) #HL
 torch.cuda.synchronize()
 
-# Benchmark
 start = time.time()
 for _ in range(iterations):
     dist.all_reduce(tensor, op=dist.ReduceOp.SUM)
 torch.cuda.synchronize()
 elapsed = time.time() - start
 
-# Calculate bandwidth (AllReduce: each GPU sends and receives)
-total_data_mb = size_mb * world_size * 2 * iterations #HL
-bandwidth_mb_per_s = total_data_mb / elapsed
+size_bytes = size_mb * 1024 * 1024
+n = world_size
+alg_bytes = size_bytes * n * iterations
+bus_bytes = size_bytes * 2 * (n - 1) * iterations  # ring: 2*(n-1)/n per rank × n ranks
+alg_bw_gb_s = alg_bytes / (1024**3) / elapsed
+bus_bw_gb_s = bus_bytes / (1024**3) / elapsed  # equals alg_bw * 2*(n-1)/n
 ```
 CODE_EXPLAIN_START:
-- 3: Creates a tensor on each GPU
-- 6: AllReduce operation synchronizes data across all GPUs
-- 15: Calculates total data transferred (each GPU sends and receives)
+- 3: Tensor size in float32 elements on each GPU
+- 6: AllReduce sums tensors across all ranks
+- 16: Ring AllReduce moves ~2×(n−1)×size bytes on the network per iteration (NCCL may pick tree instead)
 CODE_EXPLAIN_END
 
-Example output for 2 GPUs with NVLink:
+Example output for 2 GPUs with NVLink (numbers vary by hardware and driver):
 
 ```
 AllReduce Benchmark Results
 World size: 2 GPUs
 Tensor size: 100 MB per GPU
 Iterations: 50
-Total time: 0.023 seconds
-Bandwidth: 43478.26 MB/s (42.46 GB/s)
-Per-GPU bandwidth: 21739.13 MB/s
+Total time: 0.248 seconds
+Algorithm bandwidth: 40322.58 MB/s (39.38 GB/s)
+Bus bandwidth (ring estimate): 40322.58 MB/s (39.38 GB/s)
 ```
 
-Expected bandwidth ranges:
+For `n = 2`, the ring factor `2×(n−1)/n` is 1, so algorithm and bus bandwidth coincide. For 4 GPUs, bus bandwidth is `1.5×` algorithm bandwidth under the ring model.
 
-- **NVLink-connected GPUs** (NV18): 300-900 GB/s per GPU (aggregate bidirectional)
-- **PCIe-only connections**: ~31-64 GB/s per direction (~63 GB/s bidirectional)
+Expected **AllReduce bus bandwidth** (message-size dependent; 100 MB is in a reasonable range):
 
-If you see much lower bandwidth than expected, check your topology with `nvidia-smi topo -m`. GPUs connected only via PCIe will show significantly lower bandwidth, which affects what parallelism strategies are feasible.
+- **NVLink-connected GPUs**: often tens of GB/s up to low hundreds of GB/s
+- **PCIe-only GPU pairs**: often ~10–50 GB/s
+
+These are effective collective throughput numbers, not the **peak NVLink link** specs quoted in datasheets (300–900 GB/s per GPU on Ampere–Hopper, up to 1.8 TB/s on Blackwell B200). If you see much lower AllReduce bandwidth than the ranges above, check topology with `nvidia-smi topo -m`. GPUs connected only via PCIe will show significantly lower bandwidth, which affects what parallelism strategies are feasible.
 
 ### Step 5: Analyze Results
 
@@ -1181,10 +1179,10 @@ Compare your measured bandwidths to theoretical values:
 | Metric | Your System | Expected Range | Notes |
 |--------|-------------|----------------|-------|
 | Single-GPU HBM | ? GB/s | H100: 2-3 TB/s<br>A100: 1.5-2 TB/s | Lower values indicate memory bottlenecks |
-| Inter-GPU (NVLink) | ? GB/s | 300-900 GB/s per GPU | Depends on NVLink generation |
-| Inter-GPU (PCIe) | ? GB/s | ~31-64 GB/s per direction | Much slower than NVLink |
+| Inter-GPU AllReduce (NVLink) | ? GB/s | tens–low hundreds of GB/s (bus) | From Step 4; message-size dependent |
+| Inter-GPU AllReduce (PCIe) | ? GB/s | ~10–50 GB/s (bus) | Much slower than NVLink |
 
-**What these numbers mean:**
+__What these numbers mean:__
 
 - **High HBM bandwidth but low inter-GPU bandwidth**: Your system is good for single-GPU workloads but will struggle with communication-heavy parallelism (tensor parallelism, frequent AllReduce). Prefer FSDP/ZeRO or pipeline parallelism.
 

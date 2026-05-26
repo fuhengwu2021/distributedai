@@ -2,8 +2,8 @@
 
 *Building scalable AI systems from single GPU to distributed clusters*
 
-> Don't ask what your system can do, ask what your system can do in parallel.
-- Henry Wu | Principal ML Tech Lead, Oracle, 2025
+> A distributed system is one in which the failure of a computer you didn't even know existed can render your own computer unusable.
+- Leslie Lamport, 1987
 
 **Code Summary**
 
@@ -29,28 +29,36 @@ This chapter walks through resource estimation, decision frameworks for choosing
 
 ![Model Parameters v.s. Year](img/model_comparison_table.png){#fig:model-comparison .block width=100%}
 
-A few years ago, you could train most models on a single GPU. ResNet-50 on ImageNet took a couple of days. Today, training a 70B parameter language model on a single GPU would take months, if it even fits in memory. The models got bigger, the datasets got bigger, and single-GPU training became impractical.
+A few years ago, you could train most models on a single GPU. ResNet-50 on ImageNet took a couple of days. Training a 70B parameter language model on a single GPU would take months, if it even fits in memory. The models got bigger, the datasets got bigger, and single-GPU training became impractical.
 
-As shown in @fig:model-comparison, the exponential growth in model parameters over recent years is evident. Looking at recent models detailed in @tbl:model-comparison, the scale is clear[^model_size_comp]. GPT-4 has over 1 trillion parameters. Training it requires thousands of GPUs working together[^gpt4_training]. Even smaller models like Llama 2 (70B parameters) need multiple GPUs just to fit in memory, let alone train efficiently. This isn't just a training problem—serving these models at scale for production workloads demands distributed inference architectures that can handle thousands of concurrent requests. The era of single-machine AI is over; modern AI systems are inherently distributed by design. According to PyTorch's distributed training documentation, distributed training involves spreading the training workload across multiple worker nodes, which is particularly beneficial for large models and compute-intensive tasks in deep learning. Additionally, industry reports indicate that training trillion-parameter models requires infrastructure investments of tens of millions of dollars[^training_costs], making distributed computing not just a technical necessity but an economic imperative for modern AI development.
+As shown in @fig:model-comparison, the exponential growth in model parameters over recent years is evident. Looking at recent models detailed in @tbl:model-comparison, the scale is clear[^model_size_comp]. GPT-4 has over 1 trillion parameters, and frontier models continue to push well beyond that scale. Training them requires thousands of GPUs working together[^gpt4_training]. Even smaller models like Llama 2 (70B parameters) need multiple GPUs just to fit in memory, let alone train efficiently.
+
+This isn't just a training problem—serving these models at scale for production workloads demands distributed inference architectures that can handle thousands of concurrent requests.
+
+The era of single-machine AI is over; modern AI systems are inherently distributed by design. According to PyTorch's distributed training documentation, distributed training involves spreading the training workload across multiple worker nodes, which is particularly beneficial for large models and compute-intensive tasks in deep learning. Additionally, industry reports indicate that training trillion-parameter models requires infrastructure investments of tens of millions of dollars[^training_costs], making distributed computing not just a technical necessity but an economic imperative for modern AI development.
 
 ::: {width=80%}
 
 | Model | Parameters | Company | Year |
 |--|----------------------|-|-|
 | ViT-22B | 22B | Google | 2023 |
-| Sora | 30B | OpenAI | 2023 |
 | Grok-1 | 314B | xAI | 2023 |
 | Gemini-1 | 1.6T | Google | 2023 |
-| LLaMA-2 | 700B | Meta | 2023 |
+| LLaMA-2 | 70B | Meta | 2023 |
 | PanGu-$\Sigma$ | 1.085T | Huawei | 2023 |
 | DeepSeek-V1 | 6.7B | DeepSeek | 2023 |
-| GPT-4V | 1.8T | OpenAI | 2024 |
+| GPT-4V | ~1.8T | OpenAI | 2024 |
 | DeepSeek-V2 | 236B | DeepSeek | 2024 |
-| Grok-4 | ~1.7T | xAI | 2025 |
 | Qwen-Max | ~1.2T | Alibaba | 2025 |
 | GPT-5 | ~2–5T | OpenAI | 2025 |
 | DeepSeek-V3 | 671B | DeepSeek | 2025 |
-| Gemini-3-Pro | ~7.5T | Google | 2025 |
+| Gemini 3.1 Pro | ~2–3T | Google | 2026 |
+| Grok 4.3 | ~3–6T | xAI | 2026 |
+| Claude Opus 4.7 | ~1T+ | Anthropic | 2026 |
+| GPT-5.5 | ~2–5T | OpenAI | 2026 |
+| Kimi K2.6 | 1T | Moonshot AI | 2026 |
+| DeepSeek-V4-Pro | 1.6T | DeepSeek | 2026 |
+| Grok V9 Medium | 1.5T | xAI | 2026 |
 
 Table: Comparison of Large AI Models {#tbl:model-comparison}
 :::
@@ -66,9 +74,9 @@ Table: Comparison of Large AI Models {#tbl:model-comparison}
 
 Take a 70B parameter model as an example. In full precision (FP32), the model weights alone need 280GB of memory. An A100 GPU can have 80GB memory. You can't even load the model, let alone train it.
 
-Training these models takes thousands of GPU-hours. A single GPU training run would take months. The datasets are massive too - trillions of tokens. Loading and preprocessing this data efficiently requires `distributed pipelines`.
+Training these models takes thousands of GPU-hours. A single GPU training run would take months. The datasets are massive too - trillions of tokens. Loading and preprocessing this data efficiently requires _distributed pipelines_.
 
-The mismatch is clear: model size and compute requirements have grown `exponentially`, while single-GPU memory and compute have grown `linearly` at best.
+The mismatch is clear: model size and compute requirements have grown _exponentially_, while single-GPU memory and compute have grown _linearly_ at best.
 
 ![Growth Mismatch: Exponential Model Growth vs Linear GPU Growth](img/growth_mismatch.png)
 
@@ -157,7 +165,7 @@ Here's a summary of optimizer state memory requirements for common optimizers:
 | LAMB | $m_{t-1}$ (first moment) + $v_{t-1}$ (second moment) | 2× |
 | Lion | $m_{t-1}$ (first moment only) | 1× |
 | Nadam | $m_{t-1}$ (first moment) + $v_{t-1}$ (second moment) | 2× |
-| AMSGrad | $m_{t-1}$ (first moment) + $v_{t-1}$ (second moment) + $v_{\max}$ | 2× |
+| AMSGrad | $m_{t-1}$ (first moment) + $v_{t-1}$ (second moment) + $v_{\max}$ | 3× |
 | SparseAdam | $m_{t-1}$ (first moment) + $v_{t-1}$ (second moment, sparse) | 2× |
 | Shampoo | Left and right preconditioner matrices per parameter | >2× (varies) |
 | AdaBelief | $m_{t-1}$ (first moment) + $s_{t-1}$ (belief term) | 2× |
@@ -331,24 +339,26 @@ The peak memory usage occurs during the backward pass when both activations and 
 
 ![Training Memory Timeline](img/training_memory_timeline.png){.wrap #fig:training-memory-timeline width=60% align=top-right}
 
-As illustrated in @fig:training-memory-timeline, the timeline shows memory usage across the training loop. Here's how each stage maps to the code. On line 2 (`y_hat = model(x_batch)`), the forward pass computes and stores activations. Memory usage is weights (14 GB) plus optimizer states (28 GB) plus activations (12 GB), totaling 54 GB. Gradients don't exist yet.
+As illustrated in @fig:training-memory-timeline, the timeline shows memory usage across the training loop for a 7B model with Adam, assuming **BF16 throughout**—weights, gradients, and optimizer states ($m$, $v$) all stored at 2 bytes per parameter. This is a clean teaching example. Many production setups use **mixed precision** differently: forward and backward in BF16 (via `torch.autocast`), but optimizer states—and sometimes a master copy of weights—in FP32, which pushes optimizer memory toward 56 GB (4 bytes × 2 states × 7B parameters) rather than 28 GB.
+
+Here's how each stage maps to the code. On line 2 (`y_hat = model(x_batch)`), the forward pass computes and stores activations. Memory usage is weights (14 GB) plus optimizer states (28 GB) plus activations (12 GB), totaling 54 GB. Gradients don't exist yet.
 
 On line 4 (`loss.backward()`), the backward pass is where peak memory occurs. During backpropagation, you need both activations to compute gradients and the gradients being computed. Memory usage is weights (14 GB) plus optimizer states (28 GB) plus activations (12 GB) plus gradients (14 GB), totaling 68 GB. This is the peak because activations and gradients overlap in memory.
 
 On line 5 (`optimizer.step()`), after the backward pass completes, activations can be freed. The optimizer uses gradients and its internal states to update parameters. Memory usage is weights (14 GB) plus optimizer states (28 GB) plus gradients (14 GB), totaling 56 GB. Activations are no longer needed.
 
-The peak memory of 68 GB occurs during `loss.backward()` (line 4) when both activations and gradients are simultaneously in memory. This is why reducing batch size or using gradient checkpointing helps when you hit out-of-memory errors - they reduce activation memory during the backward pass.
+The peak memory of 68 GB occurs during `loss.backward()` (line 4) when both activations and gradients are simultaneously in memory. This is why reducing batch size, using **gradient accumulation** (run several smaller micro-batches and call `optimizer.step()` only after the last one—same effective batch size, lower peak activation memory), or using gradient checkpointing helps when you hit out-of-memory errors: the first two shrink activation memory during the backward pass; checkpointing trades extra compute for less activation storage.
 
 
 __Memory breakdown:__
 
-For a 7B model with BF16: model weights (14 GB), gradients (14 GB), optimizer states with Adam (28 GB for $m_{t-1}$ and $v_{t-1}$), and activations (8-16 GB depending on batch size and sequence length). That's 64-72 GB total per GPU. With SGD, you'd save 28 GB on optimizer states, but Adam's adaptive learning rates usually converge faster, so the trade-off is worth it for most cases. That's why a 7B model needs at least an A100 (80GB) for training with Adam, even with mixed precision (BF16). Smaller GPUs won't cut it.
+For the same 7B Adam setup (BF16 throughout): model weights (14 GB) + gradients (14 GB) + optimizer states (28 GB) = **56 GB fixed** before activations. Activations add 8–16 GB depending on batch size and sequence length—the timeline uses 12 GB, giving a **peak of 68 GB** (56 + 12) during backward. The full range is therefore **64–72 GB** per GPU (56 GB + 8–16 GB activations), not a separate estimate from the figure. With SGD you'd save 28 GB on optimizer states, but Adam's adaptive learning rates usually converge faster, so the trade-off is worth it for most cases. That's why a 7B model needs at least an A100 (80 GB) for training with Adam under this footprint; FP32 optimizer states or master weights push requirements higher. Smaller GPUs won't cut it without sharding (FSDP, DeepSpeed) or other techniques covered later in the book.
 
 
 
 #### Inference Memory Requirements
 
-Inference memory requirements differ from training in that they primarily consist of model weights and the key-value (KV) cache used for attention computation. The KV cache stores precomputed key-value pairs from previous tokens in the sequence, enabling efficient autoregressive generation by avoiding redundant attention computations over the entire sequence history. While this optimization significantly accelerates inference, the KV cache introduces a memory overhead that scales linearly with batch size, sequence length, and model dimensions.
+Inference memory requirements differ from training in that they primarily consist of model weights and the key-value (KV) cache used for attention computation. The KV cache stores precomputed key-value pairs from previous tokens in the sequence, enabling efficient autoregressive generation by avoiding redundant attention computations over the entire sequence history. While this optimization significantly accelerates inference, the KV cache introduces a memory overhead that scales linearly with batch size, sequence length, and model depth—Chapter~\ref{chap:distributed-inference-fundamentals-and-vllm} covers sizing it in detail.
 
 The memory footprint of inference scales with three primary factors: model size, batch size, and sequence length. For a 70B parameter model using BF16 precision, the model weights consume approximately 140 GB. With a batch size of 32 and sequence length of 2048, the KV cache adds an additional 20-40 GB, resulting in a total memory requirement of 160-180 GB. This exceeds the capacity of a single A100 GPU (80 GB), necessitating multi-GPU configurations or model parallelism strategies for inference workloads.
 
@@ -418,14 +428,14 @@ Serving is about providing reliable, scalable access to models. It's not just ru
 
 The challenges include system reliability and uptime, multi-model routing and load balancing, cost optimization through GPU utilization and autoscaling, and observability for debugging. A production LLM serving platform might include multiple model variants (different sizes, fine-tuned versions), A/B testing infrastructure, canary deployment pipelines, and distributed tracing and monitoring.
 
-Here is a table of `Training vs Inference vs Serving`:
+Here is a table of _Training vs Inference vs Serving_:
 
 | Aspect | Training | Inference | Serving |
 |--------|----------|-----------|---------|
 | **Goal** | Learn parameters | Generate predictions | Provide access |
 | **Memory** | High (activations + gradients) | Medium (weights + KV cache) | Variable |
 | **Computation** | Iterative, intensive | Single forward pass | Request-driven |
-| **Communication** | Frequent (gradients) | Minimal | API-level |
+| **Communication** | Frequent (gradients) | Medium | API-level |
 | **Latency** | Hours to days | Milliseconds to seconds | Milliseconds |
 | **Throughput** | Samples per second | Tokens per second | Requests per second |
 
@@ -462,7 +472,7 @@ We'll begin with a simple baseline to establish a performance reference point, t
 
 ### Environment Setup
 
-In this book, we will use PyTorch as our main frame work, and the code can be cloned from git repo.
+In this book, we will use PyTorch as our main framework, and the code can be cloned from this book's git repo.
 
 ```bash
 git clone https://github.com/fuhengwu2021/coderepo.git
@@ -663,11 +673,11 @@ The data transfer layer is where the actual implementation lives. NCCL (NVIDIA C
 
 The network topology determines how devices are connected. In a ring topology, GPUs form a ring—each GPU sends data to the next one in the ring. This is simple but can create bottlenecks. Fat-Tree topologies provide multiple paths between devices, reducing congestion. Mesh and Torus topologies offer different trade-offs between complexity and bandwidth. The topology affects how NCCL routes data, which impacts both bandwidth and latency.
 
-Physical links carry the data. NVLink connects GPUs within a single node at high bandwidth—up to 600 GB/s on modern hardware. When you have multiple GPUs in one machine, they communicate over NVLink. InfiniBand with RDMA (Remote Direct Memory Access) enables direct memory access across nodes without involving the CPU. This is crucial for multi-node training. PCIe connects GPUs to CPUs, and Ethernet is slower but more common. The link layer determines the raw bandwidth available.
+Physical links carry the data. NVLink connects GPUs within a single node at high bandwidth—roughly 600 GB/s–1.8 TB/s per GPU depending on generation (see Chapter~\ref{chap:gpu-hardware-networking-and-parallelism-strategies}). When you have multiple GPUs in one machine, they communicate over NVLink. InfiniBand with RDMA (Remote Direct Memory Access) enables direct memory access across nodes without involving the CPU. This is crucial for multi-node training. PCIe connects GPUs to CPUs, and Ethernet is slower but more common. The link layer determines the raw bandwidth available.
 
-At the bottom sits the physical hardware—GPUs for parallel compute, TPUs for tensor operations, CPUs for coordination. This layer determines your raw compute capacity and memory limits. No amount of optimization in the layers above can overcome hardware limitations here.
+At the bottom sits the physical hardware—GPUs for parallel compute, TPUs for tensor operations (see Chapter~\ref{chap:gpu-hardware-networking-and-parallelism-strategies}), CPUs for coordination. This layer determines your raw compute capacity and memory limits. No amount of optimization in the layers above can overcome hardware limitations here.
 
-When you call `dist.all_reduce()` in your code, the request flows down this entire stack. PyTorch organizes your tensors into buckets, calls the AllReduce collective operation, NCCL implements it using the network topology it discovers, data moves over NVLink links within a node or InfiniBand links across nodes, and the results end up back in GPU memory. Understanding this flow helps when you're debugging why communication is slow or why a distributed job hangs. Is it a topology issue? A link bandwidth problem? Or something in the collective operation itself? Knowing the stack helps you narrow it down.
+When you call `dist.all_reduce()` in your code, the request flows down this entire stack. PyTorch organizes your tensors into buckets, calls the AllReduce collective operation, NCCL implements it using the network topology it discovers, data moves over NVLink links intra-node or InfiniBand links inter-node, and the results end up back in GPU memory. Understanding this flow helps when you're debugging why communication is slow or why a distributed job hangs. Is it a topology issue? A link bandwidth problem? Or something in the collective operation itself? Knowing the stack helps you narrow it down.
 
 Now that we've seen how the layers fit together, let's look at the fundamental concepts you'll work with in PyTorch. The essential building blocks are process groups, ranks, and communication primitives. These form the foundation for all distributed operations, whether you're using DDP or FSDP for data-parallel training, implementing custom parallelism strategies, or building distributed inference systems.
 
