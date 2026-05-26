@@ -9,6 +9,7 @@
 Implement a function to initialize a distributed process group with proper error handling.
 
 __Requirements:__
+
 - Function signature: `setup_distributed(rank, world_size, backend='nccl')`
 - Initialize the process group using `torch.distributed.init_process_group()`
 - Set the CUDA device for the current rank: `torch.cuda.set_device(rank)`
@@ -35,6 +36,7 @@ if setup_distributed(rank, world_size):
 Implement a manual gradient averaging function using AllReduce, simulating what DDP does internally.
 
 __Requirements:__
+
 - Function signature: `average_gradients(model, world_size)`
 - Iterate through all parameters in the model
 - For each parameter with `requires_grad=True`:
@@ -71,6 +73,7 @@ print(f"Gradient on rank {rank}: {model.weight.grad}")
 Implement a function that broadcasts a tensor from rank 0 to all other ranks and verifies the result.
 
 __Requirements:__
+
 - Function signature: `broadcast_and_verify(tensor, root=0)`
 - If current rank is root: create or use the provided tensor
 - If current rank is not root: create a zero tensor of the same shape
@@ -101,6 +104,7 @@ print(f"Rank {rank}: {result}, Verified: {verified}")
 Create a wrapper class for `DistributedSampler` that automatically handles epoch setting.
 
 __Requirements:__
+
 - Class name: `AutoEpochDistributedSampler`
 - Inherit from `torch.utils.data.distributed.DistributedSampler`
 - Override `__iter__()` to automatically call `set_epoch()` with an internal epoch counter
@@ -144,6 +148,7 @@ for epoch in range(3):
 Write a script that measures the time taken for gradient synchronization using AllReduce.
 
 __Requirements:__
+
 - Function signature: `measure_sync_time(model, num_iterations=10)`
 - Create a model with configurable size (number of parameters)
 - Run forward and backward pass

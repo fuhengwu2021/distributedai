@@ -6,6 +6,7 @@ high-level frameworks down to the physical communication layer.
 """
 
 import matplotlib.pyplot as plt
+from matplotlib.patches import FancyArrowPatch
 import os
 import sys
 
@@ -35,16 +36,26 @@ layers = [
     "Physical Layer",
 ]
 
-y_positions = list(range(len(layers)))[::-1]
+LAYER_STEP = 0.9  # vertical spacing between layer centers
+y_positions = [i * LAYER_STEP for i in range(len(layers))][::-1]
+
+# Leave a fraction of the inter-box gap clear at each arrow end (not inside boxes)
+ARROW_END_GAP_FRAC = 0.1
 
 # ---------------------------------------------------------------------
 # Figure
 # ---------------------------------------------------------------------
 fig, ax = plt.subplots(figsize=(3, 9))
 
-# Draw layer boxes
+ax.set_xlim(0, 1)
+ax.set_ylim(-0.45, (len(layers) - 1) * LAYER_STEP + 0.45)
+ax.set_xticks([])
+ax.set_yticks([])
+ax.axis("off")
+
+layer_texts = []
 for y, layer in zip(y_positions, layers):
-    ax.text(
+    t = ax.text(
         0.5,
         y,
         layer,
@@ -58,37 +69,33 @@ for y, layer in zip(y_positions, layers):
             linewidth=1.5,
         ),
     )
+    layer_texts.append(t)
 
-# Draw arrows (bottom → top)
-# Connect from top of lower box to bottom of higher box
-# y_positions is [6,5,4,3,2,1,0] (top to bottom in list, but y=0 is bottom visually)
-# For bottom-to-top arrows, we go from lower y to higher y
-for i in range(len(y_positions) - 1):
-    lower_y = y_positions[i + 1]    # Lower y value (bottom box, e.g., y=0)
-    higher_y = y_positions[i]       # Higher y value (top box, e.g., y=1)
-    # Lower box top (approximate, accounting for bbox padding ~0.45)
-    lower_box_top = lower_y + 0.3
-    # Higher box bottom
-    higher_box_bottom = higher_y - 0.3
-    ax.annotate(
-        "",
-        xy=(0.5, higher_box_bottom),  # Destination: bottom of higher box
-        xytext=(0.5, lower_box_top),   # Source: top of lower box
-        arrowprops=dict(
+# Arrows: lower box top → upper box bottom (bbox-measured, minimal gap)
+fig.canvas.draw()
+renderer = fig.canvas.get_renderer()
+to_data = ax.transData.inverted()
+
+for i in range(len(layer_texts) - 1):
+    upper = layer_texts[i]
+    lower = layer_texts[i + 1]
+    bb_upper = upper.get_window_extent(renderer).transformed(to_data)
+    bb_lower = lower.get_window_extent(renderer).transformed(to_data)
+    gap = bb_upper.y0 - bb_lower.y1
+    pad = gap * ARROW_END_GAP_FRAC
+    ax.add_patch(
+        FancyArrowPatch(
+            (0.5, bb_lower.y1 + pad),
+            (0.5, bb_upper.y0 - pad),
             arrowstyle="->",
+            mutation_scale=14,
             linewidth=1.6,
-        ),
+            shrinkA=0,
+            shrinkB=0,
+            clip_on=False,
+            transform=ax.transData,
+        )
     )
-
-# ---------------------------------------------------------------------
-# Styling (clean schematic)
-# ---------------------------------------------------------------------
-ax.set_xlim(0, 1)
-ax.set_ylim(-0.5, len(layers) - 0.5)
-ax.set_xticks([])
-ax.set_yticks([])
-ax.axis("off")
 
 plt.tight_layout()
 save_figure(__file__)
-

@@ -475,7 +475,7 @@ We'll begin with a simple baseline to establish a performance reference point, t
 In this book, we will use PyTorch as our main framework, and the code can be cloned from this book's git repo.
 
 ```bash
-git clone https://github.com/fuhengwu2021/coderepo.git
+git clone https://github.com/PacktPublishing/Distributed-AI-Systems
 ```
 
 To run the code, it is the best if you have access to a multiple-GPU machine, such as A10, A100 or H100/200 or even B200. If you don't have access to multiple GPUs locally, Kaggle offers free multi-GPU environments. Log in to [https://www.kaggle.com](https://www.kaggle.com), click Create, and select Notebook.
@@ -491,7 +491,6 @@ You should now have 2 T4 GPUs available. To verify your GPU setup, run the code 
 ```python
 #LINENUM
 import torch
-
 print(f"CUDA available: {torch.cuda.is_available()}") #HL
 print(f"Number of GPUs: {torch.cuda.device_count()}") #HL
 for i in range(torch.cuda.device_count()):
@@ -1054,8 +1053,4 @@ Now that we understand when and why to use distributed systems, we need to under
 
 <!-- include: exercises/torch.md if include_math -->
 <!-- include: exercises/torch.md if include_torch -->
-
-
-
-
 
