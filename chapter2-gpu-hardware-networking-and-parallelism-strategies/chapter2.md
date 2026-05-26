@@ -312,13 +312,13 @@ One more thing: notice the CPU affinity column. GPUs 0-3 might be on NUMA node 0
 
 **Hopper (2022)** is the current workhorse for distributed training. The H100 brought FP8, Transformer Engine for dynamic precision switching, and NVLink 4.0 (900 GB/s per GPU, aggregate bidirectional). The H200 keeps the same compute but adds HBM3e capacity (141 GB vs 80 GB on H100)—important when model state and activations dominate memory.
 
-**Blackwell (2024)** is the high-end NVIDIA training generation if you're building a new cluster today. Roadmaps already name successors such as Vera Rubin, so check SKU lists and lead times with your vendor or cloud provider before you commit. The B200 doubles NVLink bandwidth to 1.8 TB/s per GPU (aggregate bidirectional), uses a dual-die package (two dies per module), and raises HBM bandwidth to 8 TB/s per GPU—roughly 2× the transformer training throughput of an H100 at scale.
+**Blackwell (2024)** is the high-end NVIDIA training generation if you're building a new cluster today. Roadmaps already name successors such as Vera Rubin, so check SKU lists and lead times with your vendor or cloud provider before you commit. The B200 doubles NVLink bandwidth to 1.8 TB/s per GPU (aggregate bidirectional), uses a dual-die package (two dies per module), and raises HBM bandwidth to 8 TB/s per GPU—roughly 2× the transformer training throughput of an H100 at scale. Within the same generation, higher-memory Blackwell variants (e.g., B300-class GPUs) add HBM capacity for very large models; they often trade higher power and stricter cooling requirements for the extra headroom.
 
 ### What These Numbers Mean for Training
 
 When you're choosing GPUs for distributed training, you care about three things:
 
-**Memory capacity and bandwidth**: A 70B parameter model with FP16 weights needs about 140 GB just for the model. Add gradients, optimizer states (Adam uses 2x model size), and activations, and you're looking at 500+ GB per training step. The H100 has 80 GB HBM3, the H200 has 141 GB, and the B200 has 192 GB. More memory means larger batch sizes or fewer GPUs needed.
+**Memory capacity and bandwidth**: A 70B parameter model with FP16 weights needs about 140 GB just for the model. Add gradients, optimizer states (Adam uses 2x model size), and activations, and you're looking at 500+ GB per training step. The H100 has 80 GB HBM3, the H200 has 141 GB, and the B200 has 192 GB (288 GB on higher-memory Blackwell variants such as B300-class GPUs). More memory means larger batch sizes or fewer GPUs needed.
 
 HBM bandwidth matters too. The A100 has 2 TB/s, H100 has 3 TB/s, and B200 has 8 TB/s (all per GPU). However, interconnect bandwidth (NVLink/InfiniBand) is typically the main bottleneck for gradient synchronization across GPUs. HBM bandwidth primarily affects local operations like reduce kernels and fused operators—higher HBM bandwidth means faster local reductions and memory-bound operations.
 

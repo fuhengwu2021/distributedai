@@ -1,89 +1,81 @@
+import argparse
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
-import matplotlib.cm as cm
 import matplotlib
 import numpy as np
 from scipy.spatial import Delaunay
 import random
 from pathlib import Path
 
-def generate_book_back_cover():
-    # 1. Setup the Canvas (Full Bleed Fix)
-    # Match book.pdf dimensions: 7 x 10 inches (Amazon KDP size)
-    width, height = 7.0, 10.0
-    dpi = 300 # Print quality resolution
-    
-    # Create figure without default subplots to control exact placement
-    fig = plt.figure(figsize=(width, height), dpi=dpi)
-    
-    # Add axes that cover 100% of the figure [left, bottom, width, height]
-    # This ensures no white margins appear at the edges
-    ax = fig.add_axes([0, 0, 1, 1])
-    
-    # Turn off axis markings and set strict limits
-    ax.set_axis_off()
-    ax.set_xlim(0, width)
-    ax.set_ylim(0, height)
 
-    # ---------------------------------------------------------
-    # 2. Generate Low-Poly Background (same as front)
-    # ---------------------------------------------------------
+def _draw_low_poly_background(ax, width, height):
+    """Low-poly viridis background (matches front cover style)."""
     n_x, n_y = 8, 10
-    # Extend grid slightly beyond limits (-1 to width+1) to ensure edges are filled
-    x = np.linspace(-1, width+1, n_x)
-    y = np.linspace(-1, height+1, n_y)
+    x = np.linspace(-1, width + 1, n_x)
+    y = np.linspace(-1, height + 1, n_y)
     grid_x, grid_y = np.meshgrid(x, y)
     points = np.vstack([grid_x.flatten(), grid_y.flatten()]).T
 
     jitter_strength = 0.6
-    np.random.seed(42) # Fixed seed for consistency
-    
+    np.random.seed(42)
     for i, point in enumerate(points):
         points[i][0] += np.random.uniform(-jitter_strength, jitter_strength)
         points[i][1] += np.random.uniform(-jitter_strength, jitter_strength)
 
     tri = Delaunay(points)
-    
-    # Center point for the radial gradient (slightly above middle)
     center = np.array([width / 2, height / 2 + 1])
-    
-    # Handle colormap retrieval safely across versions
     try:
-        cmap = matplotlib.colormaps['viridis_r'] 
-    except:
-        cmap = plt.get_cmap('viridis_r') 
+        cmap = matplotlib.colormaps["viridis_r"]
+    except AttributeError:
+        cmap = plt.get_cmap("viridis_r")
 
     for simplex in tri.simplices:
         triangle_points = points[simplex]
         centroid = np.mean(triangle_points, axis=0)
-        
-        # Calculate distance for gradient
         dist = np.linalg.norm(centroid - center)
         max_dist = np.linalg.norm(np.array([0, 0]) - center)
         norm_dist = dist / (max_dist * 0.9)
-        
-        # Clamp values to 0-1 range, then map to lighter range (0.4-1.0)
-        # This makes the overall background lighter, especially at edges
         val = np.clip(norm_dist, 0, 1)
-        # Map to lighter range: 0.4-1.0 instead of 0-1
         val = 0.4 + val * 0.6
         color = cmap(val)
-        
-        # Further lighten by mixing with white (reduce intensity)
-        # Convert RGBA to RGB, mix with white, then back to RGBA
         color_rgb = np.array(color[:3])
-        white = np.array([1.0, 1.0, 1.0])
-        # Mix 60% original color with 40% white for lighter appearance
-        color_lighter = 0.6 * color_rgb + 0.4 * white
-        color_final = tuple(color_lighter) + (color[3],)  # Keep original alpha
-        
-        poly = patches.Polygon(triangle_points, closed=True, 
-                               facecolor=color_final, edgecolor=color_final, alpha=1.0)
-        ax.add_patch(poly)
+        color_lighter = 0.6 * color_rgb + 0.4 * np.array([1.0, 1.0, 1.0])
+        color_final = tuple(color_lighter) + (color[3],)
+        ax.add_patch(
+            patches.Polygon(
+                triangle_points,
+                closed=True,
+                facecolor=color_final,
+                edgecolor=color_final,
+                alpha=1.0,
+            )
+        )
 
-    # ---------------------------------------------------------
-    # 3. Add Floating Technical Symbols and Formulas (lighter)
-    # ---------------------------------------------------------
+
+def generate_book_back_cover(background="white"):
+    # 1. Setup the Canvas (Full Bleed Fix)
+    # Match book.pdf dimensions: 7 x 10 inches (Amazon KDP size)
+    width, height = 7.0, 10.0
+    dpi = 300 # Print quality resolution
+    
+    use_poly = background == "poly"
+    fig = plt.figure(figsize=(width, height), dpi=dpi, facecolor="white")
+    ax = fig.add_axes([0, 0, 1, 1], facecolor="white")
+    ax.set_axis_off()
+    ax.set_xlim(0, width)
+    ax.set_ylim(0, height)
+
+    if use_poly:
+        _draw_low_poly_background(ax, width, height)
+    else:
+        ax.add_patch(
+            patches.Rectangle(
+                (0, 0), width, height, facecolor="white", edgecolor="none", zorder=0
+            )
+        )
+
+    # Floating technical symbols (subtle; color tuned for background)
+    symbol_color = "white" if use_poly else "#888888"
     # Use distributed systems and AI-related symbols for the back cover
     symbols = [
         r'$\sum_{i=1}^{N} \nabla_i$',  # Distributed gradients
@@ -109,8 +101,10 @@ def generate_book_back_cover():
             size_scale = height / 10.0
             size = random.randint(int(7 * size_scale), int(14 * size_scale))
             rot = random.randint(-45, 45)
-            ax.text(sx, sy, sym, fontsize=size, 
-                    color='white', alpha=0.08, rotation=rot)
+            ax.text(
+                sx, sy, sym, fontsize=size,
+                color=symbol_color, alpha=0.08, rotation=rot,
+            )
 
     # ---------------------------------------------------------
     # 4. Add Typography for Back Cover
@@ -243,9 +237,22 @@ def generate_book_back_cover():
     # Save to cover/ directory (same directory as this script)
     script_dir = Path(__file__).parent
     output_path = script_dir / "cover_back.pdf"
-    plt.savefig(str(output_path), dpi=dpi, format='pdf')
-    print(f"Back cover generated: {output_path}")
+    plt.savefig(str(output_path), dpi=dpi, format="pdf", facecolor="white")
+    print(f"Back cover generated: {output_path} (background={background})")
     plt.close()
 
+
+def main():
+    parser = argparse.ArgumentParser(description="Generate 7×10 back cover PDF.")
+    parser.add_argument(
+        "--background",
+        choices=("white", "poly"),
+        default="white",
+        help="Background style: pure white (default) or low-poly gradient (poly).",
+    )
+    args = parser.parse_args()
+    generate_book_back_cover(background=args.background)
+
+
 if __name__ == "__main__":
-    generate_book_back_cover()
+    main()
