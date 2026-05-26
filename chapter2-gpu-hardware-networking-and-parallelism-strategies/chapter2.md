@@ -181,7 +181,7 @@ With this foundation in place, let's examine the hardware components that make c
 
 ## Central Processing Unit (CPU)
 
-![](img/cpu.png){#fig:cpu-icon .wrap width=15% align=top-right vspaces=40pt}
+![](img/cpu_hardware.png){#fig:cpu-icon .wrap width=15% align=top-right vspaces=40pt}
 
 While GPUs do the heavy lifting in distributed training, CPUs play a crucial supporting role. Understanding CPU architecture helps you optimize data loading, manage GPU coordination, and debug performance bottlenecks.
 
@@ -237,7 +237,7 @@ The CPU doesn't need to be the latest generation—it's not doing the compute. B
 
 ## Graphics Processing Unit (GPU)
 
-![](img/gpu.png){#fig:gpu-icon .wrap width=15% align=right}
+![](img/gpu_hardware.png){#fig:gpu-icon .wrap width=15% align=right}
 
 When you're building distributed training systems, the GPU architecture matters. NVIDIA has been iterating on GPU designs since 2010, and each generation brings changes that affect how you design your training pipeline. Here's what you need to know about the GPUs you're likely to encounter.
 
@@ -368,7 +368,7 @@ While NVIDIA GPUs dominate the distributed training landscape, it's worth unders
 
 ## Tensor Processing Unit (TPU)
 
-![](img/tpu.png){#fig:tpu-icon .wrap width=15% align=right}
+![](img/tpu_hardware.png){#fig:tpu-icon .wrap width=15% align=right}
 
 Google's Tensor Processing Unit (TPU) offers a different architectural approach from GPUs. TPUs are application-specific integrated circuits (ASICs) designed from the ground up for neural network workloads. If you're working at Google or using Google Cloud, you'll encounter TPUs. Understanding how they differ from GPUs helps when choosing hardware or porting code between platforms.
 
@@ -453,7 +453,7 @@ Beyond GPUs and TPUs, another class of accelerators has emerged: Neural Processi
 
 ## Neural Processing Unit (NPU)
 
-![](img/npu.png){#fig:npu-icon .wrap width=15% align=right}
+![](img/npu_hardware.png){#fig:npu-icon .wrap width=15% align=right}
 
 **Neural Processing Units (NPUs)** represent another approach: domain-specific architecture (DSA) chips optimized for AI workloads. NPUs are ASICs (Application-Specific Integrated Circuits) designed from the ground up for neural network operations, trading general-purpose flexibility for efficiency.
 
