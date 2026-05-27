@@ -14,8 +14,7 @@ configure_math_fonts()
 
 def draw_extended_simple_dnn_diagram():
     # Define color scheme
-    bg_color = '#e3f2fd'  # Light blue background (closer to user sketch)
-    node_color = '#e0f7fa'
+    bg_color = 'white'
     text_color = '#1b5e20' # Dark green
     weight_color = 'black'
     loss_color = '#8d6e63' # Brown

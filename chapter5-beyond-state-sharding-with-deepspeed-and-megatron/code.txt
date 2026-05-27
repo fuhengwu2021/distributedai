@@ -1,0 +1,15 @@
+code/tensor_parallel_mlp.log
+code/sp_demo.py
+code/sequence_parallel.log
+code/ring_attention.log
+code/ulysses_demo.py
+code/ulysses_demo.log
+code/expert_parallel_demo.py
+code/expert_parallel_demo.log
+code/megatron_gpt_pretrain.sh
+code/train_megatron_mcore.py
+code/zero_minimal.py
+code/zero_offload_example.py
+code/zero_pp_example.py
+code/tensor_parallel_mlp.py
+code/pipeline_parallel_simple.py

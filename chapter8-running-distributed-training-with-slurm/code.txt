@@ -1,0 +1,15 @@
+code/train.py
+code/train_ddp.sh
+code/train_ddp.py
+code/train_fsdp.py
+code/train_fsdp.sh
+code/deepspeed/train.py
+code/deepspeed/ds_zero3_offload.json
+code/deepspeed/run.slurm
+code/megatron/run.slurm
+code/megatron/convert_megatron_checkpoint.py
+code/train_array.sh
+code/train_distributed.sh
+code/megatron
+code/megatron/checkpoints/gpt_8b/iter_0000010
+code/checkpoint.py
