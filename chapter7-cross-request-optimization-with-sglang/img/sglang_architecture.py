@@ -36,7 +36,7 @@ component_color = '#FFFFFF'
 gpu_color = '#FFECB3'
 arrow_color = '#666666'
 
-def draw_box(ax, x, y, width, height, label, facecolor='white', edgecolor='black', fontsize=11, bold=False):
+def draw_box(ax, x, y, width, height, label, facecolor='white', edgecolor='black', fontsize=14, bold=False):
     box = FancyBboxPatch((x, y), width, height, boxstyle="round,pad=0.02,rounding_size=0.1",
                          facecolor=facecolor, edgecolor=edgecolor, linewidth=1.5)
     ax.add_patch(box)
@@ -50,61 +50,61 @@ def draw_arrow(ax, start, end):
 # Clients section (top)
 ax.add_patch(FancyBboxPatch((1, 11.5), 8, 2, boxstyle="round,pad=0.02,rounding_size=0.2",
                             facecolor=client_color, edgecolor='#1976D2', linewidth=2))
-ax.text(5, 13.2, 'Clients', ha='center', va='center', fontsize=12, weight='bold', color='#1976D2')
+ax.text(5, 13.2, 'Clients', ha='center', va='center', fontsize=14, weight='bold', color='#1976D2')
 
 # Client boxes inside
-draw_box(ax, 1.5, 11.8, 3, 1.2, 'SGLang Program\n+ Interpreter', facecolor=component_color, edgecolor='#1976D2', fontsize=10)
-draw_box(ax, 5.5, 11.8, 3, 1.2, 'HTTP Client', facecolor=component_color, edgecolor='#1976D2', fontsize=10)
+draw_box(ax, 1.5, 11.8, 3, 1.2, 'SGLang Program\n+ Interpreter', facecolor=component_color, edgecolor='#1976D2', fontsize=14)
+draw_box(ax, 5.5, 11.8, 3, 1.2, 'HTTP Client', facecolor=component_color, edgecolor='#1976D2', fontsize=14)
 
 # Arrow from clients to API Server
-draw_arrow(ax, (5, 11.5), (5, 10.7))
+draw_arrow(ax, (5, 11.5), (5, 10.7-0.1))
 
 # API Server (entry)
-draw_box(ax, 2.5, 9.8, 5, 0.8, 'API Server', facecolor=server_color, edgecolor='#F57C00', fontsize=11, bold=True)
-ax.text(7.8, 10.2, 'Entry point', ha='left', va='center', fontsize=9, color='#666666', style='italic')
+draw_box(ax, 2.5, 9.8, 5, 0.8, 'API Server', facecolor=server_color, edgecolor='#F57C00', fontsize=14, bold=True)
+ax.text(7.8, 10.2, 'Entry point', ha='left', va='center', fontsize=14, color='#666666', style='italic')
 
 # Arrow to SRT
-draw_arrow(ax, (5, 9.8), (5, 9.3))
+draw_arrow(ax, (5, 9.8), (5, 9.3-0.1))
 
 # SGLang Runtime (SRT) - main box
 ax.add_patch(FancyBboxPatch((1.5, 2.2), 7, 7, boxstyle="round,pad=0.02,rounding_size=0.2",
                             facecolor=runtime_color, edgecolor='#388E3C', linewidth=2))
-ax.text(5, 9.0, 'SGLang Runtime (SRT)', ha='center', va='center', fontsize=12, weight='bold', color='#388E3C')
+ax.text(5, 9.0-0.1, 'SGLang Runtime (SRT)', ha='center', va='center', fontsize=14, weight='bold', color='#388E3C')
 
 # Tokenizer
-draw_box(ax, 3.5, 7.8, 3, 0.7, 'Tokenizer', facecolor=component_color, edgecolor='#388E3C', fontsize=10)
-ax.text(6.8, 8.15, r'Text $\to$ Tokens', ha='left', va='center', fontsize=9, color='#666666', style='italic')
+draw_box(ax, 3.5, 7.8, 3, 0.7, 'Tokenizer', facecolor=component_color, edgecolor='#388E3C', fontsize=14)
+ax.text(6.8, 8.15, r'Text $\to$ Tokens', ha='left', va='center', fontsize=14, color='#666666', style='italic')
 
-draw_arrow(ax, (5, 7.8), (5, 7.3))
+draw_arrow(ax, (5, 7.8), (5, 7.3-0.1))
 
 # Request Queue
-draw_box(ax, 3.5, 6.5, 3, 0.7, 'Request Queue', facecolor=component_color, edgecolor='#388E3C', fontsize=10)
-ax.text(6.8, 6.85, 'Batches requests', ha='left', va='center', fontsize=9, color='#666666', style='italic')
+draw_box(ax, 3.5, 6.5, 3, 0.7, 'Request Queue', facecolor=component_color, edgecolor='#388E3C', fontsize=14)
+ax.text(6.8, 6.85, 'Batches requests', ha='left', va='center', fontsize=14, color='#666666', style='italic')
 
-draw_arrow(ax, (5, 6.5), (5, 6.0))
+draw_arrow(ax, (5, 6.5), (5, 6.0-0.1))
 
 # Scheduler
-draw_box(ax, 3.5, 5.0, 3, 0.9, 'Scheduler\nRadixAttention', facecolor=component_color, edgecolor='#388E3C', fontsize=10)
-ax.text(6.8, 5.45, 'Intelligent batching', ha='left', va='center', fontsize=9, color='#666666', style='italic')
+draw_box(ax, 3.5, 5.0, 3, 0.9, 'Scheduler\nRadixAttention', facecolor=component_color, edgecolor='#388E3C', fontsize=14)
+ax.text(6.8, 5.45, 'Intelligent batching', ha='left', va='center', fontsize=14, color='#666666', style='italic')
 
-draw_arrow(ax, (5, 5.0), (5, 4.5))
+draw_arrow(ax, (5, 5.0), (5, 4.5-0.1))
 
 # GPU Workers
-draw_box(ax, 2.5, 3.4, 5, 1.0, r'GPU Workers' + '\n' + r'W0 $\rightarrow$ W1 $\rightarrow$ W2 $\rightarrow$ W3', facecolor=gpu_color, edgecolor='#FFA000', fontsize=10)
-ax.text(7.8, 3.9, 'Model execution', ha='left', va='center', fontsize=9, color='#666666', style='italic')
+draw_box(ax, 2.5, 3.4, 5, 1.0, r'GPU Workers' + '\n' + r'W0 $\rightarrow$ W1 $\rightarrow$ W2 $\rightarrow$ W3', facecolor=gpu_color, edgecolor='#FFA000', fontsize=14)
+ax.text(7.8, 3.9, 'Model execution', ha='left', va='center', fontsize=14, color='#666666', style='italic')
 
-draw_arrow(ax, (5, 3.4), (5, 2.9))
+draw_arrow(ax, (5, 3.4), (5, 2.9+0.15))
 
 # Detokenizer
-draw_box(ax, 3.5, 2.4, 3, 0.7, 'Detokenizer', facecolor=component_color, edgecolor='#388E3C', fontsize=10)
-ax.text(6.8, 2.75, r'Tokens $\to$ Text', ha='left', va='center', fontsize=9, color='#666666', style='italic')
+draw_box(ax, 3.5, 2.4, 3, 0.7, 'Detokenizer', facecolor=component_color, edgecolor='#388E3C', fontsize=14)
+ax.text(6.8, 2.75, r'Tokens $\to$ Text', ha='left', va='center', fontsize=14, color='#666666', style='italic')
 
 # Arrow from SRT to API Server (bottom)
-draw_arrow(ax, (5, 2.2), (5, 1.7))
+draw_arrow(ax, (5, 2.2), (5, 1.7-0.1))
 
 # API Server (exit)
-draw_box(ax, 2.5, 0.8, 5, 0.8, 'API Server', facecolor=server_color, edgecolor='#F57C00', fontsize=11, bold=True)
-ax.text(7.8, 1.2, 'Returns responses', ha='left', va='center', fontsize=9, color='#666666', style='italic')
+draw_box(ax, 2.5, 0.8, 5, 0.8, 'API Server', facecolor=server_color, edgecolor='#F57C00', fontsize=14, bold=True)
+ax.text(7.8, 1.2, 'Returns responses', ha='left', va='center', fontsize=14, color='#666666', style='italic')
 
 plt.tight_layout(pad=0.1)
 save_figure(__file__)

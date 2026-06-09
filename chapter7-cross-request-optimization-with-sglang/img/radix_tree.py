@@ -45,18 +45,18 @@ def draw_edge(ax, start, end):
                                connectionstyle='arc3,rad=0'))
 
 # Root node
-draw_node(ax, 6, 6, 1.5, 0.7, 'Root', facecolor=root_color, edgecolor='#1976D2', fontsize=13)
+draw_node(ax, 6, 6, 1.5, 0.7, 'Root', facecolor=root_color, edgecolor='#1976D2', fontsize=14)
 
 # Shared prefix node
-draw_node(ax, 6, 4.2, 3.8, 0.9, '"You are helpful. "', facecolor=shared_color, edgecolor='#388E3C', fontsize=13)
+draw_node(ax, 6, 4.2, 3.8, 0.9, '"You are helpful. "', facecolor=shared_color, edgecolor='#388E3C', fontsize=14)
 
 # Edge from root to shared prefix
 draw_edge(ax, (6, 5.65), (6, 4.65))
 
 # Unique suffix nodes
-draw_node(ax, 2.5, 2, 3.4, 0.8, '"What is Python?"', facecolor=unique_color, edgecolor='#F9A825', fontsize=13)
-draw_node(ax, 6, 2, 2.8, 0.8, '"Explain ML."', facecolor=unique_color, edgecolor='#F9A825', fontsize=13)
-draw_node(ax, 9.5, 2, 2.8, 0.8, '"Write code."', facecolor=unique_color, edgecolor='#F9A825', fontsize=13)
+draw_node(ax, 2.5, 2, 3.4, 0.8, '"What is Python?"', facecolor=unique_color, edgecolor='#F9A825', fontsize=14)
+draw_node(ax, 6, 2, 2.8, 0.8, '"Explain ML."', facecolor=unique_color, edgecolor='#F9A825', fontsize=14)
+draw_node(ax, 9.5, 2, 2.8, 0.8, '"Write code."', facecolor=unique_color, edgecolor='#F9A825', fontsize=14)
 
 # Edges from shared prefix to unique suffixes
 draw_edge(ax, (4.7, 3.75), (2.5, 2.4))
@@ -64,19 +64,19 @@ draw_edge(ax, (6, 3.75), (6, 2.4))
 draw_edge(ax, (7.3, 3.75), (9.5, 2.4))
 
 # Request labels
-ax.text(2.5, 1.2, 'Request 1', ha='center', va='center', fontsize=13, color='#666666', style='italic')
-ax.text(6, 1.2, 'Request 2', ha='center', va='center', fontsize=13, color='#666666', style='italic')
-ax.text(9.5, 1.2, 'Request 3', ha='center', va='center', fontsize=13, color='#666666', style='italic')
+ax.text(2.5, 1.2, 'Request 1', ha='center', va='center', fontsize=14, color='#666666', style='italic')
+ax.text(6, 1.2, 'Request 2', ha='center', va='center', fontsize=14, color='#666666', style='italic')
+ax.text(9.5, 1.2, 'Request 3', ha='center', va='center', fontsize=14, color='#666666', style='italic')
 
 # Legend
 legend_y = 0.4
 ax.add_patch(FancyBboxPatch((1.5, legend_y - 0.2), 0.4, 0.4, boxstyle="round,pad=0.02,rounding_size=0.1",
                             facecolor=shared_color, edgecolor='#388E3C', linewidth=1))
-ax.text(2.1, legend_y, 'Shared prefix (computed once)', ha='left', va='center', fontsize=13)
+ax.text(2.1, legend_y, 'Shared prefix (computed once)', ha='left', va='center', fontsize=14)
 
 ax.add_patch(FancyBboxPatch((6.5, legend_y - 0.2), 0.4, 0.4, boxstyle="round,pad=0.02,rounding_size=0.1",
                             facecolor=unique_color, edgecolor='#F9A825', linewidth=1))
-ax.text(7.1, legend_y, 'Unique suffix (computed per request)', ha='left', va='center', fontsize=13)
+ax.text(7.1, legend_y, 'Unique suffix (computed per request)', ha='left', va='center', fontsize=14)
 
 plt.tight_layout(pad=0.1)
 save_figure(__file__)

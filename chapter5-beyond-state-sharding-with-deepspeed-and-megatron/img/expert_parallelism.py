@@ -44,11 +44,11 @@ token_radius = 0.25
 token_labels = [r'$t_1$', r'$t_2$', r'$t_3$', r'$t_4$', r'$t_5$', r'$t_6$', r'$t_7$', r'$t_8$']
 token_x_positions = np.linspace(2.5, 11.5, 8)
 
-ax.text(7, 10.3, 'Input Tokens', fontsize=12, ha='center', fontweight='bold')
+ax.text(7, 10.3, 'Input Tokens', fontsize=14, ha='center', fontweight='bold')
 for i, (x, label) in enumerate(zip(token_x_positions, token_labels)):
     circle = plt.Circle((x, token_y), token_radius, color=token_colors[i], ec='black', linewidth=1.5, zorder=5)
     ax.add_patch(circle)
-    ax.text(x, token_y, label, fontsize=9, ha='center', va='center', color='white', fontweight='bold', zorder=10)
+    ax.text(x, token_y, label, fontsize=22, ha='center', va='center', color='white', fontweight='bold', zorder=10)
 
 # Draw router
 router_width = 4
@@ -60,7 +60,7 @@ router = FancyBboxPatch((router_x, router_y), router_width, router_height,
                          facecolor=router_color, edgecolor='black', linewidth=2, zorder=4)
 ax.add_patch(router)
 ax.text(router_x + router_width/2, router_y + router_height/2, 'Router (Gating Network)',
-        fontsize=11, ha='center', va='center', color='white', fontweight='bold', zorder=10)
+        fontsize=18, ha='center', va='center', color='white', fontweight='bold', zorder=10)
 
 # Arrows from tokens to router
 for x in token_x_positions:
@@ -93,7 +93,7 @@ for gpu_idx in range(4):
     
     # GPU label
     ax.text(gpu_x + gpu_width/2, gpu_y + gpu_height + 0.2, f'GPU {gpu_idx}',
-            fontsize=11, ha='center', va='bottom', fontweight='bold')
+            fontsize=18, ha='center', va='bottom', fontweight='bold')
     
     # Draw 2 experts per GPU
     expert_width = 2.2
@@ -108,7 +108,7 @@ for gpu_idx in range(4):
                                       linewidth=2, zorder=3)
         ax.add_patch(expert_rect)
         ax.text(expert_x + expert_width/2, expert_y + expert_height/2,
-                expert_labels[gpu_idx][exp_idx], fontsize=10, ha='center', va='center',
+                expert_labels[gpu_idx][exp_idx], fontsize=14, ha='center', va='center',
                 fontweight='bold', color=expert_colors[gpu_idx])
         expert_positions.append((expert_x + expert_width/2, expert_y + expert_height))
 
@@ -148,7 +148,7 @@ for i in range(3):
     ax.plot([x1, x2], [y_line, y_line], '--', color='#78909C', lw=1.5, alpha=0.6)
 
 # Add small label for all-to-all
-ax.text(7, gpu_y - 0.3, 'All-to-All Communication', fontsize=9, ha='center', va='top', 
+ax.text(3, gpu_y - 0.5, 'All-to-All Communication', fontsize=16, ha='center', va='top', 
         color='#546E7A', style='italic')
 
 # Draw output at bottom
@@ -161,7 +161,7 @@ output_rect = FancyBboxPatch((output_x, output_y), output_width, output_height,
                               facecolor='#37474F', edgecolor='black', linewidth=2, zorder=4)
 ax.add_patch(output_rect)
 ax.text(output_x + output_width/2, output_y + output_height/2, 'Combined Expert Outputs',
-        fontsize=11, ha='center', va='center', color='white', fontweight='bold', zorder=10)
+        fontsize=18, ha='center', va='center', color='white', fontweight='bold', zorder=10)
 
 # Arrows from GPUs to output
 for gpu_x_center in gpu_centers:
@@ -176,7 +176,7 @@ legend_y = 0.3
 ax.text(legend_x, legend_y, 
         'Top-2 Routing: Each token is processed by 2 experts\n'
         'Colored arrows show token routing decisions',
-        fontsize=10, ha='left', va='bottom',
+        fontsize=14, ha='left', va='bottom',
         bbox=dict(boxstyle='round,pad=0.3', facecolor='#ECEFF1', edgecolor='gray', alpha=0.9))
 
 # Set axis properties

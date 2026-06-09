@@ -78,11 +78,11 @@ ax.text(2.45, 3.5, "submit", ha="center", va="center", fontsize=10, color=arrow_
 
 # slurmctld -> slurmd (multiple arrows)
 for y_offset in [4.8, 2.8]:
-    ax.annotate("", xy=(6.0, y_offset), xytext=(5.2, 3.25),
+    ax.annotate("", xy=(5.925, y_offset), xytext=(5.2, 3.25),
                 arrowprops=dict(arrowstyle="->", color=arrow_color, lw=1.2,
                                connectionstyle="arc3,rad=-0.01"))
 
-ax.text(5.6, 4.3, "allocate &\nlaunch", ha="center", va="center", fontsize=12, color=arrow_color)
+ax.text(5.4, 4.8, "allocate &\nlaunch", ha="center", va="center", fontsize=12, color=arrow_color)
 
 # slurmctld <-> slurmdbd
 ax.annotate("", xy=(4.0, 1.5), xytext=(4.0, 2.3),
