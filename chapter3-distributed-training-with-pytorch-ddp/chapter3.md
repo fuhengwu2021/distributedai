@@ -35,14 +35,14 @@ Following the workflow shown in Figure~\ref{fig:ddp-workflow}, here's what happe
 
 1. **Forward pass**: Each process runs forward on its own data shard. The model is identical on all processes, but each process sees different data thanks to `DistributedSampler`. As illustrated in the figure, data flows from the dataloader to each GPU's data shard, then through the model for forward computation.
 2. **Backward pass**: Each process computes gradients locally. This is where DDP kicks in—instead of each process updating its model independently, DDP collects all gradients. The backward pass computes gradients for each parameter in parallel across all GPUs.
-3. **Gradient synchronization**: DDP uses AllReduce (via NCCL on GPUs) to sum gradients across all processes. After AllReduce completes, every process has the same averaged gradients. This is the critical synchronization step shown in the center of Figure~\ref{fig:ddp-workflow}, where gradients from all GPUs are aggregated.
+3. **Gradient synchronization**: DDP uses AllReduce (via NCCL on GPUs) to sum gradients across all processes, then divides by `world_size` so every rank holds the mean gradient—the same update you would get from one GPU with the global batch. This is the critical synchronization step shown in the center of Figure~\ref{fig:ddp-workflow}, where gradients from all GPUs are aggregated.
 4. **Parameter update**: Each process applies the optimizer step using the synchronized gradients. Since all processes started with the same parameters and applied the same gradients, they end up with identical parameters. The final step updates each model replica with the synchronized gradients, maintaining consistency across all processes.
 
 This is **data parallelism**: the model is replicated, but data is sharded. Each GPU processes a different batch, and gradients are averaged. Compare this to **model parallelism** (covered in later chapters) where the model itself is split across GPUs.
 
 ### Data Parallel (DP) vs Distributed Data Parallel (DDP)
 
-Before DDP, PyTorch had `DataParallel` (DP), which is still available but largely superseded by DDP. DP uses a single-process, multi-threaded approach that runs on a single machine. It has several limitations: Python's GIL prevents true parallelism, all gradient synchronization happens on GPU 0 creating a bottleneck, and it can't scale across multiple machines.
+Before DDP, PyTorch had `DataParallel` (DP), which is still available but treated as legacy. DP uses a single-process, multi-threaded approach that runs on a single machine. It has several limitations: Python's GIL prevents true parallelism, all gradient synchronization happens on GPU 0 creating a bottleneck, and it can't scale across multiple machines.
 
 <!-- ![](img/data_parallel.png) -->
 
@@ -56,7 +56,7 @@ Communication is more efficient too. DDP uses optimized collective communication
 
 DDP also overlaps gradient synchronization with computation. While one bucket of gradients is being synchronized, the next bucket can start computing. This hides communication latency, making the overall training faster. All GPUs participate equally in gradient synchronization, creating a balanced workload across the entire system.
 
-For these reasons, DDP is the standard for distributed training. DP is mainly useful for simple single-machine multi-GPU scenarios, but even then, DDP usually performs better.
+For these reasons, DDP is the standard for distributed training—use it even on a single machine.
 
 ### Gradient Bucketing: Why It Matters
 
@@ -97,11 +97,11 @@ Understanding which algorithm is in use helps when debugging performance. If gra
 
 ### Mixed Precision and Gradient Scaling
 
-When using mixed precision training (FP16/BF16), gradients can underflow (become zero) because FP16 has limited range. The solution is **gradient scaling**: multiply loss by a scale factor before backward, then unscale gradients before optimizer step.
+When using **FP16** mixed precision, gradients can underflow (become zero) because FP16 has a narrow exponent range. The solution is **gradient scaling**: multiply loss by a scale factor before backward, then unscale gradients before the optimizer step. **BF16** shares FP32's exponent range, so underflow is rare and `GradScaler` is usually unnecessary—`autocast(dtype=torch.bfloat16)` is often enough on supported hardware.
 
 ![AMP + DDP: scale, backward, AllReduce, unscale, step.](img/amp_ddp_flow.png){#fig:amp-ddp-flow .block width=90% align=center}
 
-Figure~\ref{fig:amp-ddp-flow} shows the pipeline. DDP works with PyTorch's Automatic Mixed Precision (AMP). The flow is:
+Figure~\ref{fig:amp-ddp-flow} shows the pipeline. DDP works with PyTorch's Automatic Mixed Precision (AMP). The flow below is for **FP16 with `GradScaler`**:
 
 1. Scale loss: `loss = loss * scale`
 2. Backward: `loss.backward()` (gradients are also scaled)
@@ -111,7 +111,7 @@ Figure~\ref{fig:amp-ddp-flow} shows the pipeline. DDP works with PyTorch's Autom
 
 The key point is DDP synchronizes gradients **after** they're scaled. Each process scales its own gradients, then DDP sums the scaled gradients. After AllReduce, all processes have the same scaled gradients, which are then unscaled before the optimizer step.
 
-If you're using AMP with DDP, make sure to use `GradScaler` correctly. The scaler must be created before wrapping the model with DDP, and you must call `scaler.step()` and `scaler.update()` on all processes (not just rank 0).
+If you're using FP16 AMP with DDP, use `GradScaler`: create it before wrapping the model with DDP, and call `scaler.step()` and `scaler.update()` on every process (not just rank 0). For BF16 training you typically omit the scaler.
 
 ### Buffer Synchronization
 
@@ -369,7 +369,7 @@ The main process then consumes batches from the result queue for training. The a
 
 **Performance tips**:
 
-- Set `num_workers` to 2-4x the number of GPUs (but not more than CPU cores)
+- Set `num_workers` per rank (each process spawns its own workers, so the node runs `num_workers × world_size` workers in total). A practical start is `min(8, cpu_cores_per_node / gpus_per_node / 2)` on each rank
 - Use `pin_memory=True` for faster CPU-to-GPU transfer
 - Set `prefetch_factor=2` (default) to prefetch batches ahead
 - Use `persistent_workers=True` to keep workers alive between epochs (reduces startup overhead)
@@ -589,18 +589,19 @@ If you're using InfiniBand, make sure:
 - NCCL can detect InfiniBand interfaces (set `NCCL_IB_DISABLE=0` if needed)
 - Firewall allows the master port (or disable firewall for cluster network)
 
-You can test network connectivity:
+You can test connectivity as follows. Raw InfiniBand bandwidth (`ib_write_bw`) is optional; [nccl-tests](https://github.com/NVIDIA/nccl-tests) (e.g. `all_reduce_perf`) is closer to what DDP uses because it runs NCCL collectives on your fabric:
 
 ```bash
-# On node 0
-ib_write_bw
-# On node 1
-ib_write_bw <node0_ip>
+# Optional: raw IB bandwidth
+ib_write_bw          # on node 0
+ib_write_bw <node0_ip>  # on node 1
+# Recommended: NCCL collective benchmark (after building nccl-tests)
+# ./build/all_reduce_perf -b 8 -e 128M -f 2 -g <gpus_per_node>
 ```
 
 ### Environment Variables for Multi-Node
 
-Multi-node uses the same variables as single-node—`RANK`, `LOCAL_RANK`, `WORLD_SIZE`, `MASTER_ADDR`, and `MASTER_PORT`—all set by torchrun or your job launcher (see "Understanding the Environment Variables"). On multiple nodes, `MASTER_ADDR` must be the master node’s real IP address, not localhost, and every node must use the same `MASTER_PORT`. Torchrun also sets `NODE_RANK` (this node’s index from 0 to num_nodes−1) and `NNODES`. When you launch with SLURM, you usually pass the node index and node count into torchrun from `$SLURM_NODEID` and `$SLURM_NNODES`.
+Multi-node uses the same variables as single-node—`RANK`, `LOCAL_RANK`, `WORLD_SIZE`, `MASTER_ADDR`, and `MASTER_PORT`—all set by torchrun or your job launcher (see "Understanding the Environment Variables"). On multiple nodes, `MASTER_ADDR` must be the master node’s real IP address, not localhost, and every node must use the same `MASTER_PORT` (pick a free port on the master—reusing `29500` across back-to-back jobs can hit "address already in use" while the socket is in `TIME_WAIT`). Torchrun also sets `NODE_RANK` (this node’s index from 0 to num_nodes−1) and `NNODES`. When you launch with SLURM, you usually pass the node index and node count into torchrun from `$SLURM_NODEID` and `$SLURM_NNODES`.
 
 ### A Complete Multi-Node Example
 
@@ -688,12 +689,29 @@ telnet <master_ip> <master_port>
 export MASTER_PORT=29501
 ```
 
-4. **NCCL initialization timeout**: If NCCL can't initialize within the timeout, it hangs.
+4. **Process group / NCCL timeout**: PyTorch's process-group watchdog timeout is set in Python, not via an `NCCL_TIMEOUT` environment variable (that name is not read by PyTorch). The default is 30 minutes. For slow clusters or large jobs, pass a larger `timeout` to `init_process_group`:
+
+```python
+from datetime import timedelta
+
+dist.init_process_group(
+    backend='nccl',
+    timeout=timedelta(minutes=60),  # default is 30 minutes
+)
+```
+
+For the NCCL backend, that timeout is enforced on collectives only when blocking wait is enabled. Set these before `init_process_group` (PyTorch 2.2+ names; older releases use `NCCL_ASYNC_ERROR_HANDLING` and `NCCL_BLOCKING_WAIT` without the `TORCH_` prefix):
 
 ```bash
-# Increase NCCL timeout (default is 10 minutes)
-export NCCL_BLOCKING_WAIT=1
-export NCCL_ASYNC_ERROR_HANDLING=1
+export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
+export TORCH_NCCL_BLOCKING_WAIT=1
+```
+
+For hang debugging, add targeted NCCL logging (verbose but readable):
+
+```bash
+export NCCL_DEBUG=INFO
+export NCCL_DEBUG_SUBSYS=INIT,COLL
 ```
 
 **Debugging hangs**:
@@ -706,8 +724,9 @@ logging.basicConfig(level=logging.INFO)
 
 def setup():
     rank = int(os.environ['RANK'])
+    local_rank = int(os.environ['LOCAL_RANK'])
     logging.info(f'Rank {rank}: Starting setup')
-    torch.cuda.set_device(rank)
+    torch.cuda.set_device(local_rank)
     logging.info(f'Rank {rank}: Set device')
     dist.init_process_group(backend='nccl')
     logging.info(f'Rank {rank}: Initialized process group')
@@ -727,11 +746,14 @@ torchrun --nproc_per_node=2 code/train_ddp_multi_mini.py
 
 ### Wrong Results or Inconsistent Gradients
 
-If training runs but produces wrong results or doesn't converge, the problem is usually data sharding or non-deterministic operations.
+Two problems are often confused. **Loss that does not decrease or diverges** usually indicates a real bug (data sharding, learning rate after global batch scaling, missing `set_epoch()`, etc.). **Different loss values across separate runs** with the same command is often normal—CUDA and NCCL are not fully deterministic unless you enable slow deterministic mode.
 
-**Symptom**: Loss doesn't decrease, or different runs produce different results.
+**Symptoms**:
 
-**Common causes**:
+- Loss doesn't decrease or diverges → treat as a bug (see **When loss stalls or diverges** below).
+- Different curves on separate runs with the same seed → often expected; only chase bit-level reproducibility for regression tests.
+
+**When loss stalls or diverges**, check the following:
 
 1. **Missing DistributedSampler.set_epoch()**: Without this, all epochs see data in the same order.
 
@@ -747,7 +769,7 @@ for epoch in range(10):
         # Training...
 ```
 
-2. **Different random seeds**: If processes have different random seeds, they'll produce different results.
+2. **Different random seeds across ranks**: If each process seeds RNGs differently, ranks will disagree and training can look wrong. Use the same seed setup on every rank:
 
 ```python
 # Set seeds on all processes
@@ -760,16 +782,7 @@ def set_seed(seed):
 set_seed(42)
 ```
 
-3. **Non-deterministic operations**: Some operations (e.g., `torch.bmm`, `torch.baddbmm`) are non-deterministic by default.
-
-```python
-# Enable deterministic mode (slower but reproducible)
-torch.backends.cudnn.deterministic = True
-torch.backends.cudnn.benchmark = False
-torch.use_deterministic_algorithms(True)
-```
-
-4. **Data leakage**: If `DistributedSampler` isn't used correctly, processes might see overlapping data.
+3. **Data leakage**: If `DistributedSampler` isn't used correctly, processes might see overlapping data.
 
 ```python
 # WRONG: Using shuffle=True in DataLoader with DistributedSampler
@@ -779,18 +792,17 @@ sampler = DistributedSampler(dataset, shuffle=True)
 dataloader = DataLoader(dataset, sampler=sampler)  # No shuffle=True here
 ```
 
-**Verifying correctness**:
-
-Compare single-GPU vs multi-GPU results. They should match (within numerical precision):
+**When separate runs differ but loss still looks healthy**, that is usually CUDA/NCCL non-determinism, not a DDP bug. To tighten reproducibility for regression tests (slower training):
 
 ```python
-# Run with 1 GPU
-torchrun --nproc_per_node=1 code/train_ddp_multi_mini.py --seed 42
-# Save checkpoint
-# Run with 4 GPUs
-torchrun --nproc_per_node=4 code/train_ddp_multi_mini.py --seed 42
-# Compare checkpoints - should be identical
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
+torch.use_deterministic_algorithms(True)
 ```
+
+**Verifying correctness**:
+
+Compare single-GPU vs multi-GPU **loss trends** with the same global batch size and learning rate. They need not match step-by-step; a large systematic gap (e.g. 4× worse loss with 4 GPUs) suggests a setup bug such as wrong per-GPU batch size or gradients summed instead of averaged.
 
 ### CUDA Out of Memory
 
@@ -859,11 +871,7 @@ for data, target in dataloader:
     scaler.update()
 ```
 
-- **Clear cache**: Sometimes PyTorch holds onto memory
-
-```python
-torch.cuda.empty_cache()
-```
+- **Clear cache (between jobs only)**: `torch.cuda.empty_cache()` returns reserved-but-unused memory to the driver; it does **not** lower peak memory during an active training step. Calling it inside the training loop forces synchronization and slows training—use it between separate jobs or processes, not every iteration.
 
 ### Performance Issues
 
@@ -951,7 +959,7 @@ For multi-node training, network issues are common. Use NCCL debugging:
 ```bash
 # Enable NCCL debug logging
 export NCCL_DEBUG=INFO
-export NCCL_DEBUG_SUBSYS=ALL
+export NCCL_DEBUG_SUBSYS=INIT,COLL
 # Test NCCL connectivity
 python -c "import torch; torch.distributed.init_process_group('nccl'); print('OK')"
 ```
@@ -961,10 +969,13 @@ Check InfiniBand connectivity:
 ```bash
 # List InfiniBand devices
 ibdev2netdev
-# Test bandwidth
+# Optional: raw IB bandwidth
 ib_write_bw  # On one node
 ib_write_bw <other_node_ip>  # On another node
+# Recommended for DDP: NCCL collective tests (nccl-tests)
 ```
+
+See the Network Configuration section above for when to prefer [nccl-tests](https://github.com/NVIDIA/nccl-tests) over raw `ib_write_bw`.
 
 ## Profiling DDP Performance {#sec:ddp-profiling}
 
@@ -1234,21 +1245,22 @@ accumulation_steps = 4
 optimizer.zero_grad()
 for i, (data, target) in enumerate(dataloader):
     output = model(data)
-    loss = criterion(output, target)
-    # Scale loss by accumulation steps
-    loss = loss / accumulation_steps
-    loss.backward()
-    # Update every accumulation_steps
-    if (i + 1) % accumulation_steps == 0:
+    loss = criterion(output, target) / accumulation_steps
+    # AllReduce only on the last micro-batch in each window
+    if (i + 1) % accumulation_steps != 0:
+        with model.no_sync():
+            loss.backward()
+    else:
+        loss.backward()
         optimizer.step()
         optimizer.zero_grad()
-# Handle remaining steps
+# If the epoch ends mid-window, step the remaining gradients once
 if (i + 1) % accumulation_steps != 0:
     optimizer.step()
     optimizer.zero_grad()
 ```
 
-It is useful when the desired batch size does not fit in memory, when a larger effective batch size is needed for training stability, or when the dataset size is not divisible by the per-step batch size. With DDP, gradient accumulation behaves correctly because DDP synchronizes gradients in `backward()`, not in `step()`. Each accumulation step triggers AllReduce, so the combined gradients match what would be obtained with a single larger batch.
+It is useful when the desired batch size does not fit in memory, when a larger effective batch size is needed for training stability, or when the dataset size is not divisible by the per-step batch size. With DDP, `backward()` triggers AllReduce by default, so wrap intermediate micro-batches in `model.no_sync()` and run AllReduce only on the last backward in each accumulation window—otherwise you pay for `accumulation_steps` collectives per optimizer step instead of one.
 
 ### Mixed Precision Training
 

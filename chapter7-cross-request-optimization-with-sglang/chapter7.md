@@ -7,7 +7,7 @@
 
 **Code Summary**
 
-- `sglang.Runtime`: SGLang runtime for model execution
+- `sglang.Engine`: High-level offline inference API
 - `sglang.srt.server.LaunchEngine`: Launch SGLang inference engine
 - `sglang.srt.hf_transformers_utils`: HuggingFace transformers integration
 - `sglang.srt.engine`: SGLang engine for request processing
@@ -34,7 +34,7 @@ The combination is powerful for specific workloads. For multi-turn conversations
 
 **SGLang** (Structured Generation Language) emerged from the LMSYS team at UC Berkeley—the same group behind the Chatbot Arena leaderboard. While vLLM focused on memory efficiency through PagedAttention, SGLang's creators asked a different question: how can we optimize across requests, enabling them to share computation and benefit from each other?
 
-The answer led to RadixAttention for cross-request KV cache sharing, X-Grammar for efficient structured output generation, and a zero-overhead scheduler that maximizes GPU utilization. Request-level routing emerged later as a production scaling layer that complements these core innovations.
+The answer led to RadixAttention for cross-request KV cache sharing, XGrammar for constrained structured output, and a zero-overhead scheduler that maximizes GPU utilization. Request-level routing emerged later as a production scaling layer that complements these core innovations.
 
 ### Prerequisites
 
@@ -85,7 +85,7 @@ docker run --runtime nvidia --gpus all \
     --port 30000
 ```
 
-Note that SGLang does not support OPT models (e.g., `facebook/opt-125m`). It supports modern architectures like Llama, Mistral, Qwen, Gemma, and Phi3. Some models may require the `--trust-remote-code` flag. See the [SGLang documentation](https://docs.sglang.io) for the full list of supported architectures.
+SGLang supports Llama, Mistral, Qwen, Gemma, Phi, and other HuggingFace architectures; legacy causal LMs such as `facebook/opt-125m` work too, though chat endpoints expect instruct-tuned checkpoints. Some models require `--trust-remote-code`. See the [SGLang documentation](https://docs.sglang.io) for the full list.
 
 Here are some small models suitable for learning purposes:
 
@@ -165,6 +165,7 @@ SGLang's architecture follows a frontend-backend design pattern. The frontend (A
 
 ![SGLang Architecture](img/sglang_architecture.png){#fig:sglang-arch .block width=70% align=center}
 
+
 Figure~\ref{fig:sglang-arch} illustrates the flow of requests through SGLang. Clients (either SGLang programs using the native interpreter or standard HTTP clients) send requests to the API Server, which serves as the entry point. The SGLang Runtime (SRT) then processes these requests through a pipeline of components. The **Tokenizer** converts incoming text into numerical tokens that the model can process. The **Request Queue** buffers these tokenized requests, managing concurrency and preparing them for batching. The **Scheduler** is where SGLang's intelligence lives—it batches requests intelligently, prioritizes tasks that can benefit from KV cache reuse through RadixAttention, and implements zero-overhead scheduling that overlaps CPU work with GPU computation. The **GPU Workers** execute the actual model inference, and can be organized for tensor parallelism (where workers collaborate on a single request) or as independent workers for data parallelism. Finally, the **Detokenizer** converts generated tokens back into human-readable text, and the response flows back through the API Server to the client.
 
 For distributed deployments, SGLang adds a **Router** (also called Model Gateway) layer above the API Server. The Router distributes requests across multiple SRT instances, maintaining session affinity so that requests from the same conversation go to the same worker (preserving KV cache locality). It includes a control plane for worker management, load monitoring, and health checking, plus a data plane that implements various load balancing policies.
@@ -178,19 +179,20 @@ Figure~\ref{fig:vllm-vs-sglang} contrasts the two architectural approaches. On t
 
 ## SGLang Core Theory
 
-SGLang's performance advantages come primarily from its execution engine innovations. The core technologies are **RadixAttention** for KV cache reuse across requests, **zero-overhead scheduler** for eliminating CPU/GPU idle time, **X-Grammar** for efficient structured output generation, and **operator fusion** to reduce kernel launch overhead. These kernel-level and scheduler-level optimizations form the foundation, working effectively regardless of deployment topology.
+SGLang's performance advantages come primarily from its execution engine innovations. The core technologies are **RadixAttention** for KV cache reuse across requests, a **zero-overhead scheduler** for eliminating CPU/GPU idle time, **XGrammar** for structured output decoding, and **operator fusion** to reduce kernel launch overhead. These kernel-level and scheduler-level optimizations form the foundation, working effectively regardless of deployment topology.
 
 While vLLM focuses on memory efficiency within individual requests (PagedAttention), SGLang emphasizes optimizations that span multiple requests. This makes SGLang particularly effective for workloads where many requests share common patterns—system prompts, few-shot examples, or multi-turn conversations.
 
 ### RadixAttention: Prefix Cache Reuse
 
-RadixAttention is perhaps SGLang's most distinctive innovation. While vLLM's PagedAttention optimizes memory management within a single request's KV cache, RadixAttention optimizes across multiple requests by sharing KV cache for common prefixes.
+RadixAttention is perhaps SGLang's most distinctive innovation. While vLLM's PagedAttention optimizes memory management within a single request's KV cache, RadixAttention optimizes across multiple requests by sharing KV cache for common prefixes. vLLM's prefix caching (on by default in recent releases) achieves similar reuse by hashing shared token blocks; RadixAttention instead keeps an explicit radix tree and ties prefix lookup directly into batch scheduling. The payoff shows up when many requests share long, identical prefixes—system prompts, few-shot templates, or the early turns of multi-turn chats.
 
 Consider a typical AI assistant deployment. Every request starts with the same system prompt: "You are a helpful assistant. You provide accurate, helpful responses..." This system prompt might be 500 tokens. In a traditional system, if 100 users send requests simultaneously, the system computes KV cache for that 500-token prefix 100 times—a massive waste of computation and memory.
 
 RadixAttention solves this by organizing KV cache as a radix tree (also called a prefix tree). In this data structure, common prefixes are stored once and shared across all requests that use them. When a new request arrives, the system finds the longest matching prefix in the tree, reuses the existing KV cache for that prefix, and only computes KV cache for the new tokens. As requests complete, shared prefixes remain in the tree for future reuse while unique suffixes are evicted.
 
 ![RadixAttention prefix sharing](img/radix_tree.png){#fig:radix-tree .block width=85% align=center}
+
 
 Figure~\ref{fig:radix-tree} illustrates how RadixAttention shares KV cache across requests. Suppose three requests arrive with a common system prompt: "You are helpful. What is Python?", "You are helpful. Explain ML.", and "You are helpful. Write code." The radix tree stores the shared prefix "You are helpful. " once (green node), while each request's unique suffix is stored separately (yellow nodes).
 
@@ -202,58 +204,78 @@ SGLang's scheduler is aware of the radix cache and uses it to optimize batch for
 
 The cache also integrates with session affinity. When requests from the same session are routed to the same worker, the radix tree on that worker accumulates the conversation history. Follow-up messages in a conversation benefit from the cached KV from previous turns, dramatically reducing latency for multi-turn interactions. But what happens as conversations grow and memory fills up?
 
-![RadixAttention tree evolution and LRU eviction. Source: Zheng et al., 2023.](img/radix_attn.jpg){#fig:radix-attention .block width=95% align=center}
+![RadixAttention tree evolution and LRU eviction-1. Source: Zheng et al., 2023.](img/radix_attn1.jpg){#fig:radix-attention1 .block width=95% align=center}
 
-Figure~\ref{fig:radix-attention} traces the lifecycle of a radix tree from birth to maturity. In panel (1), the tree is empty—no requests have arrived yet. Panel (2) shows the first chat session: "You are a helpful assistant. User: Hello! Assistant: Hi!" becomes a single node. When a follow-up message extends this conversation in panel (3), something interesting happens: the tree restructures itself. The original content splits into a shared prefix node and a new branch for the continuation "User: Solve this problem..."
+Figure \ref{fig:radix-attention1}, \ref{fig:radix-attention2}, \ref{fig:radix-attention3} trace the lifecycle of a radix tree from birth to maturity. In panel (1), the tree is empty—no requests have arrived yet. Panel (2) shows the first chat session: "You are a helpful assistant. User: Hello! Assistant: Hi!" becomes a single node. When a follow-up message extends this conversation in panel (3), something interesting happens: the tree restructures itself. The original content splits into a shared prefix node and a new branch for the continuation "User: Solve this problem..."
 
 As more users arrive, the tree reveals its true power. Panel (4) shows multiple chat sessions—each starting with "You are a helpful assistant."—branching from a single shared prefix node. One user asks "Hello!", another asks "What can you do?", a third poses a different question. The system prompt is stored once and shared by all.
 
-But memory is finite. Panels (5), (8), and (9) show what happens under pressure. When a new request needs space, SGLang's LRU (Least Recently Used) policy kicks in. In panel (5), node (c)—an older, inactive conversation—gets evicted (marked with orange dashed box and "X") to make room for "Write a story..." As pressure mounts in panels (8)-(9), entire conversation branches disappear, but the frequently-accessed system prompt and active sessions survive. The tree self-prunes, keeping what matters and discarding what doesn't.
+![RadixAttention tree evolution and LRU eviction-2. Source: Zheng et al., 2023.](img/radix_attn2.jpg){#fig:radix-attention2 .block width=95% align=center}
+
+But memory is finite. Panels (5), (8), and (9) show what happens under pressure. When a new request needs space, SGLang's LRU (Least Recently Used) policy kicks in. In panel (5), node (c)—an older, inactive conversation—gets evicted (marked with orange dashed box and "X") to make room for "Write a story...".
+
+![RadixAttention tree evolution and LRU eviction-3. Source: Zheng et al., 2023.](img/radix_attn3.jpg){#fig:radix-attention3 .block width=95% align=center}
+
+As pressure mounts in panels (8)-(9), entire conversation branches disappear, but the frequently-accessed system prompt and active sessions survive. The tree self-prunes, keeping what matters and discarding what doesn't.
 
 Under the hood, SGLang implements RadixAttention through a two-level memory pool (as of SGLang v0.5). The first level maps each request to its tokens' KV cache indices. The second level stores the actual KV cache data, organized as `[num_layers, max_tokens, num_heads, head_dim]`. The radix tree sits on top of these pools, tracking which prefixes are cached and enabling efficient lookup and sharing.
 
-### Structured Output Decoding with X-Grammar
+### Structured Output Decoding with XGrammar
 
 Many applications need LLMs to generate output in specific formats—JSON for API responses, SQL for database queries, or custom schemas for domain-specific tasks. The naive approach to constraint decoding checks each generated token against grammar rules and masks invalid tokens. But with vocabularies of 128K tokens (like Llama-3), checking every token at each step becomes computationally prohibitive.
 
-SGLang's X-Grammar framework solves this efficiently. The key insight is that most grammar rules are context-free—the validity of a token depends only on the current state, not on the history of how we got there. For these rules, X-Grammar precompiles valid token sets using Finite State Machines (FSMs). When generating a boolean value, for instance, the only valid tokens are "true" and "false"—no runtime validation needed. This precompilation handles over 75% of tokens in typical grammars.
+SGLang routes structured output through **XGrammar** by default, with Outlines and llguidance as alternative grammar backends. XGrammar precompiles valid token sets into finite-state machines for context-free rules—for example, when generating a boolean, only "true" and "false" tokens remain valid. This precompilation covers most tokens in typical JSON or schema constraints. For context-sensitive rules (such as balanced parentheses), it uses pushdown automata with tree-based stack management to avoid expensive stack snapshots.
 
-For rules that require context (like matching parentheses, where ")" is only valid if there's an unmatched "("), X-Grammar uses Pushdown Automata (PDAs) that extend FSMs with a stack. Traditional implementations snapshot the entire stack at each step, which is expensive. X-Grammar uses tree-based stack management with node reuse, reducing memory copies by 90%.
+The result is structured output with guaranteed validity and minimal overhead. Here is the OpenAI-compatible call on a running server:
 
-The result is structured output generation with guaranteed validity and minimal overhead. Here's a simple example:
-
-```python
-import sglang as sgl
-
-schema = {
-    "type": "object",
-    "properties": {
-        "name": {"type": "string"},
-        "age": {"type": "number"},
-        "city": {"type": "string"}
-    },
-    "required": ["name", "age"]
-}
-
-response = sgl.generate(
-    prompt="Extract information: John is 30 years old, lives in NYC",
-    grammar=schema,
-    max_tokens=100
-)
-# Output guaranteed to be valid JSON: {"name": "John", "age": 30, "city": "NYC"}
+```bash
+curl http://localhost:30000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "Qwen/Qwen2.5-0.5B-Instruct",
+    "messages": [{"role": "user", "content": "Extract: John is 30 years old, lives in NYC"}],
+    "response_format": {
+      "type": "json_schema",
+      "json_schema": {
+        "name": "person",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "name": {"type": "string"},
+            "age": {"type": "number"},
+            "city": {"type": "string"}
+          },
+          "required": ["name", "age"]
+        }
+      }
+    }
+  }'
 ```
 
-X-Grammar supports any Context-Free Grammar, including JSON, SQL queries, domain-specific languages, or any structured format your application needs.
+For offline batch jobs, pass the same schema through `sampling_params` on the Python `Engine`:
 
-### Operator Fusion and Graph-Based IR
+```python
+import json
+from sglang import Engine
 
-Modern GPUs are incredibly fast at computation, but launching kernels has overhead. Each small operation—layer normalization, linear projection, activation—requires a separate kernel launch, and the overhead adds up. SGLang addresses this through operator fusion, combining multiple operations into single kernels.
+llm = Engine(model_path="Qwen/Qwen2.5-0.5B-Instruct")
+schema = {
+    "type": "object",
+    "properties": {"name": {"type": "string"}, "age": {"type": "number"}},
+    "required": ["name", "age"],
+}
+outputs = llm.generate(
+    ["Extract: John is 30 years old, lives in NYC"],
+    {"max_new_tokens": 100, "json_schema": json.dumps(schema)},
+)
+print(outputs[0]["text"])
+```
 
-The most common fusion pattern combines layer normalization, linear projection, and activation into a single kernel. Instead of three kernel launches with intermediate memory writes and reads, the fused kernel does everything in one pass. Memory traffic drops because intermediate results stay in registers rather than being written to global memory.
+XGrammar supports context-free grammars broadly—JSON, SQL, domain-specific languages, and other structured formats your application needs.
 
-SGLang uses a graph-based Intermediate Representation (IR) to identify fusion opportunities at compile time. The IR represents the computation as a graph of operations, and optimization passes identify sequences that can be fused. Common patterns include `layernorm + linear + activation`, `attention + output_projection`, and complete MLP fusion (`mlp_up + gelu + mlp_down`).
+### Operator Fusion
 
-For MoE (Mixture of Experts) models, SGLang provides specialized fused kernels that combine expert routing with computation, reducing the overhead of the all-to-all communication pattern that MoE requires.
+Modern GPUs are fast at computation, but each kernel launch carries overhead. Layer normalization, linear projection, and activation as separate kernels mean multiple launches and extra memory traffic. SGLang ships fused CUDA kernels for common transformer patterns—layer norm plus linear plus activation, attention output projections, and MoE routing fused with expert GEMM—so intermediate results stay in registers instead of round-tripping through global memory. For MoE models, specialized kernels combine expert routing with computation to reduce all-to-all overhead.
 
 ### Zero-Overhead Scheduler
 
@@ -300,14 +322,14 @@ Router-based scaling shines in specific scenarios where its strengths align with
 
 Multi-turn conversations are another sweet spot. Session affinity keeps all turns of a conversation on the same worker, where KV cache from previous messages is already warm. When a user sends "What about Python?" as a follow-up, the worker doesn't need to recompute the system prompt or the previous exchange—it's all cached. Combined with RadixAttention's prefix sharing across users, this can reduce latency by 2-3x for follow-up requests. But this benefit is conditional: it requires conversational workloads with actual prefix reuse. Single-shot prompts won't see these gains.
 
-PD disaggregation adds another dimension: you can scale prefill workers (compute-bound) independently from decode workers (memory-bound), matching hardware to workload characteristics. And fault tolerance comes naturally—when a worker fails, the router simply routes around it. No need to re-shard model weights or restart a distributed group.
+PD disaggregation lets you scale prefill workers (compute-bound) independently from decode workers (memory-bound). SGLang's router coordinates the two pools and transfers KV cache between them. When a worker fails, the router routes around it—no need to re-shard model weights or restart a distributed group.
 
 That said, router-based architecture isn't universally superior. For batch inference, the router hop adds latency without providing cache locality benefits—you're better off with direct model parallelism. For very large models (70B+) that require extensive TP/PP across many GPUs, the router adds little value since you're constrained by model parallelism anyway. And for throughput-only workloads where latency doesn't matter, vLLM's continuous batching may achieve higher efficiency without the routing overhead.
 
 
 ## Prefill/Decode Disaggregation
 
-One of SGLang's most powerful distributed patterns is prefill/decode (PD) disaggregation. To understand why this matters, recall the two phases of autoregressive generation from Chapter 6: prefill processes the entire prompt in parallel (compute-bound), while decode generates tokens one at a time (memory-bound). These phases have fundamentally different resource requirements.
+One of SGLang's most powerful distributed patterns is **prefill/decode (PD) disaggregation**. The same split appears across modern serving stacks—DistServe and Mooncake documented the design early; vLLM and NVIDIA Dynamo ship similar modes—but the motivation is universal. Recall from Chapter 6 that prefill processes the entire prompt in parallel (compute-bound), while decode generates tokens one at a time (memory-bound). These phases have fundamentally different resource requirements.
 
 ![Prefill vs decode resource utilization](img/pd_disaggregation.png){#fig:pd-disaggregation .block width=95% align=center}
 
@@ -708,7 +730,7 @@ For models between 10B and 100B parameters requiring 2-8 GPUs, use tensor parall
 
 MoE models combine expert parallelism with tensor parallelism. Enable DP Attention if the model has few KV heads, and use TBO/SBO for communication overlap. When prefill and decode have very different characteristics (long prompts with short generations, or vice versa), PD disaggregation lets you scale each phase independently.
 
-A few practical optimizations apply across deployment patterns. For communication, keep tensor parallelism within NVLink domains and configure NCCL appropriately for your network (`NCCL_IB_DISABLE=0`, `NCCL_IB_GID_INDEX=3`, `NCCL_SOCKET_IFNAME=ib0`). For memory efficiency, enable chunked prefill (`--chunked-prefill-size`) for long-context workloads—this breaks long prompts into smaller chunks that interleave with decode operations, avoiding memory spikes and pipeline bubbles (see Section~\ref{sec:chunked-prefill} in Chapter~\ref{chap:distributed-inference-fundamentals-and-vllm}). Quantization with FP8 or INT4/AWQ reduces memory footprint and can improve throughput. For latency-sensitive workloads, use cache-aware routing and speculative decoding; for throughput-sensitive workloads, scale data parallelism and enable all overlap options (`--tp-comm-overlap`, `--enable-two-batch-overlap`).
+A few practical optimizations apply across deployment patterns. For communication, keep tensor parallelism within NVLink domains and configure NCCL appropriately for your network (`NCCL_IB_DISABLE=0`, `NCCL_IB_GID_INDEX=3`, `NCCL_SOCKET_IFNAME=ib0`). For memory efficiency, enable chunked prefill (`--enable-chunked-prefill` with `--max-num-batched-tokens`) for long-context workloads—this breaks long prompts into smaller chunks that interleave with decode operations, avoiding memory spikes and pipeline bubbles (see Section~\ref{sec:chunked-prefill} in Chapter~\ref{chap:distributed-inference-fundamentals-and-vllm}). Quantization with FP8 or INT4/AWQ reduces memory footprint and can improve throughput. For latency-sensitive workloads, use cache-aware routing and speculative decoding; for throughput-sensitive workloads, scale data parallelism and enable all overlap options (`--tp-comm-overlap`, `--enable-two-batch-overlap`).
 
 ## Hands-on Examples {#sec:sglang-hands-on}
 
@@ -781,10 +803,11 @@ import requests
 
 router_url = "http://router:8080/v1/chat/completions"
 session_id = "test-session-123"
+model = "Qwen/Qwen2.5-0.5B-Instruct"
 
 # First request creates session and computes KV cache
 response1 = requests.post(router_url, json={
-    "model": "opt-125m",
+    "model": model,
     "messages": [{"role": "user", "content": "Hello!"}],
     "session_id": session_id
 })
@@ -792,7 +815,7 @@ print(f"First request: {response1.elapsed.total_seconds()}s")
 
 # Second request reuses KV cache from first request
 response2 = requests.post(router_url, json={
-    "model": "opt-125m",
+    "model": model,
     "messages": [{"role": "user", "content": "What did I say?"}],
     "session_id": session_id
 })
@@ -830,7 +853,7 @@ The answer to that question led to SGLang's core technical innovations. RadixAtt
 
 The zero-overhead scheduler addresses a different bottleneck: the traditional serial pattern where GPUs sit idle while CPUs schedule the next batch. By overlapping CPU scheduling with GPU computation—preparing batch N+1 while the GPU processes batch N—SGLang keeps the GPU continuously busy. This is a kernel-level optimization that works regardless of how you deploy the system.
 
-X-Grammar tackles structured output generation, a common requirement for applications that need JSON, SQL, or other formatted outputs. Rather than validating each token against grammar rules at runtime (prohibitively expensive with 128K-token vocabularies), X-Grammar precompiles valid token sets using finite state machines. The result is guaranteed-valid structured output with minimal overhead.
+XGrammar tackles structured output generation, a common requirement for applications that need JSON, SQL, or other formatted outputs. Rather than validating each token at runtime—prohibitively expensive with 128K-token vocabularies—it precompiles valid token sets into finite state machines. The result is guaranteed-valid structured output with minimal overhead.
 
 Built on this execution engine, SGLang introduces router-based architecture as a scaling primitive. The router distributes requests across independent workers, each holding a complete model (or small TP group). This eliminates inter-request synchronization—workers don't coordinate with each other, only with the router. Combined with session affinity (routing conversation turns to the same worker) and cache-aware load balancing, this architecture excels for high-QPS interactive workloads where many concurrent sessions share common patterns.
 
@@ -842,7 +865,7 @@ It's worth noting that vLLM also supports prefix caching and session pinning—t
 
 We've now covered both sides of distributed AI: training systems (DDP, FSDP, DeepSpeed, Megatron) that optimize for throughput and memory efficiency during model development, and inference systems (vLLM, SGLang) that optimize for latency and throughput when serving trained models. The next chapter provides a hands-on guide to running these workloads on HPC clusters using Slurm, the job scheduler that powers most research clusters and cloud GPU providers.
 
-## References
+## Useful Links
 
 __SGLang and RadixAttention__
 

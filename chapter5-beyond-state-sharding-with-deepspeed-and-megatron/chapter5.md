@@ -38,11 +38,11 @@ Figure~\ref{fig:zero-stages} illustrates the memory layout across two ranks (R0�
 
 ## ZeRO Stage 1: Optimizer State Partitioning
 
-Recall the memory breakdown from the previous chapter: for models using Adam, optimizer states dominate memory usage—each parameter requires storing momentum and variance as two FP32 copies, totaling 8 bytes per parameter. A 7B parameter model needs 56GB just for optimizer states. In DDP, every GPU holds a complete copy of these states, which is a massive waste.
+Recall the memory breakdown from the previous chapter: for models using Adam, optimizer states dominate memory usage—each parameter requires storing momentum and variance as two FP32 copies, totaling 8 bytes per parameter. A 7B parameter model needs 56GB just for optimizer states. Mixed-precision training also keeps an FP32 master copy of the weights (another 4 bytes per parameter), so the full optimizer-side footprint is closer to 12 bytes—we use that accounting in the 70B example later in the chapter. In DDP, every GPU holds a complete copy of these states, which is a massive waste.
 
 ZeRO-1's insight is straightforward: since each GPU ultimately updates only its assigned portion of parameters, why store the full optimizer states? With 2 GPUs, each stores only half of the optimizer states. Forward and backward passes proceed normally, and after gradient synchronization, each GPU uses only its local optimizer states to update the corresponding parameter shard. The 56GB of optimizer states gets distributed across 2 GPUs, reducing each GPU's burden to 28GB.
 
-Unlike PyTorch's native DDP which requires minimal setup, DeepSpeed uses a configuration dictionary (or JSON file) to control all training settings—optimizer, precision, ZeRO stage, and more. You pass this config to `deepspeed.initialize()`, which returns a wrapped model engine that handles distributed training automatically:
+Unlike PyTorch's native DDP which requires minimal setup, DeepSpeed uses a configuration dictionary (or JSON file) to control all training settings—optimizer, precision, ZeRO stage, and more. Our examples enable FP16 for portability; on Hopper-and-newer GPUs, BF16 is often the better default (wider dynamic range, no loss scaling). Pass the config to `deepspeed.initialize()`, which returns a wrapped model engine that handles distributed training automatically:
 
 ```python
 import deepspeed
@@ -67,7 +67,7 @@ for batch in dataloader:
     model_engine.step()
 ```
 
-The key difference from DDP: DeepSpeed manages the optimizer internally based on your config, so you don't create it yourself. The `model_engine` wraps your model and provides `backward()` and `step()` methods.
+The key difference from DDP: DeepSpeed builds the optimizer from your config, not from a separate `torch.optim.Adam(...)` you may have created earlier—that external optimizer is ignored. The `model_engine` wraps your model and provides `backward()` and `step()` methods.
 
 ZeRO-1 fits scenarios where the model itself fits in GPU memory, but adding optimizer states pushes it over the limit. It requires minimal changes to the training loop and is the easiest to debug, making it a natural first step when migrating from DDP to ZeRO.
 
@@ -162,7 +162,7 @@ deepspeed --num_gpus=2 code/zero_minimal.py --zero_stage 2
 deepspeed --num_gpus=2 code/zero_minimal.py --zero_stage 3
 ```
 
-ZeRO-3 is the right choice when even replicated parameters don't fit in GPU memory, or when you want maximum memory efficiency and can tolerate some communication overhead. With fast interconnects like NVLink, the performance gap versus ZeRO-2 is often modest (10-20%).
+ZeRO-3 is the right choice when even replicated parameters don't fit in GPU memory, or when you want maximum memory efficiency and can tolerate some communication overhead. On a single node with NVLink, the performance gap versus ZeRO-2 is often modest (10-20%); across many nodes the all-gather cost grows and the gap widens.
 
 ## ZeRO-Offload: CPU Memory Extension
 
@@ -278,7 +278,7 @@ ZeRO-3 eliminates memory redundancy, but it introduces significant communication
 
 [^zero-pp]: Wang et al., "ZeRO++: Extremely Efficient Collective Communication for Giant Model Training" (2023). https://arxiv.org/abs/2306.10209 Every forward pass requires an all-gather to reconstruct parameters; every backward pass does the same plus a reduce-scatter for gradients. For large models on multi-node clusters, this communication can dominate training time.
 
-ZeRO++ addresses this with three complementary techniques (the names follow the paper's notation: "q" for quantized, "hp" for hierarchical partitioning, and "Z" for ZeRO). The first, **quantized weights (qwZ)**, reduces all-gather traffic by transmitting parameters in INT8 instead of FP16, then dequantizing after receipt—a 2× reduction in communication volume with minimal accuracy impact since quantization errors don't accumulate across iterations.
+ZeRO++ addresses this with three complementary techniques (the names follow the paper's notation: "q" for quantized, "hp" for hierarchical partitioning, and "Z" for ZeRO). The first, **quantized weights (qwZ)**, reduces all-gather traffic by transmitting parameters in INT8 instead of FP16, then dequantizing after receipt—a 2× reduction in communication volume. INT8 applies only to parameters in transit during all-gather; master weights used for the optimizer step remain in full precision, so rounding error does not carry over between iterations.
 
 The second technique, **hierarchical partitioning (hpZ)**, exploits the fact that intra-node communication (NVLink, ~600 GB/s) is much faster than inter-node (InfiniBand, ~400 GB/s). Instead of sharding uniformly across all GPUs, hpZ replicates parameters within each node and shards only across nodes. This means intra-node all-gathers use fast NVLink, while inter-node traffic is reduced to one representative per node.
 
@@ -522,6 +522,7 @@ This is where **Expert Parallelism (EP)** comes in. The idea is natural: if we h
 
 ![Expert parallelism distributes experts across multiple GPUs](img/expert_parallelism.png){#fig:expert-parallelism .block width=90% align=center}
 
+
 The challenge is load balancing. If the router sends 80% of tokens to expert 0 and only 2% to expert 7, GPU 0 is overloaded while GPU 7 sits idle. MoE training typically includes an auxiliary loss that encourages the router to distribute tokens more evenly. Megatron supports several load balancing strategies: auxiliary loss (adds a penalty for imbalanced routing), Sinkhorn (iterative normalization to enforce balance), and aux-loss-free methods that achieve balance through architectural constraints.
 
 Expert parallelism combines naturally with other parallelism dimensions. A typical large-scale MoE training might use EP=8 for the experts, PP=4 for pipeline stages, and DP for data parallelism across nodes. The non-expert layers (attention, LayerNorm) can use tensor parallelism independently. This flexibility is essential for models like DeepSeek-V3 or Qwen-MoE that have hundreds of experts.
@@ -571,7 +572,10 @@ Consider training a 70B parameter model on 64 GPUs across 8 nodes. Within each n
 
 This layered approach plays to each technique's strengths. Tensor parallelism needs high bandwidth (hence NVLink within a node), but it enables computation that wouldn't fit on a single GPU. State sharding tolerates higher latency (hence cross-node), but it dramatically reduces per-GPU memory. Pipeline parallelism adds another dimension of scaling with relatively modest communication.
 
-The choice between FSDP2 and ZeRO-3 for the state sharding layer depends on your ecosystem. FSDP2 integrates tightly with PyTorch's compiler stack (torch.compile) and is the native PyTorch solution. ZeRO-3, through DeepSpeed, offers additional features like CPU and NVMe offloading for memory-constrained setups, and has a mature ecosystem of optimizations. Both work well with Megatron-style computation sharding—the key is understanding that they operate on orthogonal axes.
+The choice between FSDP2 and ZeRO-3 for the state sharding layer depends on your ecosystem. FSDP2 integrates tightly with PyTorch's compiler stack (torch.compile) and is the native PyTorch solution. ZeRO-3, through DeepSpeed, offers additional features like CPU and NVMe offloading for memory-constrained setups, and has a mature ecosystem of optimizations. Both combine cleanly with Megatron-style computation sharding—they operate on orthogonal axes. If you already run Megatron Core with tensor or pipeline parallelism, Megatron's distributed optimizer or Megatron-FSDP is usually easier to wire up than bolting DeepSpeed ZeRO-3 onto the same job, where process groups must be kept strictly disjoint. Teams that prefer not to assemble Megatron and DeepSpeed manually can also evaluate integrated frameworks such as **Colossal-AI**[^colossalai], which bundles hybrid parallelism (DP + TP + PP), ZeRO-style sharding, and **Gemini**[^gemini] heterogeneous memory management (GPU, CPU, and NVMe).
+
+[^colossalai]: Colossal-AI: \url{https://colossalai.org/}
+[^gemini]: Colossal-AI Gemini heterogeneous memory manager (not Google's Gemini): \url{https://colossalai.org/docs/advanced_tutorials/meet_gemini/}
 
 ### Megatron Core: Production-Ready Library
 
@@ -596,7 +600,9 @@ The `code/megatron_gpt_pretrain.sh` script in this chapter's code directory demo
 
 We've established that state sharding (FSDP/ZeRO) and computation sharding (Megatron) are complementary. But when you combine them, the implementation details matter. PyTorch's FSDP2 is a general-purpose solution; it doesn't know about Megatron's tensor parallelism or the specific communication patterns involved. This is where **Megatron-FSDP** comes in.
 
-Megatron-FSDP is NVIDIA's implementation of fully sharded data parallelism, designed to work seamlessly with Megatron's other parallelism dimensions. The performance difference is meaningful: benchmarks show 15-25% speedup and 23% memory savings compared to PyTorch FSDP2. These gains come from optimizations that are only possible when the FSDP implementation understands the surrounding context—better bucketing of parameters, smarter buffer management, and more aggressive overlap of communication with computation.
+Megatron-FSDP is NVIDIA's implementation of fully sharded data parallelism, designed to work seamlessly with Megatron's other parallelism dimensions. In NVIDIA's published benchmarks, it delivers roughly 15-25% higher throughput and about 23% memory savings versus PyTorch FSDP2.[^megatron-fsdp] These gains come from optimizations that are only possible when the FSDP implementation understands the surrounding context—better bucketing of parameters, smarter buffer management, and more aggressive overlap of communication with computation.
+
+[^megatron-fsdp]: NVIDIA Megatron Core, "Megatron-FSDP." https://docs.nvidia.com/megatron-core/developer-guide/latest/user-guide/features/megatron_fsdp.html
 
 One technical detail worth noting: Megatron-FSDP uses NCCL's userbuffer feature to reduce GPU Streaming Multiprocessor (SM) consumption during communication. In large-scale training, SMs spent on communication are SMs not available for computation. This optimization keeps more SMs free for the actual matrix multiplications.
 
@@ -699,7 +705,7 @@ CUDA_DEVICE_MAX_CONNECTIONS=1 torchrun --nproc_per_node=8 pretrain_gpt.py \
     --bf16
 ```
 
-The model architecture flags define the LLaMA-3 8B structure. `--group-query-attention` with `--num-query-groups 8` enables Grouped-Query Attention, where 32 query heads share 8 KV heads—reducing KV cache memory significantly. For parallelism, we skip tensor parallelism (`--tensor-model-parallel-size 1`) since each layer fits on one GPU, but use context parallelism (`--context-parallel-size 2`) to split the 8K sequence across 2 GPUs. The FP8 flags (`--fp8-format`, `--fp8-param-gather`) provide speedup on Hopper and newer GPUs; remove them for A100s. For 40GB GPUs, reduce model size by lowering `--num-layers`, `--hidden-size`, and `--ffn-hidden-size`.
+The model architecture flags define the LLaMA-3 8B structure. `--group-query-attention` with `--num-query-groups 8` enables Grouped-Query Attention, where 32 query heads share 8 KV heads—reducing KV cache memory significantly. For parallelism, we skip tensor parallelism (`--tensor-model-parallel-size 1`) since each layer fits on one GPU, but use context parallelism (`--context-parallel-size 2`) to split the 8K sequence across 2 GPUs. With 8 GPUs total, the effective data-parallel size is 8 / (1 × 1 × 2) = 4—the three factors are tensor, pipeline (both 1 here), and context parallelism. That makes `--global-batch-size 128` work out to 128 / 4 = 32 samples per data-parallel replica, or 32 / `--micro-batch-size 1` = 32 micro-batches per gradient-accumulation cycle. The FP8 flags (`--fp8-format`, `--fp8-param-gather`) provide speedup on Hopper and newer GPUs; remove them for A100s. For 40GB GPUs, reduce model size by lowering `--num-layers`, `--hidden-size`, and `--ffn-hidden-size`.
 
 __GPT-3 175B Scale (128 GPUs):__
 
@@ -909,7 +915,7 @@ So far, we've focused on distributed training. But training is only half the sto
 
 
 
-## References
+## Useful Links
 
 __DeepSpeed and ZeRO__
 
@@ -927,6 +933,11 @@ __Megatron-LM__
 - Reducing Activation Recomputation in Large Transformer Models (2023): \url{https://arxiv.org/abs/2205.05198}
 - Megatron-LM GitHub: \url{https://github.com/NVIDIA/Megatron-LM}
 - Megatron Core Documentation: \url{https://docs.nvidia.com/megatron-core/}
+
+__Integrated Frameworks__
+
+- Colossal-AI: \url{https://colossalai.org/}
+- NVIDIA NeMo: \url{https://docs.nvidia.com/nemo-framework/}
 
 __Research__
 

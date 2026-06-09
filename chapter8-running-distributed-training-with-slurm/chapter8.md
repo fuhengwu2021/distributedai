@@ -69,7 +69,7 @@ SLURM's scheduling algorithms, partition configurations, QOS (Quality of Service
 
 ![SLURM Architecture: slurmctld, slurmd, and slurmdbd daemons.](img/slurm_architecture.png){#fig:slurm-architecture .block width=95% align=center}
 
-Figure~\ref{fig:slurm-architecture} illustrates the overall architecture. Users interact with the head node through commands like `sbatch` (submit batch jobs), `srun` (run interactive commands), and `squeue` (query job status), all of which communicate with slurmctld. The controller daemon maintains the job queue, tracks node states, and makes scheduling decisions—when resources become available, it notifies the appropriate slurmd daemons to launch job processes. Each slurmd manages its local node: spawning tasks, enforcing resource limits via cgroups, monitoring process health, and reporting status back to the controller. The optional slurmdbd daemon persists accounting data (job history, resource consumption, user allocations) to a database, enabling fair-share scheduling policies that balance resource usage across users and projects over time.
+Figure~\ref{fig:slurm-architecture} illustrates the overall architecture. Users interact with the head node through commands like `sbatch` (submit batch jobs), `srun` (run interactive commands), and `squeue` (query job status). Submitting a new job or starting an interactive allocation goes through slurmctld; once you hold an allocation, `srun` inside it talks directly to the local slurmd daemons on allocated nodes. The controller maintains the job queue, tracks node states, and makes scheduling decisions—when resources become available, it notifies the appropriate slurmd daemons to launch job processes. Each slurmd manages its local node: spawning tasks, enforcing resource limits via cgroups, monitoring process health, and reporting status back to the controller. The optional slurmdbd daemon persists accounting data (job history, resource consumption, user allocations) to a database, enabling fair-share scheduling policies that balance resource usage across users and projects over time.
 
 ## Setting Up SLURM for Multi-GPU Training
 
@@ -90,7 +90,7 @@ NodeName=node7 NodeHostname=$HOSTNAME Port=17017 \
     CPUs=112 RealMemory=240000 Gres=gpu:1 State=UNKNOWN
 ```
 
-Each virtual node listens on a different port (17016, 17017) but shares the same hostname. The `Gres=gpu:1` declaration tells SLURM that each node has one GPU available. The corresponding `gres.conf` file maps these virtual GPUs to physical devices. In this example, we're using an 8-GPU machine and dedicating the last two GPUs (indices 6 and 7) to our virtual cluster:
+Each virtual node listens on a different port (17016, 17017) but shares the same hostname. The `Gres=gpu:1` declaration tells SLURM that each node has one GPU available. The corresponding `gres.conf` file maps these virtual GPUs to physical devices. The paths below (`/dev/nvidiaN`) are NVIDIA-specific; other vendors use different device files—see the [SLURM GRES documentation](https://slurm.schedmd.com/gres.html) for your hardware. In this example, we're using an 8-GPU machine and dedicating the last two GPUs (indices 6 and 7) to our virtual cluster:
 
 ```bash
 NodeName=node6 Name=gpu File=/dev/nvidia6
@@ -105,7 +105,7 @@ Figure~\ref{fig:virtual-node-setup} shows the virtual node setup. Two slurmd dae
 
 ### Quick Setup and Verification
 
-The provided setup script automates the configuration process—creating directories, generating configuration files, and starting the SLURM daemons:
+The provided setup script automates the configuration process—creating a SLURM config directory, writing `slurm.conf` and `gres.conf` for the virtual nodes, initializing state directories, and starting `slurmctld` plus one `slurmd` per virtual node:
 
 ```bash
 cd code
@@ -149,7 +149,7 @@ For quick tests and debugging, `srun` executes commands immediately on allocated
 srun -N 2 --gres=gpu:1 --cpus-per-task=4 python code/train.py
 ```
 
-The flags tell SLURM exactly what resources your job requires: `-N 2` requests two nodes, `--gres=gpu:1` requests one GPU per node, and `--cpus-per-task=4` allocates four CPU cores for data loading and preprocessing. SLURM finds nodes matching these requirements, sets up the environment, and runs your command across all allocated resources simultaneously.
+The flags tell SLURM exactly what resources your job requires: `-N 2` requests two nodes, `--gres=gpu:1` requests one GPU per node, and `--cpus-per-task=4` allocates four CPU cores for data loading and preprocessing—a modest count suited to quick smoke tests. Production batch scripts later in this chapter request more cores (for example 28) when DataLoader workers and preprocessing need the headroom. SLURM finds nodes matching these requirements, sets up the environment, and runs your command across all allocated resources simultaneously.
 
 Interactive execution is convenient for development, but it ties up your terminal and requires you to stay connected. For production training runs that may take hours or days, batch submission is the standard approach.
 
@@ -171,7 +171,7 @@ Batch jobs are defined in shell scripts with special `#SBATCH` directives that s
 
 # Get node list and master address
 export MASTER_ADDR=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)
-export MASTER_PORT=29500
+export MASTER_PORT=$((29500 + RANDOM % 1000))
 export WORLD_SIZE=$SLURM_NTASKS
 export RANK=$SLURM_PROCID
 export LOCAL_RANK=$SLURM_LOCALID
@@ -213,7 +213,7 @@ At the job level, SLURM provides variables describing the overall allocation. `S
 
 For distributed training, the process-level variables are most critical. Each task launched by SLURM receives `SLURM_PROCID`, a globally unique rank from 0 to NTASKS-1 that identifies this process among all processes in the job. `SLURM_LOCALID` gives the local rank within the current node (0 to tasks-per-node-1), which you typically use for GPU binding—process with `SLURM_LOCALID=0` uses GPU 0 on that node, and so on. `SLURM_NODEID` identifies which node this process runs on (0 to NUM_NODES-1), and `SLURM_NTASKS` provides the total task count, equivalent to world size in distributed training terminology. `SLURM_TASKS_PER_NODE` indicates how many tasks run on each node, though this may vary across nodes in heterogeneous allocations.
 
-Resource-related variables help you tune performance. `SLURM_CPUS_PER_TASK` tells you how many CPU cores are available per task—useful for setting `num_workers` in your DataLoader. `SLURM_GPUS_ON_NODE` reports the GPU count on the current node, and `SLURM_MEM_PER_NODE` gives the memory allocation in MB. When you request GPUs with `--gres=gpu:N`, SLURM's GRES plugin automatically sets `CUDA_VISIBLE_DEVICES` to expose only your allocated GPUs, preventing conflicts with other jobs on the same node.
+Resource-related variables help you tune performance. `SLURM_CPUS_PER_TASK` tells you how many CPU cores are available per task—useful for setting `num_workers` in your DataLoader. `SLURM_GPUS_ON_NODE` reports the GPU count on the current node, and `SLURM_MEM_PER_NODE` gives the memory allocation in MB. When you request GPUs with `--gres=gpu:N`, SLURM's GRES plugin sets `CUDA_VISIBLE_DEVICES` so each task sees only its allocated GPUs—typically remapped to `cuda:0`, `cuda:1`, … within that task. You usually bind with `LOCAL_RANK` rather than guessing from global rank; this prevents conflicts when multiple jobs share a node.
 
 For establishing network communication, `SLURM_LAUNCH_NODE_IPADDR` provides the IP address of the launching node, and `SLURM_STEP_NODELIST` lists nodes participating in the current job step when using `srun` within an allocation.
 
@@ -221,13 +221,13 @@ The mapping from SLURM to PyTorch distributed training is straightforward: `SLUR
 
 ```bash
 export MASTER_ADDR=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)
-export MASTER_PORT=29500
+export MASTER_PORT=$((29500 + RANDOM % 1000))
 export WORLD_SIZE=$SLURM_NTASKS
 export RANK=$SLURM_PROCID
 export LOCAL_RANK=$SLURM_LOCALID
 ```
 
-Once these variables are set, `torchrun` or `torch.distributed.init_process_group(init_method='env://')` reads them and configures the process group automatically. This abstraction is powerful: your training code doesn't need to know whether it's running under SLURM, launched by `torchrun` on a single machine, or orchestrated by a cloud provider. The same script works everywhere because it relies on standard environment variables rather than SLURM-specific APIs.
+Once these variables are set, `torchrun` or `torch.distributed.init_process_group(init_method='env://')` reads them and configures the process group automatically. On shared clusters, a fixed port like 29500 can collide with another job and fail with an opaque NCCL error; randomizing `MASTER_PORT` as above avoids most conflicts. This abstraction is powerful: your training code doesn't need to know whether it's running under SLURM, launched by `torchrun` on a single machine, or orchestrated by a cloud provider. The same script works everywhere because it relies on standard environment variables rather than SLURM-specific APIs.
 
 Figure~\ref{fig:slurm-env-vars} illustrates this mapping visually. Your training script can either read SLURM variables directly or use the exported PyTorch-standard variables (`RANK`, `LOCAL_RANK`, `WORLD_SIZE`, `MASTER_ADDR`). The `torchrun` launcher handles this translation automatically when used with SLURM. Note that SLURM provides many additional environment variables for specialized use cases—for a complete reference, consult the `srun` man page or the official SLURM documentation.[^slurm]
 
@@ -252,7 +252,7 @@ The table below summarizes the key differences in SLURM integration:
 
 "Manual" initialization means you call `dist.init_process_group()` explicitly in your training script and handle environment variable setup in your SLURM batch script. "Automatic" means the framework handles distributed initialization internally—DeepSpeed via `deepspeed.init_distributed()` and Megatron-LM through its own launcher infrastructure—reading SLURM environment variables without requiring explicit setup code.
 
-For detailed explanations of each framework's concepts and internals, refer to the earlier chapters: DDP in Chapter~\ref{chap:distributed-training-with-pytorch-ddp}, FSDP in Chapter~\ref{chap:fsdp-memory-efficient-distributed-training}, and DeepSpeed in Chapter~\ref{chap:deepspeed-zero-and-advanced-optimization}. Here we focus specifically on the SLURM launch patterns and provide complete working examples.
+For detailed explanations of each framework's concepts and internals, refer to the earlier chapters: DDP in Chapter~\ref{chap:distributed-training-with-pytorch-ddp}, FSDP in Chapter~\ref{chap:scaling-with-fully-sharded-data-parallel-fsdp}, and DeepSpeed in Chapter~\ref{chap:beyond-state-sharding-with-deepspeed-and-megatron}. Here we focus specifically on the SLURM launch patterns and provide complete working examples.
 
 ### DDP with SLURM {#sec:slurm-ddp-example}
 
@@ -261,6 +261,7 @@ As covered in Chapter~\ref{chap:distributed-training-with-pytorch-ddp}, PyTorch 
 The training script structure is straightforward (full version in `code/train_ddp.py`):
 
 ```python
+import os
 import torch
 import torch.distributed as dist
 import torch.nn as nn
@@ -269,10 +270,11 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 def main():
     dist.init_process_group(backend='nccl')
     rank = dist.get_rank()
+    local_rank = int(os.environ["LOCAL_RANK"])
     
-    device = torch.device(f'cuda:{rank % torch.cuda.device_count()}')
+    device = torch.device(f'cuda:{local_rank}')
     model = nn.Linear(10, 1).to(device)
-    model = DDP(model, device_ids=[rank % torch.cuda.device_count()])
+    model = DDP(model, device_ids=[local_rank])
     
     for epoch in range(10):
         # ... training code ...
@@ -294,7 +296,7 @@ The SLURM batch script sets up the environment and launches via `torchrun` (full
 #SBATCH --ntasks-per-node=1
 
 export MASTER_ADDR=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)
-export MASTER_PORT=29500
+export MASTER_PORT=$((29500 + RANDOM % 1000))
 
 srun torchrun \
     --nproc_per_node=1 \
@@ -314,7 +316,7 @@ Alternatively, you can use SLURM's built-in MPI support without `torchrun`:
 #SBATCH --ntasks-per-node=1
 
 export MASTER_ADDR=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)
-export MASTER_PORT=29500
+export MASTER_PORT=$((29500 + RANDOM % 1000))
 export WORLD_SIZE=$SLURM_NTASKS
 export RANK=$SLURM_PROCID
 export LOCAL_RANK=$SLURM_LOCALID
@@ -326,7 +328,7 @@ This approach requires your Python code to use `init_method='env://'`, which rea
 
 ### FSDP with SLURM {#sec:slurm-fsdp-example}
 
-As discussed in Chapter~\ref{chap:fsdp-memory-efficient-distributed-training}, FSDP shards model parameters, gradients, and optimizer states across GPUs, dramatically reducing per-GPU memory requirements for large models. The SLURM launch pattern is identical to DDP—you use `torchrun` the same way. The difference is in the Python code where you wrap the model with `FullyShardedDataParallel` instead of `DistributedDataParallel`.
+As discussed in Chapter~\ref{chap:scaling-with-fully-sharded-data-parallel-fsdp}, FSDP shards model parameters, gradients, and optimizer states across GPUs, dramatically reducing per-GPU memory requirements for large models. The SLURM launch pattern is identical to DDP—you use `torchrun` the same way. The difference is in the Python code where you wrap the model with `FullyShardedDataParallel` instead of `DistributedDataParallel`. The example below uses FSDP1's `CPUOffload` helper; on PyTorch 2.4+ with FSDP2, swap in `fully_shard()` and `CPUOffloadPolicy` as in Chapter~\ref{chap:scaling-with-fully-sharded-data-parallel-fsdp}—only the Python wrapper changes, not the SLURM script.
 
 Training script structure (full version in `code/train_fsdp.py`):
 
@@ -366,7 +368,7 @@ SLURM batch script (full version in `code/train_fsdp.sh`):
 #SBATCH --mem=200G
 
 export MASTER_ADDR=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)
-export MASTER_PORT=29500
+export MASTER_PORT=$((29500 + RANDOM % 1000))
 
 srun torchrun \
     --nproc_per_node=1 \
@@ -379,7 +381,7 @@ srun torchrun \
 
 ### DeepSpeed with SLURM {#sec:slurm-deepspeed-example}
 
-As covered in Chapter~\ref{chap:deepspeed-zero-and-advanced-optimization}, DeepSpeed's ZeRO optimizer provides three stages of memory optimization: ZeRO-1 partitions optimizer states, ZeRO-2 adds gradient partitioning, and ZeRO-3 further partitions model parameters themselves. ZeRO-3 is conceptually similar to FSDP—both shard parameters across GPUs—but DeepSpeed offers additional features like CPU and NVMe offloading that can push the memory boundary even further. The example here uses ZeRO-3 with CPU offloading, but you can easily switch to ZeRO-1 or ZeRO-2 by changing `"stage": 3` to `1` or `2` in the configuration file if you don't need full parameter sharding.
+As covered in Chapter~\ref{chap:beyond-state-sharding-with-deepspeed-and-megatron}, DeepSpeed's ZeRO optimizer provides three stages of memory optimization: ZeRO-1 partitions optimizer states, ZeRO-2 adds gradient partitioning, and ZeRO-3 further partitions model parameters themselves. ZeRO-3 is conceptually similar to FSDP—both shard parameters across GPUs—but DeepSpeed offers additional features like CPU and NVMe offloading that can push the memory boundary even further. The example here uses ZeRO-3 with CPU offloading, but you can easily switch to ZeRO-1 or ZeRO-2 by changing `"stage": 3` to `1` or `2` in the configuration file if you don't need full parameter sharding.
 
 Unlike DDP and FSDP where you explicitly call `dist.init_process_group()` and use `torchrun` as the launcher, DeepSpeed takes a different approach. It handles distributed initialization internally via `deepspeed.init_distributed()`, reading SLURM environment variables directly without requiring a separate launcher. This design simplifies the user experience—you just run `python train.py` with the appropriate environment variables set, and DeepSpeed figures out the distributed topology automatically.
 
@@ -433,7 +435,7 @@ The configuration file controls ZeRO behavior (`code/deepspeed/ds_zero3_offload.
 }
 ```
 
-The `stage: 3` setting enables full parameter sharding, and the `offload_param` and `offload_optimizer` sections configure CPU offloading—essential for training models larger than your total GPU memory. The `pin_memory: true` option uses pinned (page-locked) CPU memory for faster CPU-GPU transfers.
+The `stage: 3` setting enables full parameter sharding, and the `offload_param` and `offload_optimizer` sections configure CPU offloading when the model exceeds total GPU memory. The `pin_memory: true` option uses pinned (page-locked) CPU memory for faster CPU-GPU transfers. Treat this JSON as a production-scale template—validate NCCL and SLURM wiring with ZeRO stage 1 or 2 first, then enable stage 3 and CPU offload once the job runs cleanly.
 
 The SLURM batch script requires more setup than DDP because we need to manually export the environment variables that DeepSpeed expects (`code/deepspeed/run.slurm`):
 
@@ -450,8 +452,8 @@ The SLURM batch script requires more setup than DDP because we need to manually 
 source ~/miniconda3/etc/profile.d/conda.sh
 conda activate research
 
-export MASTER_ADDR=127.0.0.1
-export MASTER_PORT=29500
+export MASTER_ADDR=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)
+export MASTER_PORT=$((29500 + RANDOM % 1000))
 export WORLD_SIZE=$SLURM_NTASKS
 
 export NCCL_DEBUG=WARN
@@ -470,21 +472,21 @@ srun --chdir="$SLURM_SUBMIT_DIR" --label \
     "
 ```
 
-The script structure deserves some explanation. We set `MASTER_ADDR`, `MASTER_PORT`, and `WORLD_SIZE` at the job level, then use `srun` to launch a bash subshell on each node. Inside that subshell, we set the per-process variables (`CUDA_VISIBLE_DEVICES`, `LOCAL_RANK`, `RANK`) from SLURM's task-specific environment variables. The `--label` flag prefixes each line of output with the task ID, making it easier to debug multi-node issues.
+The script sets `MASTER_ADDR`, `MASTER_PORT`, and `WORLD_SIZE` at the job level—derive the master hostname with `scontrol`, not `127.0.0.1`, or each node forms its own one-node process group and gradients never sync across nodes. That failure can stay hidden on the virtual two-node setup earlier in this chapter, where both slurmd daemons share one physical host. `srun` then launches a bash subshell on each node; inside it we export per-process variables (`CUDA_VISIBLE_DEVICES`, `LOCAL_RANK`, `RANK`) from SLURM's task environment. The `--label` flag prefixes each line of output with the task ID, which helps when debugging multi-node issues.
 
 A few practical considerations when running DeepSpeed on SLURM clusters. DeepSpeed requires the `LOCAL_RANK` environment variable, which you must explicitly export from `SLURM_LOCALID`—unlike `torchrun` which sets this automatically. If you're using virtual nodes for testing (as described earlier), remember to map node names to GPU indices appropriately—for example, `node6` should use GPU 6. IPv6 can cause connection issues on some clusters; setting `NCCL_SOCKET_IFNAME` and `GLOO_SOCKET_IFNAME` to exclude problematic interfaces (like `^docker,lo`) often resolves this. Finally, remember to replace the conda path and environment name in the script with your own setup.
 
 ### Megatron-LM with SLURM {#sec:slurm-megatron-example}
 
-As introduced in Chapter~\ref{chap:megatron-lm-and-model-parallelism}, Megatron-LM provides NVIDIA's production-grade framework combining tensor parallelism, pipeline parallelism, sequence/context parallelism, and data parallelism—all composable in a single training run. This multi-dimensional parallelism is essential for training the largest language models where no single parallelism strategy suffices.
+As introduced in Chapter~\ref{chap:beyond-state-sharding-with-deepspeed-and-megatron}, Megatron-LM provides NVIDIA's production-grade framework combining tensor parallelism, pipeline parallelism, sequence/context parallelism, and data parallelism—all composable in a single training run. This multi-dimensional parallelism is essential for training the largest language models where no single parallelism strategy suffices.
 
-Before diving into the SLURM script, there's an important installation consideration (also covered in Chapter~\ref{chap:megatron-lm-and-model-parallelism}). Unlike PyTorch's built-in DDP and FSDP, Megatron-LM requires installation from source to get the full training infrastructure. The PyPI package `megatron-core` only includes `megatron.core` (the model building blocks), but the training scripts like `pretrain_gpt.py` require `megatron.training` which is only available when you install from the GitHub repository:
+Before diving into the SLURM script, there's an important installation consideration (also covered in Chapter~\ref{chap:beyond-state-sharding-with-deepspeed-and-megatron}). Unlike PyTorch's built-in DDP and FSDP, Megatron-LM requires installation from source to get the full training infrastructure. The PyPI package `megatron-core` only includes `megatron.core` (the model building blocks), but the training scripts like `pretrain_gpt.py` require `megatron.training` which is only available when you install from the GitHub repository:
 
 ```bash
 conda activate research  # Replace with your environment name
 git clone https://github.com/NVIDIA/Megatron-LM.git
 cd Megatron-LM
-pip install --no-build-isolation .[mlm,dev]
+pip install --no-build-isolation '.[mlm,dev]'
 ```
 
 You'll also need to copy the training scripts (`pretrain_gpt.py`, `gpt_builders.py`, `model_provider.py`) to your working directory, as these aren't installed as part of the package.
@@ -610,7 +612,8 @@ The `#SBATCH --array=0-9` directive tells SLURM to create 10 jobs (indices 0 thr
 #SBATCH --gres=gpu:1
 
 # Each array task gets different hyperparameters
-LR=$(echo "0.001 0.0001 0.00001 0.000001" | cut -d' ' -f$((SLURM_ARRAY_TASK_ID % 4 + 1)))
+LRS=(0.001 0.0001 0.00001 0.000001)
+LR=${LRS[$((SLURM_ARRAY_TASK_ID % 4))]}
 BATCH_SIZE=$((32 * (SLURM_ARRAY_TASK_ID / 4 + 1)))
 
 python code/train.py --lr $LR --batch_size $BATCH_SIZE
@@ -655,7 +658,7 @@ The `--dependency=afterok:$JOB1` flag tells SLURM to hold the second job until t
 
 Long training runs inevitably encounter interruptions—time limits, node failures, preemption by higher-priority jobs. Robust checkpointing is essential, and SLURM provides a mechanism to gracefully handle time limits.
 
-The `--signal=SIGUSR1@90` directive tells SLURM to send a `SIGUSR1` signal to your job 90 seconds before the time limit expires. Your script can trap this signal and trigger a checkpoint save. A complete example is in `code/train_distributed.sh`:
+The `--signal=SIGUSR1@90` directive tells SLURM to send a `SIGUSR1` signal to your job 90 seconds before the time limit expires. Your script can trap this signal and trigger a checkpoint save. That is separate from `SIGTERM`, which SLURM sends on immediate cancellation or preemption (`scancel`, node drain)—handle both in production checkpoint code. A complete example is in `code/train_distributed.sh`:
 
 ```bash
 #!/bin/bash
@@ -697,8 +700,8 @@ The `scontrol show job` output includes useful details like the allocated nodes,
 # Check GPU usage across all nodes in your allocation
 srun -N 2 nvidia-smi
 
-# Or for a running job, SSH to the nodes and check manually
-scontrol show job <job_id> | grep NodeList
+# For a running batch job, attach to its step instead of SSH
+srun --jobid=<job_id> nvidia-smi
 ```
 
 To monitor job output in real-time, use `tail -f` on the output file. By default, SLURM writes output to `slurm-<job_id>.out` in the submission directory:
@@ -888,7 +891,7 @@ First, check if all processes are actually running by examining the job's output
 
 Common causes of hangs include mismatched world sizes (one rank thinks there are more processes than actually launched), data loading issues where one rank can't access a file that others can, and deadlocks from incorrect synchronization in custom code. Setting `TORCH_DISTRIBUTED_DEBUG=DETAIL` and using a reasonable timeout in `init_process_group` helps diagnose these issues—at least the job will fail with an error message rather than hanging forever.
 
-## References
+## Useful Links
 
 __SLURM Documentation and Tools__
 

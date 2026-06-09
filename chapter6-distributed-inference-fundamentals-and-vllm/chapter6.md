@@ -10,13 +10,10 @@
 - `vllm.LLM`: vLLM LLM class for model loading and inference
 - `vllm.SamplingParams`: Configuration for text generation sampling
 - `vllm.engine.LLMEngine`: Core vLLM inference engine
-- `vllm.attention.PagedAttention`: PagedAttention implementation for KV cache management
 - `vllm.worker.worker.Worker`: vLLM worker process for distributed inference
 - `vllm.engine.arg_utils`: vLLM command-line argument utilities
 - `vllm.distributed.parallel_state`: vLLM parallel state management
 - `vllm.engine.async_llm_engine.AsyncLLMEngine`: Async inference engine for serving
-- `vllm.sampling_params.SamplingParams`: Sampling parameters for generation
-- `vllm.utils.random`: Random number generation utilities for sampling
 
 ## From Training to Inference
 
@@ -26,7 +23,7 @@ Training optimizes for throughput: process as many tokens as possible per second
 
 The memory characteristics also differ fundamentally. During training, memory is dominated by optimizer states (momentum, variance) and activation checkpoints. During inference, there are no optimizer states—memory is dominated by model weights and the **KV cache**, the key-value pairs stored from previous tokens to avoid recomputation during autoregressive generation. For long sequences, the KV cache can exceed the model weights in size.
 
-This chapter introduces vLLM, the inference engine that pioneered many techniques now standard in LLM serving. We'll explore PagedAttention (which revolutionized KV cache management), continuous batching (which maximizes GPU utilization), and the distributed inference patterns that enable serving models too large for a single GPU.
+This chapter introduces vLLM, the inference engine that made PagedAttention and continuous batching standard in production LLM serving. We'll explore how PagedAttention revolutionized KV cache management, how continuous batching keeps GPUs busy as requests arrive and finish, and how distributed inference patterns let you serve models that exceed a single GPU's memory.
 
 ## Introduction to vLLM
 
@@ -325,7 +322,7 @@ Let's start by examining the architecture that makes KV caching both necessary a
 
 ### Decoder-Only Transformer Architecture
 
-![Decoder-only Transformer](img/decoder_only.png){#fig:decoder-only .wrap width=30% align=top-right}
+![Decoder-only Transformer](img/decoder_only.png){#fig:decoder-only .block width=30% align=top-right}
 
 Before diving into KV cache, let's establish a clear picture of the architecture we're working with. Modern large language models—GPT, LLaMA, Qwen, and their variants—all share a common design: the decoder-only transformer. This architecture has proven remarkably effective for autoregressive language modeling, where the goal is to predict the next token given all previous tokens.
 
@@ -372,7 +369,7 @@ The first phase, called **prefill** (also known as the "prompt processing" or "c
 
 Figure~\ref{fig:prefill} shows the prefill stage in detail. The input $X_0$ (the embedded prompt tokens with shape $B \times L_2 \times D$) passes through all transformer layers. At each layer, the self-attention mechanism allows every token to attend to all other tokens in the prompt, building up contextual representations. The model produces logits for every position—a tensor of shape $B \times L_2 \times V$ where $V$ is the vocabulary size (e.g., 32,000 for LLaMA). However, we only care about the logits at the last position ($B \times 1 \times V$), as these give us the probability distribution over the vocabulary for the first generated token $Y_0$.
 
-Crucially, during prefill we also compute and store the Key and Value projections for all prompt tokens at every layer. For a model with $N$ layers, we cache $2N$ tensors (one K and one V per layer), each of shape $B \times L_2 \times D_k$ where $D_k$ is the per-head dimension times the number of heads. This **KV cache** will be reused in subsequent decoding steps, avoiding redundant computation of these projections. The prefill stage is compute-bound: we process $L_2$ tokens in parallel, performing $O(L_2^2)$ attention operations per layer (each token attends to all $L_2$ tokens).
+Crucially, during prefill we also compute and store the Key and Value projections for all prompt tokens at every layer. For a model with $N$ layers, we cache $2N$ tensors (one K and one V per layer), each of shape $B \times L_2 \times D_{qk}$ (or $D_v$ for values). This **KV cache** will be reused in subsequent decoding steps, avoiding redundant computation of these projections. The prefill stage is compute-bound: we process $L_2$ tokens in parallel, performing $O(L_2^2)$ attention operations per layer (each token attends to all $L_2$ tokens).
 
 The prefill stage has high arithmetic intensity—the ratio of compute operations to memory accesses is favorable because we're doing dense matrix multiplications over many tokens. For a batch of long prompts, the GPU's tensor cores are kept busy with large matrix operations, achieving high utilization. This is similar to the forward pass during training, where we also process sequences in parallel.
 
@@ -395,7 +392,7 @@ Without caching, this naive approach has time complexity $O(L_{\text{total}}^2)$
 
 ### KV Cache Solution
 
-KV cache solves this inefficiency by storing precomputed Key and Value vectors for all previously processed tokens. Instead of concatenating and recomputing, we can simply use $X_1$ as input for $K$ and $V$ calculation, as long as we cache the previous results. Take $Key$ vector as an example, we only calucate $K_{new}$ which has shape of $B1D_k$ and the time complexity reduced dramatically.
+KV cache solves this inefficiency by storing precomputed Key and Value vectors for all previously processed tokens. Instead of concatenating and recomputing, we can simply use $X_1$ as input for $K$ and $V$ calculation, as long as we cache the previous results. Take $Key$ vector as an example, we only calucate $K_{new}$ which has shape of $B \times 1 \times D_{qk}$ and the time complexity reduced dramatically.
 
 ![KV cache grows with each decode step](img/cache_grow.png){#fig:cache-grow .block width=100% align=center}
 
@@ -412,7 +409,7 @@ With KV cache, the computational complexity changes dramatically:
 - **Decode phase (per token)**: 
   - **Without KV cache**: $O(L_{\text{total}}^2 \cdot D)$ per step, where $L_{\text{total}} = L_2 + L_t$ grows with each generated token. For $T$ generated tokens, total complexity is $O(T \cdot L_{\text{total}}^2 \cdot D)$, which becomes $O(T^3 \cdot D)$ when $L_t \gg L_2$.
   
-  - **With KV cache**: Only compute $K$ and $V$ for the new token (shape $B \times 1 \times D_k$), then perform attention with cached keys/values. The complexity per step is $O(L_{\text{total}} \cdot D)$ for the attention computation, where $L_{\text{total}}$ is the current sequence length. For $T$ generated tokens, total complexity is $O(T \cdot L_{\text{total}} \cdot D) \approx O(T^2 \cdot D)$ when $L_t \gg L_2$.
+  - **With KV cache**: Only compute $K$ and $V$ for the new token (shape $B \times 1 \times D_{qk}$), then perform attention with cached keys/values. The complexity per step is $O(L_{\text{total}} \cdot D)$ for the attention computation, where $L_{\text{total}}$ is the current sequence length. For $T$ generated tokens, total complexity is $O(T \cdot L_{\text{total}} \cdot D) \approx O(T^2 \cdot D)$ when $L_t \gg L_2$.
 
 The key improvement is reducing the quadratic dependency on sequence length in the decode phase to linear, making long-sequence generation feasible. However, this comes at the cost of memory: KV cache requires $O(L_{\text{total}} \cdot D)$ memory to store all cached Key and Value vectors.
 
@@ -455,7 +452,9 @@ Traditional systems allocate contiguous memory blocks per request. When sequence
 
 ![KV Cache memory fragmentation](img/kv_cache_fragmentation.png){#fig:kv-cache-fragmentation .block width=85% align=center}
 
-Figure~\ref{fig:kv-cache-fragmentation} illustrates this problem. Request 1 has finished after generating 8 tokens, while Request 2 (4 tokens) and Request 3 (10 tokens) are still active. The memory originally allocated for Request 1 now sits idle—but why can't it be reused? The issue is that Request 2 and Request 3 each require their KV cache to be stored in *contiguous* memory for efficient attention computation. Request 1's freed 8-token block might be too small for a new request that needs 12 tokens, or too large for one that only needs 3 tokens. Even if the size matches, the freed block may not be adjacent to an existing request's cache, so it cannot extend that request's sequence. Meanwhile, Request 2 and Request 3 each have "reserved" space pre-allocated for future token generation—space that may never be fully utilized if the requests finish early. This combination of size-mismatched freed blocks and over-provisioned active-request memory leads to severe fragmentation, often wasting 60-80% of GPU memory in high-concurrency scenarios.
+Figure~\ref{fig:kv-cache-fragmentation} illustrates this problem. Request 1 has finished after generating 8 tokens, while Request 2 (4 tokens) and Request 3 (10 tokens) are still active. The memory originally allocated for Request 1 now sits idle—but why can't it be reused? The issue is that Request 2 and Request 3 each require their KV cache to be stored in *contiguous* memory for efficient attention computation. Request 1's freed 8-token block might be too small for a new request that needs 12 tokens, or too large for one that only needs 3 tokens. Even if the size matches, the freed block may not be adjacent to an existing request's cache, so it cannot extend that request's sequence. Meanwhile, Request 2 and Request 3 each reserve space for tokens they may never generate. Freed blocks from finished requests often go unused; active requests hold memory they may never fill. In high-concurrency serving, the combined waste can reach 60-80% of GPU memory—the range reported in the PagedAttention paper.[^paged-attention]
+
+[^paged-attention]: Kwon et al., "Efficient Memory Management for Large Language Model Serving with PagedAttention," 2023. https://arxiv.org/abs/2309.06180
 
 Beyond memory waste, traditional batching introduces a less obvious but equally critical inefficiency: padding-induced attention computation waste. In batched decoding, different requests typically have different effective context lengths. Let the batch size be $B$, and let the cached context length for request $i$ be $(L_2^{(i)} + t^{(i)})$. To batch these requests together, conventional attention implementations must pad all sequences to a common maximum length:
 
@@ -524,7 +523,7 @@ vLLM's architecture centers around a **scheduler-executor-worker** pattern, as s
 
 ![vLLM scheduler-executor-worker architecture](img/vllm_architecture.png){#fig:vllm-arch .block width=70% align=center}
 
-The **Scheduler** sits at the top of the hierarchy. It receives incoming requests, groups them into batches based on available memory and scheduling policy, and decides which requests to process in each iteration. The scheduler implements continuous batching—it doesn't wait for an entire batch to complete before admitting new requests. Instead, it dynamically adds new requests as slots become available, maximizing GPU utilization.
+The **Scheduler** sits at the top of the hierarchy. It receives incoming requests, groups them into batches based on available memory and scheduling policy, and decides which requests to process in each iteration. The scheduler implements **continuous batching**—the Orca-style pattern of admitting new requests and retiring finished ones within the same batch, rather than waiting for every sequence to complete. This dynamic scheduling maximizes GPU utilization.
 
 The **Executor** acts as the coordination layer between the scheduler and the actual compute resources. It manages the pool of workers and translates high-level scheduling decisions into distributed commands. vLLM supports multiple executor backends depending on the deployment scenario: a simple single-GPU executor for small models, a multi-processing executor for multi-GPU inference on a single node, and a Ray-based executor for distributed inference across multiple nodes. The executor broadcasts commands to all workers and collects their results.
 
@@ -562,13 +561,13 @@ This pattern extends to attention as well. The Q, K, V projections can be column
 
 The most obvious benefit of tensor parallelism is **memory reduction**: each GPU stores only a fraction of the weights. A 140B parameter model that wouldn't fit on a single GPU can be split across two GPUs, with each holding ~70B parameters. But the benefits go deeper than just fitting larger models.
 
-Consider what happens to KV cache capacity. On a single 160GB GPU serving a 140B model, you might have 140GB for weights and only 20GB left for KV cache. With TP=2, each GPU holds 70GB of weights, leaving 90GB for KV cache—a 4.5x increase in cache capacity per GPU, and 9x total across both GPUs. This super-linear scaling of KV cache is often the real motivation for tensor parallelism, even when a model technically fits on fewer GPUs.
+Consider what happens to KV cache capacity. Suppose a 140B model leaves only ~20 GB free on a 141 GB H200 once weights are loaded. With TP=2, each GPU holds half the weights and frees roughly ~70 GB for KV cache—often the real reason to add tensor parallelism, even when the model could technically squeeze onto fewer GPUs.
 
 Tensor parallelism also reduces latency by effectively multiplying memory bandwidth. During inference, especially in the decode phase, we're often memory-bound—waiting for weights to be loaded from HBM rather than waiting for computation. With TP=2, we're loading from two GPUs' worth of HBM simultaneously, doubling effective bandwidth.
 
 The trade-off is communication overhead. Every layer requires an all-reduce operation, transferring data of size `batch_size × sequence_length × hidden_size`. On systems with NVLink (providing 600+ GB/s between GPUs), this overhead is manageable. On PCIe-only systems (32 GB/s), communication can dominate runtime for prefill-heavy workloads—sometimes consuming 60% or more of total time.
 
-One additional constraint to keep in mind: the number of attention heads must be divisible by the tensor parallel size. If your model has 32 heads and you want TP=6, you'll need padding or a different TP size. Most modern models are designed with power-of-two head counts specifically to enable flexible TP configurations.
+One additional constraint to keep in mind: the number of attention heads must be divisible by the tensor parallel size. The same rule applies to KV heads in grouped-query and multi-query models—if the count does not divide evenly, vLLM may replicate KV heads internally. If your model has 32 heads and you want TP=6, you'll need padding or a different TP size. Most modern models are designed with power-of-two head counts specifically to enable flexible TP configurations.
 
 ### When to Use Tensor Parallelism
 
@@ -760,6 +759,7 @@ class PhiMoESparseMoeBlock(nn.Module):
         self.num_experts = config.num_local_experts
         self.top_k = config.num_experts_per_tok
         self.gate = nn.Linear(self.hidden_dim, self.num_experts, bias=False)
+        self.router_jitter_noise = config.router_jitter_noise
         self.experts = nn.ModuleList([
             PhiMoEBlockSparseTop2MLP(config) for _ in range(self.num_experts)
         ])
@@ -802,7 +802,7 @@ Without the EP flag, vLLM handles MoE models by sharding each expert's weights a
 
 Consider DeepSeek-R1 with its 256 routed experts. With `TP=8, DP=1` and EP enabled, each of the 8 GPUs holds 32 complete experts. With `TP=1, DP=8` and EP enabled, the same distribution occurs—32 experts per GPU—but the communication pattern changes. TP+EP uses all-reduce (same as TP without EP), while DP+EP uses all-to-all communication to route tokens to the GPUs holding their selected experts.
 
-The choice between TP+EP and DP+EP has significant implications for KV cache. With TP+EP, KV cache is duplicated across all TP ranks (each GPU stores the full cache). With DP+EP, KV cache is partitioned—each GPU stores cache only for its assigned requests. For models using Multi-Latent Attention (MLA) or Multi-Query Attention (MQA) like DeepSeek, DP+EP is often essential because it avoids the memory overhead of duplicating the already-compressed KV cache.
+The choice between TP+EP and DP+EP also affects KV cache layout. Under standard multi-head or grouped-query attention, tensor parallelism shards KV cache by head—each TP rank stores only its slice. DP+EP partitions cache by request instead. MLA and MQA models are different: tensor parallelism can replicate the compressed latent cache on every rank, which is why DP+EP is often the better fit for memory-heavy MoE deployments like DeepSeek.
 
 When should you use EP? The flag provides benefits when expert activation density is high enough (>3%) that the all-to-all communication overhead is offset by memory bandwidth gains from distributing experts. For ultra-sparse models (<1% activation), EP may actually hurt performance. The EP flag also requires additional dependencies (DeepEP, pplx-kernels, DeepGEMM) and may not be stable for all model/quantization/hardware combinations—consult the vLLM documentation for your specific setup.
 
@@ -824,7 +824,7 @@ This combination also reduces inter-node communication. With TP=4 within each no
 
 For MoE models, the choice between TP+EP and DP+EP depends on whether you're optimizing for latency or throughput.
 
-TP+EP distributes experts across TP ranks using all-reduce communication, with KV cache duplicated on each rank. Every GPU contributes to every request, minimizing latency. This works well for latency-sensitive workloads with low to moderate concurrency. However, for models using Multi-Latent Attention (MLA) or Multi-Query Attention (MQA) like DeepSeek, TP+EP has limited benefits because the KV cache duplication wastes memory that could otherwise hold more requests.
+TP+EP distributes experts across TP ranks using all-reduce communication. Every GPU contributes to every request, which suits latency-sensitive workloads at low to moderate concurrency. For MLA/MQA models, the KV-cache tradeoffs above usually favor DP+EP instead.
 
 DP+EP takes a different approach: it enables "DP Attention" where KV cache is partitioned across GPUs rather than duplicated. Each GPU holds cache only for its assigned requests, and experts are distributed across DP ranks using all-to-all communication. This is essential for MLA/MQA models and works well for high-concurrency, throughput-focused workloads.
 
@@ -877,11 +877,11 @@ python -m vllm.entrypoints.api_server \
     --tensor-parallel-size 4 \
     --pipeline-parallel-size 8 \
     --enable-chunked-prefill \
-    --chunked-prefill-size 2048 \
+    --max-num-batched-tokens 2048 \
     --port 8000
 ```
 
-This configuration uses 32 GPUs total (4 TP × 8 PP). Each pipeline stage holds roughly 84B parameters (671B / 8), sharded across 4 GPUs within that stage. The `--enable-chunked-prefill` flag breaks long prompts into 2048-token chunks to prevent pipeline bubbles—without this, a single long prompt could block the entire pipeline while other requests wait.
+This configuration uses 32 GPUs total (4 TP × 8 PP). Each pipeline stage holds roughly 84B parameters (671B / 8), sharded across 4 GPUs within that stage. Chunked prefill (`--enable-chunked-prefill`) interleaves long prompts with decode work; `--max-num-batched-tokens 2048` caps how many prompt tokens are processed per step—without this, one long prompt can stall the pipeline while other requests wait.
 
 ### Custom Chunked Prefill Configuration
 
@@ -897,7 +897,7 @@ llm = LLM(
     pipeline_parallel_size=2,
     enable_chunked_prefill=True,
     max_num_seqs=256,  # Adjust based on your KV cache
-    chunked_prefill_size=1024,  # Tune based on workload
+    max_num_batched_tokens=1024,  # Max tokens per scheduler step; tune for your prefill/decode mix
 )
 
 # Generate text
@@ -905,7 +905,7 @@ sampling_params = SamplingParams(temperature=0.8, top_p=0.95)
 outputs = llm.generate(["Hello, how are you?"], sampling_params)
 ```
 
-The `max_num_seqs` parameter limits concurrent sequences, which directly affects KV cache memory usage. With 256 sequences and a 4K context length, you need memory for 256 × 4K × (key_size + value_size) per layer. The `chunked_prefill_size` of 1024 means long prompts are processed in 1024-token chunks, interleaved with decode operations from other requests.
+The `max_num_seqs` parameter limits concurrent sequences, which directly affects KV cache memory usage. With 256 sequences and a 4K context length, you need memory for 256 × 4K × (key_size + value_size) per layer. Setting `max_num_batched_tokens=1024` limits how many prompt tokens the scheduler prefills at once, so long prompts are interleaved with decode steps from other requests.
 
 ### Profiling with Nsight Systems
 
@@ -928,7 +928,7 @@ In the Nsight Systems UI, look for NCCL operations (all-reduce, all-gather) and 
 
 ### Best Practices
 
-Before deploying, profile your workload with Nsight Systems to understand the communication-to-computation ratio. Tune the `chunked_prefill_size` based on your prefill-to-decode mix: larger chunks are more efficient for prefill-heavy workloads, while smaller chunks reduce latency for decode-heavy workloads. Consider your hardware: NVLink makes TP attractive, while PCIe-only systems may benefit from PP even within a single node. Calculate available KV cache space to determine optimal TP size—sometimes more parallelism means more cache capacity, which translates to higher throughput. And remember: what works for one deployment may not work for another. Experiment, measure, and iterate.
+Before deploying, profile your workload with Nsight Systems to understand the communication-to-computation ratio. Tune `max_num_batched_tokens` based on your prefill-to-decode mix: larger values are more efficient for prefill-heavy workloads, while smaller values reduce latency for decode-heavy workloads. Consider your hardware: NVLink makes TP attractive, while PCIe-only systems may benefit from PP even within a single node. Calculate available KV cache space to determine optimal TP size—sometimes more parallelism means more cache capacity, which translates to higher throughput. And remember: what works for one deployment may not work for another. Experiment, measure, and iterate.
 
 ## Summary
 
@@ -938,15 +938,15 @@ We started with PagedAttention, vLLM's breakthrough contribution to LLM serving.
 
 We then explored the three fundamental parallelism strategies. Tensor parallelism splits each layer horizontally across GPUs, reducing per-GPU memory requirements and latency at the cost of all-reduce communication every layer. Data parallelism replicates the model across GPUs, scaling throughput linearly with zero communication overhead, but requiring each replica to store complete weights. Pipeline parallelism splits the model vertically along layers, enabling multi-node deployments where inter-node bandwidth is limited, but introducing pipeline bubbles that must be mitigated with request groups and chunked prefill.
 
-For MoE models, expert parallelism modifies how experts are distributed and how tokens are routed. The choice between TP+EP (all-reduce, duplicated KV cache) and DP+EP (all-to-all, partitioned KV cache) depends on whether you're optimizing for latency or throughput, and whether your model uses MLA/MQA attention.
+For MoE models, expert parallelism modifies how experts are distributed and how tokens are routed. Choose TP+EP when you want all GPUs on every request (lower latency); choose DP+EP when you want request-partitioned KV cache and higher throughput—especially for MLA/MQA models.
 
-The decision framework is straightforward: start with the minimum parallelism needed to fit your model (TP first, then PP for multi-node), then add DP to scale throughput. Profile your workload to understand the communication-to-computation ratio, and tune chunked prefill size based on your prefill-to-decode mix. Don't set parameters arbitrarily—measure, iterate, and optimize for your specific deployment.
+The decision framework is straightforward: start with the minimum parallelism needed to fit your model (TP first, then PP for multi-node), then add DP to scale throughput. Profile your workload to understand the communication-to-computation ratio, and tune `max_num_batched_tokens` based on your prefill-to-decode mix. Don't set parameters arbitrarily—measure, iterate, and optimize for your specific deployment.
 
 Looking ahead, vLLM continues to evolve with disaggregated prefill/decode (separating the compute-bound prefill from memory-bound decode onto different hardware), improved EP stability across model/quantization/hardware combinations, and tighter integration with emerging hardware like AMD MI300X and Intel Gaudi.
 
 vLLM's model parallelism approach excels for large models and high-throughput workloads. But what if you need ultra-low latency for interactive applications, or you want to handle thousands of concurrent requests with sophisticated routing and session persistence? The next chapter introduces SGLang, which takes a different approach: rather than focusing on model sharding, SGLang emphasizes request-level routing, prefix caching, and workload disaggregation to achieve different performance characteristics.
 
-## References
+## Useful Links
 
 __vLLM and PagedAttention__
 

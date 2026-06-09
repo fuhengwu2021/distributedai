@@ -25,13 +25,15 @@ Throughout this book, we've explored the foundations of distributed AI: from DDP
 
 ### Where We Stand Today
 
-The numbers tell a remarkable story. Training infrastructure has scaled to over 100,000 GPUs in a single cluster, enabled by new communication frameworks like NCCLX and Torchcomms. SGLang now powers more than 400,000 GPUs worldwide, running production workloads for xAI's Grok 3 and Microsoft Azure. Perhaps most striking is the economics: DeepSeek-V3, a 671-billion parameter MoE model with 37 billion active parameters per token, was trained for just $5.5 million on 2,048 H800 GPUs—a cost that would have seemed impossibly low just a few years earlier.
+The numbers tell a remarkable story. Training infrastructure has scaled to over 100,000 GPUs in a single cluster, enabled by new communication frameworks like NCCLX and Torchcomms. SGLang now powers more than 400,000 GPUs worldwide[^sglang-scale], running production workloads for xAI's Grok 3 and Microsoft Azure. Perhaps most striking is the economics: DeepSeek-V3, a 671-billion parameter MoE model with 37 billion active parameters per token, was trained for just $5.5 million on 2,048 H800 GPUs—a cost that would have seemed impossibly low just a few years earlier.
 
 On-device AI has crossed a critical threshold. Models like Gemma 3n run comfortably in 2-3GB of RAM using techniques like Per-Layer Embeddings, making LLMs practical on smartphones. The 4-bit quantization methods that once seemed experimental are now standard practice.
 
-But perhaps the most significant shift is one of priorities. For years, the AI industry focused obsessively on training: building bigger clusters, training larger models, pushing the frontier. That era hasn't ended, but it's no longer the dominant story. Inference workloads now consume over 55% of AI infrastructure spending, and that share continues to grow. The global AI inference market is projected to reach $1.3 trillion within the next several years.
+But perhaps the most significant shift is one of priorities. For years, the AI industry focused obsessively on training: building bigger clusters, training larger models, pushing the frontier. That era hasn't ended, but it's no longer the dominant story. Inference workloads now consume over 55% of AI infrastructure spending, and that share continues to grow. Forecasts for the global inference market range from hundreds of billions to well over a trillion dollars in the coming years—the spread reflects whether analysts count silicon, cloud services, or packaged applications.
 
 This shift makes sense when you think about it. Training happens once; inference happens millions of times. As models mature and deployment scales, the economics inevitably favor inference optimization. Infrastructure costs have dropped dramatically over the past few years, making it economically viable to deploy AI in contexts that were previously impractical.
+
+[^sglang-scale]: LMSYS/SGLang project updates. \url{https://github.com/sgl-project/sglang}, \url{https://lmsys.org/blog/}.
 
 ### The New Bottlenecks
 
@@ -45,7 +47,7 @@ Before diving into each area, here's a roadmap of what's reshaping distributed A
 
 __Advanced MoE Architectures__: LatentMoE brings hardware-software co-design for optimal accuracy per FLOP, adopted by Nvidia's Nemotron-3. MoSE (Mixture of Slimmable Experts) enables variable-width expert execution for continuous accuracy-compute trade-offs. Elastic MoE scales inference-time expert count to 2-3× training values. ReMoE introduces fully differentiable routing using ReLU instead of TopK+Softmax.
 
-__On-Device and Edge AI__: Sub-billion parameter models now handle practical tasks effectively. Gemma 3n's Per-Layer Embeddings reduce RAM requirements—5B/8B models run with 2B/4B footprint. Memory bandwidth (50-90 GB/s on mobile vs 2-3 TB/s in data centers) is the real bottleneck, not compute. Speculative decoding delivers 2-3x speedups on edge devices.
+__On-Device and Edge AI__: Sub-billion parameter models now handle practical tasks effectively. Gemma 3n's Per-Layer Embeddings reduce RAM requirements—5B/8B models run with 2B/4B footprint. Memory bandwidth, not FLOPs, limits edge inference; speculative decoding helps when draft models track the target well.
 
 __Next-Generation Communication__: Torchcomms, PyTorch's new API, is designed for 100K+ GPU scale with heterogeneous hardware support. NCCLX/RCCLX (Meta's enhanced backends) deliver 10-50% speedup on AllReduce operations. Async checkpointing is now 6x faster with cached plans and reduced GIL contention.
 
@@ -92,7 +94,7 @@ What changed to make this practical? Three things converged. First, model archit
 [^gptq]: GPTQ: Accurate Post-Training Quantization for Generative Pre-trained Transformers. \url{https://arxiv.org/abs/2210.17323}
 [^awq]: AWQ: Activation-aware Weight Quantization for LLM Compression and Acceleration. \url{https://arxiv.org/abs/2306.00978}
 
-But there's a subtlety here that's often missed. The bottleneck on mobile devices isn't compute—it's memory bandwidth. A typical mobile device has 50-90 GB/s of memory bandwidth, compared to 2-3 TB/s in a data center GPU. That's a 30-50x gap. This is why quantization matters so much: it's not primarily about storage, it's about reducing the bytes that need to flow through that bandwidth bottleneck on every forward pass.
+But there's a subtlety here that's often missed. The bottleneck on mobile devices isn't compute—it's memory bandwidth. Phones move on the order of 50-90 GB/s; H100-class datacenter GPUs move terabytes per second—a gap of 30-50× in the usual comparison, wider against H200, narrower against older cards like the V100. Quantization matters because it cuts the bytes crossing that bus every forward pass, not just the weights stored on disk.
 
 ### Practical On-Device Models
 
@@ -111,9 +113,9 @@ The key insight is that architecture and training quality matter more than raw s
 
 ### Edge-Cloud Coordination
 
-The most interesting systems don't treat edge and cloud as separate worlds—they find ways to make them work together. Remember speculative decoding from Chapter~\ref{chap:request-level-routing-and-sglang}? We used it to speed up inference on a single server by having a small draft model propose tokens that a larger model then verifies. The same idea works beautifully across the edge-cloud boundary.
+The most interesting systems don't treat edge and cloud as separate worlds—they find ways to make them work together. Remember speculative decoding from Chapter~\ref{chap:cross-request-optimization-with-sglang}? We used it to speed up inference on a single server by having a small draft model propose tokens that a larger model then verifies. The same idea works beautifully across the edge-cloud boundary.
 
-Picture your phone running a tiny but fast model. It generates a sequence of candidate tokens—maybe "The cat sat on the"—and ships them to a powerful cloud model. The cloud doesn't generate anything; it just checks whether each token matches what it would have produced. Verification is cheap: the cloud model can evaluate all five tokens in a single forward pass, whereas generating them one by one would take five passes. When the drafts are mostly correct (and for predictable text, they often are), you get cloud-quality output at edge-like speed. Speedups of 2-3x are common in practice[^spec-decode].
+Picture your phone running a tiny but fast model. It generates a sequence of candidate tokens—maybe "The cat sat on the"—and ships them to a powerful cloud model. The cloud doesn't generate anything; it just checks whether each token matches what it would have produced. Verification is cheap: the cloud model can evaluate all five tokens in a single forward pass, whereas generating them one by one would take five passes. When the drafts are mostly correct (and for predictable text, they often are), you get cloud-quality output at edge-like speed. Gains are task-dependent: structured output such as code or JSON often reaches 3-4× end-to-end speedup, while open-ended creative text may improve only 1.2-1.5× because rejections are frequent[^spec-decode].
 
 ![Edge-cloud speculative decoding workflow](img/speculative_decoding.png){#fig:speculative-decoding .block width=100% align=center}
 
@@ -147,15 +149,15 @@ The `HierarchicalParallelism` class in `code/parallelism.py` manages the process
 
 ### Sequence Parallelism for Long Contexts
 
-As context lengths grow—million-token contexts are now practical—sequence parallelism becomes essential. The idea is to split the sequence dimension across GPUs. Each GPU computes attention for its local chunk of the sequence, but attention requires seeing the full key and value tensors. This means all-gathering K and V from all sequence-parallel ranks.
+As context lengths grow, sequence parallelism becomes essential. The idea is to split the sequence dimension across GPUs. Each GPU computes attention for its local chunk of the sequence, but attention requires seeing the full key and value tensors. This means all-gathering K and V from all sequence-parallel ranks.
 
-SGLang's pipeline parallelism implementation achieves remarkable results: 3.31× prefill throughput improvement for DeepSeek-V3.1 and up to 81% TTFT reduction for million-token contexts, while maintaining 82.8% scaling efficiency. These numbers matter because long-context inference is increasingly common in production—RAG systems, document analysis, and code understanding all benefit from longer contexts.
+SGLang's pipeline parallelism reports strong long-prompt numbers: 3.31× prefill throughput on DeepSeek-V3.1, up to 81% TTFT reduction on million-token contexts, and 82.8% scaling efficiency. Those techniques address memory and latency; retrieval quality is a separate question—many models lose accuracy on long documents well below their advertised context limit.
 
 ### Ring Attention
 
 We introduced ring attention in Chapter~\ref{chap:beyond-state-sharding-with-deepspeed-and-megatron} as part of context parallelism (see Figure~\ref{fig:seq-ctx-parallel}). Here we revisit it in the context of scaling to million-token sequences.
 
-Ring attention[^ring-attention] offers a memory-efficient alternative to standard sequence parallelism. Instead of all-gathering the full K and V tensors (which requires O(sequence_length) memory per GPU), ring attention passes K and V chunks around a ring of GPUs, computing partial attention scores at each step. Each GPU starts with its local Q, K, V chunks. In each round, GPUs compute attention between their local Q and the current K, V. Then K and V are passed to the next GPU in the ring. After N rounds (where N is the number of GPUs), each GPU has computed attention against all K, V chunks.
+Ring attention[^ring-attention] offers a memory-efficient alternative to standard sequence parallelism. Instead of all-gathering the full K and V tensors (which requires O(sequence_length) memory per GPU), ring attention passes K and V chunks around a ring of GPUs, computing partial attention scores at each step. Each GPU starts with its local Q, K, V chunks. In each round, GPUs compute attention between their local Q and the current K, V, then pass K and V to the next GPU. After N−1 rounds, every rank has attended over all keys and values.
 
 [^ring-attention]: Ring Attention with Blockwise Transformers for Near-Infinite Context. \url{https://arxiv.org/abs/2310.01889}
 
@@ -165,13 +167,13 @@ This trades communication rounds for memory efficiency—useful when you're memo
 
 ## When Things Go Wrong: Fault Tolerance
 
-Here's a sobering calculation. Suppose you have a cluster of 100,000 GPUs, each with 99.9% reliability over a 24-hour period. The probability that all GPUs survive the day is $0.999^{100,000} ≈ 0.00005$. You'll see roughly 100 failures per day. At this scale, failures aren't exceptional—they're the norm.
+At 99.9% daily reliability per GPU, a 100,000-GPU cluster should expect on the order of 100 failures every 24 hours. The probability that every device survives the day is $0.999^{100,000} ≈ 3.7×10^{-44}$—effectively zero. At this scale, failures are the normal operating condition, not the exception.
 
 ### The Checkpointing Challenge
 
 Traditional checkpointing is synchronous: stop training, save state to disk, resume. This was acceptable when checkpoints took seconds and training runs lasted hours. At scale, checkpoints can take minutes, and training runs last weeks. The overhead becomes significant.
 
-PyTorch's Distributed Checkpointing (DCP) introduced several optimizations that achieve 6.5x faster checkpoint processing:
+PyTorch's Distributed Checkpointing (DCP) introduced several optimizations that achieve roughly 6× faster checkpoint processing:
 
 - __Cached save plans__: Reuse tensor metadata across checkpoints—the shapes and dtypes don't change, so why recompute them?
 - __Background saving__: Reduce GIL contention by moving the actual I/O to separate threads
@@ -490,7 +492,7 @@ The technologies covered in this book—DDP, FSDP, DeepSpeed, vLLM, SGLang—rem
 
 The future of distributed AI is being written now, by researchers pushing the boundaries and practitioners deploying at scale. The best way to predict that future is to help invent it.
 
-## References
+## Useful Links
 
 __MoE Architectures__
 

@@ -7,17 +7,15 @@
 
 **Code Summary**
 
-- `fastapi`: Python web framework for building API gateways
-- `uvicorn`: ASGI server for running FastAPI applications
-- `prometheus_client`: Prometheus metrics client for observability
-- `opentelemetry`: OpenTelemetry for distributed tracing
-- `kubernetes.client`: Kubernetes Python client for orchestration
-- `httpx`: HTTP client library for service communication
-- `redis`: Redis client for rate limiting and caching
-- `pydantic`: Data validation library for API request/response models
-- `grpc`: gRPC framework for high-performance service communication
-- `docker`: Docker SDK for container management
-
+- `fastapi.responses.StreamingResponse`: Stream generated tokens to clients over SSE
+- `fastapi.FastAPI`: HTTP layer for inference gateways and model runners
+- `uvicorn`: ASGI server to launch gateway, model runner, and tokenizer services
+- `httpx.AsyncClient`: Async forwarding from API gateway to model runners
+- `pydantic.BaseModel`: Validated request and response schemas for inference APIs
+- `transformers.AutoTokenizer`: Standalone tokenization for billing, validation, and custom backends
+- `prometheus_client`: TTFT, latency percentiles, and throughput metrics
+- `opentelemetry.trace`: Distributed tracing spans across serving components
+- `kubectl`: Deploy, inspect, and debug vLLM and SGLang workloads on Kubernetes
 
 ## Anatomy of a Production LLM Serving System
 
@@ -98,9 +96,7 @@ The `code/basic/` directory also includes a standalone tokenizer service (`token
 uvicorn tokenizer_service:app --host 0.0.0.0 --port 8001
 ```
 
-On startup, the service loads two tokenizers: `Qwen/Qwen2.5-1.5B-Instruct` for LLMs and `openai/clip-vit-large-patch14` for diffusion models. Since tokenizers only load vocabulary files and run on CPU, no GPU is required—this service can run on any machine.
-
-With the service running, you can tokenize text for LLMs:
+Tokenizers load vocabulary files on CPU only—no GPU required—so this service can run on any machine. With the service running, you can tokenize text for LLMs:
 
 ```bash
 curl -X POST http://localhost:8001/tokenize \
@@ -164,7 +160,7 @@ Beyond routing to existing models, you need strategies for safely introducing ne
 
 **A/B Testing.** A/B testing differs from canary deployment in its goal: canaries are about safe rollouts, while A/B tests are about comparing alternatives to make data-driven decisions. An A/B test might compare two different models, two different prompt templates, or two different inference configurations. The critical requirement is consistent assignment—the same user must always see the same variant, achieved through consistent hashing of the user ID.
 
-A sample implementation of canary deployment, traffic shifting, and A/B testing is available in `code/basic/canary.py`. Here's how to use these classes in practice:
+A sample implementation lives in `code/basic/canary.py`. The imports below assume your working directory is `code/basic/`:
 
 ```python
 from canary import CanaryDeployment, TrafficShifter, ABTestFramework, ABTestConfig
@@ -378,13 +374,13 @@ curl http://localhost:8000/v1/chat/completions \
 
 Figure~\ref{fig:k-vllm-output} shows a successful response from the vLLM server running in Kubernetes. The JSON response follows the OpenAI chat completions format, including the model name, generated content, and token usage statistics.
 
-Looking at the deployment manifests (`code/k3d/vllm/llama-3.2-1b.yaml` and `code/k3d/vllm/phi-tiny-moe.yaml`), you'll notice several configuration patterns worth understanding. The `--gpu-memory-utilization 0.2` flag tells vLLM to reserve only 20% of GPU memory, which is conservative but useful when running multiple models on shared GPUs. For single-model deployments where you want maximum throughput, increase this to 0.8 or 0.9.
+Looking at the deployment manifests (`code/k3d/vllm/llama-3.2-1b.yaml` and `code/k3d/vllm/phi-tiny-moe.yaml`), you'll notice several configuration patterns worth understanding. The `--gpu-memory-utilization 0.2` flag tells vLLM to reserve only 20% of GPU memory—well below the default of about 0.85. That conservative setting suits shared-GPU or multi-model clusters; for a single model where you want maximum throughput, use 0.8–0.9 instead.
 
-The health probes deserve special attention. Kubernetes uses liveness and readiness probes to determine if a pod is healthy, but LLM models take significant time to load into GPU memory—often several minutes for larger models. The manifests set `initialDelaySeconds` to 120-180 seconds to give the model time to load. Without this delay, Kubernetes would see the health check fail and restart the pod in an endless loop.
+The health probes deserve special attention. Kubernetes uses liveness and readiness probes to determine if a pod is healthy, but LLM models take significant time to load into GPU memory—often several minutes for larger models. The manifests set `initialDelaySeconds` to 120-180 seconds to give the model time to load; without that delay, Kubernetes restarts the pod in an endless loop. Allow several consecutive failures (`failureThreshold` of 3 or higher) so a single slow probe during GC does not look like a crash.
 
 The volume mount at `/models` persists downloaded model weights across pod restarts. This is important because downloading a 7B parameter model from Hugging Face takes considerable time and bandwidth. Once cached, subsequent pod restarts load the model directly from disk.
 
-Finally, the `/dev/shm` mount provides shared memory for tensor parallel inference. When vLLM shards a model across multiple processes or GPUs, it uses shared memory for efficient inter-process communication. Without sufficient shared memory, tensor parallel inference will fail.
+Shared memory at `/dev/shm` is easy to overlook. Docker's default segment is only 64MB, yet tensor-parallel vLLM workers route NCCL and IPC buffers through it—too little space and collectives hang with little diagnostic output. The manifests mount a larger volume (`emptyDir` with `medium: Memory`, or an equivalent `--shm-size` on the container) sized for your tensor-parallel width.
 
 For larger models that don't fit on a single GPU, you can shard the model by setting `--tensor-parallel-size` to the number of GPUs and updating the resource limits accordingly. The `code/k3d/README.md` file provides detailed guidance on multi-GPU configurations and troubleshooting common issues.
 
@@ -467,7 +463,7 @@ routing:
     service_name: "vllm-phi-tiny-moe-service.multi-models.svc.cluster.local"
 ```
 
-When the gateway receives a request with `"model": "meta-llama/Llama-3.2-1B-Instruct"`, it looks up this mapping and forwards the request to `vllm-llama-32-1b-service`. The client never needs to know which backend handles which model.
+When the gateway receives a request with `"model": "meta-llama/Llama-3.2-1B-Instruct"`, it looks up the service name in this table—here `vllm-llama-32-1b-service.multi-models.svc.cluster.local`, i.e. `<service>.<namespace>.svc.cluster.local`—and forwards the request without exposing backend layout to the client.
 
 Now let's test it. First, set up port forwarding to access the gateway from your local machine:
 
@@ -712,7 +708,7 @@ cd code/llmd/llm-d-multi-model
 ./manage-cluster-multi-models.sh start
 ```
 
-The script uses vLLM v0.14.1 at the time of this writing, which matches llm-d v0.5.0. It also requires a custom k3s-cuda image (the default k3s lacks NVIDIA container toolkit support). Make sure to build a k3s-cuda image matching your CUDA version---run `nvidia-smi` to check, then `cd code/k3d && ./build.sh`. Since vLLM and llm-d are actively developed, you may need to update image versions in the deployment files---see the README for instructions. You can also check cluster status with `./manage-cluster-multi-models.sh status`.
+The script pins vLLM v0.14.1 to match llm-d v0.5.0—often a release or two behind the standalone `code/basic/` stack (0.15.1 in the install command above), because llm-d tests against its own image matrix. It also requires a custom k3s-cuda image (the default k3s lacks NVIDIA container toolkit support). Build one for your CUDA version—run `nvidia-smi`, then `cd code/k3d && ./build.sh`. vLLM and llm-d move quickly; update image tags in the deployment files as needed (see the README). Check cluster status with `./manage-cluster-multi-models.sh status`.
 
 The script creates the cluster, installs the NVIDIA device plugin, sets up llm-d, and deploys both models. Check deployment status:
 
@@ -829,7 +825,7 @@ Production systems demand more than correctness: observability for debugging, ca
 
 With serving infrastructure in place, a natural question arises: how well is it performing? The next chapter addresses this directly---benchmarking throughput, latency, and scaling efficiency with tools like genai-bench and PyTorch profiler.
 
-## References
+## Useful Links
 
 __LLM Serving Frameworks__
 

@@ -763,7 +763,7 @@ The following table provides a canonical taxonomy of all parallelization and sca
 | ZeRO-3 | State | Parameter + grad + opt sharding | Training | DeepSpeed (Chapter~\ref{chap:beyond-state-sharding-with-deepspeed-and-megatron}) |
 | Tensor Parallelism (TP) | Computation | Intra-layer (hidden/head) split | Training / Inference | Megatron-LM (Chapter~\ref{chap:beyond-state-sharding-with-deepspeed-and-megatron}) |
 | Sequence Parallelism | Computation | Sequence-length dimension split | Training | Megatron-LM (Chapter~\ref{chap:beyond-state-sharding-with-deepspeed-and-megatron}) |
-| Context Parallelism | Computation | Long-context attention/KV split | Inference | vLLM (Chapter~\ref{chap:distributed-inference-fundamentals-and-vllm}) / SGLang (Chapter~\ref{chap:request-level-routing-and-sglang}) |
+| Context Parallelism | Computation | Long-context attention/KV split | Inference | vLLM (Chapter~\ref{chap:distributed-inference-fundamentals-and-vllm}) / SGLang (Chapter~\ref{chap:cross-request-optimization-with-sglang}) |
 | Pipeline Parallelism (PP) | Computation | Inter-layer / stage split | Training / Inference | GPipe / DeepSpeed PP (Chapter~\ref{chap:beyond-state-sharding-with-deepspeed-and-megatron}) |
 | Expert Parallelism (MoE EP) | Computation | Sparse conditional compute | Training / Inference | DeepSpeed-MoE (Chapter~\ref{chap:beyond-state-sharding-with-deepspeed-and-megatron}) |
 | Operator / Intra-op Parallelism | Computation | Generic op-level sharding (SPMD) | Training / Inference | XLA SPMD / JAX `jit`+sharding / PyTorch DTensor |
@@ -895,7 +895,7 @@ Inference has different constraints than training (see Chapter~\ref{chap:distrib
 
 __Step 1: Are you scaling a single request or multiple requests?__
 
-If you're serving multiple requests, start with **request-level parallelism** (see Chapter~\ref{chap:request-level-routing-and-sglang}):
+If you're serving multiple requests, start with **request-level parallelism** (see Chapter~\ref{chap:cross-request-optimization-with-sglang}):
 
 - **Batching**: Group multiple requests into batches for better GPU utilization
 - **Multiple model replicas**: Run multiple copies of the model to serve more concurrent requests
@@ -934,7 +934,7 @@ For inference, KV cache can be a major memory bottleneck, especially with long c
 
 - **Latency vs. throughput.** Serving cares about TTFT and per-token latency; model parallelism adds communication every layer—use only when needed (Chapter~\ref{chap:distributed-inference-fundamentals-and-vllm}, Chapter~\ref{chap:production-llm-serving-stack}).
 - **KV cache.** Unlike training, memory is dominated by KV cache at long context and high concurrency; PagedAttention and related techniques are essential (Chapter~\ref{chap:distributed-inference-fundamentals-and-vllm}).
-- **Batching and replicas.** Replicate and batch requests before reaching for TP (Chapter~\ref{chap:distributed-inference-fundamentals-and-vllm}, Chapter~\ref{chap:request-level-routing-and-sglang}, Chapter~\ref{chap:production-llm-serving-stack}).
+- **Batching and replicas.** Replicate and batch requests before reaching for TP (Chapter~\ref{chap:distributed-inference-fundamentals-and-vllm}, Chapter~\ref{chap:cross-request-optimization-with-sglang}, Chapter~\ref{chap:production-llm-serving-stack}).
 - **Quantization.** INT8/INT4 often fits a model on one GPU without retraining (Chapter~\ref{chap:distributed-inference-fundamentals-and-vllm}).
 - **Start simple.** Single GPU with quantization and fused kernels before TP/PP (Chapter~\ref{chap:distributed-inference-fundamentals-and-vllm}).
 

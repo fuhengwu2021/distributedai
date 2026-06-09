@@ -23,3 +23,19 @@ The following table lists common endpoints and their usage:
 
 - [vLLM API Reference](https://docs.vllm.ai/en/latest/serving/openai_compatible_server.html)
 - [SGLang Documentation](https://docs.sglang.io/)
+
+
+\newpage
+
+
+![](img/call_zh.jpg){.fullpage height=80%}
+
+
+
+
+>CENTERS:
+
+2026
+
+>CENTERE
+

@@ -17,6 +17,8 @@
 - `torch.distributed.fsdp.set_state_dict_type()`: Configure state dict type for checkpointing
 - `torch.distributed.fsdp.StateDictConfig` / `OptimStateDictConfig`: State dict configuration
 
+## From DDP to FSDP
+
 **Fully Sharded Data Parallel (FSDP)** is a training strategy that shards model parameters, gradients, and optimizer state across multiple devices so that each device holds only a fraction of the full model. In Chapter~\ref{chap:distributed-training-with-pytorch-ddp}, we used DDP, which replicates the entire model on every GPU—effective when the model fits in a single GPU's memory. When the model (plus gradients and optimizer state) exceeds that memory, DDP is no longer viable. FSDP addresses this by distributing the model and its training state across GPUs, so you can train models that are larger than the memory of any one device.
 
 PyTorch provides two main FSDP APIs for GPU training, plus a separate implementation for TPU:
@@ -44,17 +46,21 @@ But let's dig deeper into why this matters. When training a large model with DDP
 3. **Optimizer states**: For Adam, momentum and variance are 2× the parameter size in FP32. That's 7B × 4 bytes × 2 = 56 GB.
 4. **Activations**: Depends on batch size and sequence length, but can easily be tens of GB for large models.
 
-So for a 7B model with Adam, parameters, gradients, and optimizer states alone are 14 + 14 + 56 = 84 GB per GPU—more than an 80 GB H100 can hold, and activations are not yet counted. With FSDP, those three components are sharded across GPUs: each device holds 1/N of each (N = number of GPUs). With 8 GPUs, that is 84 / 8 = 10.5 GB per GPU, leaving plenty of headroom for activations so the model fits comfortably on A100s or even V100s. In practice, that is the difference between fitting the same 7B model on 8 GPUs with FSDP versus not fitting on a single 80 GB GPU with DDP.
+So for a 7B model with Adam, parameters, gradients, and optimizer states alone are 14 + 14 + 56 = 84 GB per GPU—more than an 80 GB H100 can hold, and activations are not yet counted. Mixed-precision Adam also keeps an FP32 master copy of the weights (~28 GB more for 7B), so the realistic DDP footprint is closer to 112 GB. With FSDP, those components are sharded across GPUs: each device holds 1/N of each (N = number of GPUs). With 8 GPUs, that is 84 / 8 = 10.5 GB per GPU for the three items above, leaving headroom for activations. In practice, that is the difference between fitting the same 7B model on 8 GPUs with FSDP versus not fitting on a single 80 GB GPU with DDP.
 
 ![Per-GPU memory: DDP vs FSDP for a 7B model.](img/ddp_fsdp_mem.png){#fig:ddp-fsdp-mem .block width=100% align=center}
 
 Figure~\ref{fig:ddp-fsdp-mem} illustrates the comparison: with DDP, each GPU holds the full 84 GB (parameters, gradients, and optimizer state) and exceeds an 80 GB device; with FSDP, memory per GPU falls as 84/N, and at 8 GPUs the 10.5 GB per GPU leaves room for activations.
 
->NOTE: FSDP shards only parameters, gradients, and optimizer state—not activations. Each GPU still stores activations for its share of the batch during forward and backward, so activation memory remains a per-GPU cost. Techniques like activation checkpointing (recomputing activations in backward instead of storing them) are often used with FSDP to free headroom for the temporarily all-gathered parameters.
+>NOTES: **Activations Are Not Sharded**
+
+FSDP shards only parameters, gradients, and optimizer state—not activations. Each GPU still stores activations for its share of the batch during forward and backward, so activation memory remains a per-GPU cost. Techniques like activation checkpointing (recomputing activations in backward instead of storing them) are often used with FSDP to free headroom for the temporarily all-gathered parameters.
+
+>NOTEE
 
 ### How FSDP Works
 
-The core idea behind FSDP comes from the ZeRO (Zero Redundancy Optimizer) paper from Microsoft Research (2019).[^zero-paper] ZeRO observed that in data-parallel training, each GPU holds a full copy of the model, gradients, and optimizer state—most of which is redundant. By partitioning these across GPUs and gathering them only when needed, you can train much larger models without changing the underlying data-parallel algorithm. We cover ZeRO in detail in Chapter~\ref{chap:deepspeed-zero}; here we focus on PyTorch's native implementation of these ideas.
+The core idea behind FSDP comes from the ZeRO (Zero Redundancy Optimizer) paper from Microsoft Research (2019).[^zero-paper] ZeRO observed that in data-parallel training, each GPU holds a full copy of the model, gradients, and optimizer state—most of which is redundant. By partitioning these across GPUs and gathering them only when needed, you can train much larger models without changing the underlying data-parallel algorithm. We cover ZeRO in detail in Chapter~\ref{chap:beyond-state-sharding-with-deepspeed-and-megatron}; here we focus on PyTorch's native implementation of these ideas.
 
 [^zero-paper]: Rajbhandari et al., "ZeRO: Memory Optimizations Toward Training Trillion Parameter Models," SC 2020. <https://arxiv.org/abs/1910.02054>
 
@@ -96,7 +102,7 @@ model = FSDP(
 
 You can use `FSDP.set_state_dict_type()` and `StateDictConfig` / `OptimStateDictConfig` for checkpointing; mixed precision is configured via `MixedPrecision`.
 
-Although FSDP2 is the recommended API for new projects, FSDP1 remains relevant for technical reasons beyond simple legacy inertia. Consider **Wan2.2**, a cutting-edge 2025 video generative model that still uses FSDP1.[^wan22] Several factors drive this choice.
+Although FSDP2 is the recommended API for new projects, FSDP1 remains relevant for technical reasons beyond simple legacy inertia. Consider **Wan2.2**, an open-source video generative model that still uses FSDP1.[^wan22] Several factors drive this choice.
 
 First, Wan2.2 relies on DeepSpeed Ulysses for sequence parallelism to handle high-resolution video frames. Ulysses uses specific all-to-all patterns for attention head distribution that were hardened against FSDP1's interface. While FSDP2's `DeviceMesh` is designed for multi-dimensional parallelism, hybrid FSDP + Ulysses setups often find FSDP1's hooks into `distributed_c10d` group calls more stable and predictable.
 
@@ -191,15 +197,15 @@ mp_policy = MixedPrecisionPolicy(
 
 Because FSDP2 shards per-parameter rather than flattening into a single buffer, you can mix dtypes freely—some layers in fp8, others in bf16. The original FSDP required all parameters in a group to share the same dtype.
 
-Finally, `offload_policy` enables CPU or NVMe offloading when GPU memory is exhausted:
+Finally, `offload_policy` enables CPU offloading when GPU memory is exhausted:
 
 ```python
-from torch.distributed.fsdp import OffloadPolicy
+from torch.distributed.fsdp import CPUOffloadPolicy
 
 fully_shard(
     model,
     mesh=mesh,
-    offload_policy=OffloadPolicy(offload_type="cpu"),
+    offload_policy=CPUOffloadPolicy(pin_memory=True),
 )
 ```
 
@@ -264,7 +270,7 @@ Larger models (e.g. `--model-name google/flan-t5-xl` or `google/flan-t5-xxl`) ma
 
 **Comparison.** The numbers below are from example runs on H200 GPUs. Single-GPU training keeps the full model on one device; when the model fits, it can have the highest iteration throughput (it/s) per GPU, but with 2 GPUs the epoch completes in less wall-clock time because the batch is distributed (e.g. XL: 49 s vs 91 s). Single-GPU does not scale to models that exceed one GPU’s memory such as FLAN-T5-XXL. FSDP1 and FSDP2 shard parameters, gradients, and optimizer state across GPUs, so memory per GPU drops and larger models can be trained.
 
-For the smaller FLAN-T5-XL (3B) model, single-GPU training fits on one H200; with 2 GPUs, FSDP1 reduces memory per GPU and completes each epoch in less wall-clock time (49 s vs 91 s). Table~\ref{tab:fsdp-t5-xl-comparison} gives the numbers.
+For the smaller FLAN-T5-XL (3B) model, single-GPU training fits on one H200; with 2 GPUs, FSDP1 cuts memory per GPU roughly in half and finishes each epoch in less wall-clock time (49 s vs 91 s). That speedup comes mainly from spreading the batch across two GPUs—the per-GPU iteration rate (it/s) is nearly unchanged—not from FSDP making each step faster. Table~\ref{tab:fsdp-t5-xl-comparison} gives the numbers.
 
 | Mode   | GPUs | Mem/GPU | Peak mem/GPU | Throughput | Time/epoch |
 |--------|------|---------|----------------------|------------|------------|
@@ -282,6 +288,8 @@ For FLAN-T5-XXL (11B parameters), single-GPU training runs out of memory (OOM) e
 | FSDP2  | 2    | ~84 GB  | ~105 GB      | ~1.86 it/s | ~106 s     |
 
 Table: Comparison of single-GPU, FSDP1, and FSDP2 on FLAN-T5-XXL (11B). Example runs on H200 GPUs. {#tab:fsdp-t5-comparison}
+
+The table shows near-identical memory and throughput for FSDP1 and FSDP2 on this setup. The case for FSDP2 here is not raw speed—it is the simpler API, tighter `torch.compile` integration, and sharded checkpoints through DCP, which matter more as jobs and codebases grow.
 
 **Code Analysis:** The following snippets show how the T5 example implements loading, hierarchical sharding, and mixed precision.
 
@@ -424,7 +432,7 @@ def load_checkpoint_dcp(model, optimizer, checkpoint_dir, epoch):
     return state_dict["epoch"]
 ```
 
-The DCP API handles all the complexity of sharded state dicts. Each rank saves its shard, and loading is just reading the shards back. No gathering, no broadcasting.
+The save path is straightforward: each rank writes its shard with `dcp.save`. Loading is less obvious—`dcp.load` does **not** return a new state dict. Instead, you build a **template** by calling `get_model_state_dict` and `get_optimizer_state_dict` on the already-initialized, sharded model and optimizer on this rank. Pass that dict to `dcp.load`; DCP fills each entry **in place** from the checkpoint shards. The template tells DCP what keys, shapes, and shard layouts to expect; skipping it—loading before the model is constructed and sharded on each rank—is a common source of shape mismatches or uninitialized-parameter errors. The final `set_model_state_dict` and `set_optimizer_state_dict` calls finish PyTorch's documented load path; they are especially needed for optimizer state, even when model parameters were already updated in place through the template references. No gathering to rank 0 and no broadcast—each rank reads only its shards.
 
 ### Manual Sharded Checkpointing
 
@@ -630,48 +638,23 @@ for i, layer in enumerate(model.layers):
 
 ### CPU Offloading
 
-CPU offloading moves optimizer states (or parameters) to CPU memory, freeing GPU memory at the cost of slower training. The FSDP2 API supports this:
+CPU offloading moves parameters, gradients, and optimizer states to CPU memory, freeing GPU memory at the cost of slower training. The FSDP2 API supports this:
 
 ```python
-from torch.distributed.fsdp import OffloadPolicy
+from torch.distributed.fsdp import CPUOffloadPolicy
 
 fully_shard(
     model,
     mesh=mesh,
-    offload_policy=OffloadPolicy(offload_type="cpu"),
+    offload_policy=CPUOffloadPolicy(pin_memory=True),
 )
 ```
 
-This offloads optimizer states to CPU. When the optimizer needs to update parameters, it transfers them from CPU to GPU, updates, then transfers back. This adds significant overhead but can be necessary for very large models. The actual slowdown depends on PCIe generation (3.0 vs 4.0 vs 5.0), CPU memory bandwidth, NUMA topology, and optimizer state size—empirically 20-50% is common, but your mileage will vary.
-
-You can also offload parameters (not just optimizer states), but this is even slower and rarely needed:
-
-```python
-# Offload parameters too (very slow, rarely needed)
-fully_shard(
-    model,
-    mesh=mesh,
-    offload_policy=OffloadPolicy(offload_type="cpu", offload_params=True),
-)
-```
+Sharded parameters are copied to the GPU before each all-gather; gradients and the optimizer step run on CPU. This adds significant overhead but can be necessary for very large models. The actual slowdown depends on PCIe generation (3.0 vs 4.0 vs 5.0), CPU memory bandwidth, NUMA topology, and optimizer state size—empirically 20-50% is common, but your mileage will vary. If CPU RAM is also exhausted, NVMe offload is a DeepSpeed ZeRO-Infinity feature (Chapter~\ref{chap:beyond-state-sharding-with-deepspeed-and-megatron}), not something FSDP2 provides natively.
 
 ### When to Use Offloading
 
 CPU offloading should come late in your optimization sequence. If you've already enabled full-shard and activation checkpointing, reduced batch size and sequence length as much as you can, and you're still hitting OOM—then offloading makes sense. For most models, full-shard plus activation checkpointing is enough without touching offloading.
-
-### NVMe Offloading
-
-For very large models, you can offload to NVMe (SSD) instead of CPU. This is slower than CPU but allows even larger models:
-
-```python
-fully_shard(
-    model,
-    mesh=mesh,
-    offload_policy=OffloadPolicy(offload_type="nvme", offload_path="/path/to/nvme"),
-)
-```
-
-NVMe offloading goes one step further—useful when even CPU memory isn't enough. The slowdown depends heavily on NVMe bandwidth (PCIe 3.0 vs 4.0 vs 5.0), sequential vs random access patterns, and how much data is being transferred. Empirically, expect 50-100% longer training times with fast NVMe (PCIe 4.0+), but slower drives or suboptimal access patterns can be worse. The tradeoff is clear: slower, but at least possible.
 
 ## Performance Optimization
 
@@ -872,12 +855,7 @@ Most HPC clusters use SLURM for job scheduling. Below is a minimal example for m
 # Get node list
 export MASTER_ADDR=$(scontrol show hostnames $SLURM_JOB_NODELIST | head -n 1)
 export MASTER_PORT=29500
-export WORLD_SIZE=$SLURM_NTASKS
-export RANK=$SLURM_PROCID
-export LOCAL_RANK=$SLURM_LOCALID
-export NODE_RANK=$SLURM_NODEID
 
-# Launch training
 srun torchrun --nnodes=$SLURM_NNODES --nproc_per_node=8 --node_rank=$SLURM_NODEID --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT train_fsdp2.py
 ```
 
@@ -912,11 +890,12 @@ FSDP adds complexity, and when things go wrong, the error messages aren't always
 
 ### Out of Memory (OOM)
 
-OOM errors are common when first setting up FSDP. Start by checking whether FSDP is actually sharding your model—print parameter shapes and verify they're smaller than the full model:
+OOM errors are common when first setting up FSDP. A quick sanity check is whether parameters are actually sharded. Under FSDP2 they are DTensors—`param.shape` is the global shape, so use the local tensor to see your shard:
 
 ```python
 for name, param in model.named_parameters():
-    print(f"{name}: shape={param.shape}, device={param.device}")
+    local = param.to_local() if hasattr(param, "to_local") else param
+    print(f"{name}: local_shape={local.shape}, device={param.device}")
 ```
 
 If parameters look right but you're still OOM, activations are likely the culprit. Use the memory profiling approach from earlier to confirm, then reduce batch size, sequence length, or enable activation checkpointing. Also watch for memory leaks—tensors accumulating across iterations because you forgot to detach or delete them.
@@ -1021,7 +1000,7 @@ At very large scale, you might want to shard within a node but replicate across 
 
 ```python
 mesh = init_device_mesh("cuda", (4, 8))  # 4 nodes × 8 GPUs per node
-fully_shard(model, mesh=mesh, mesh_dim=1)  # shard within node (dim 1)
+fully_shard(model, mesh=mesh)  # 2D mesh: replicate dim 0, shard dim 1 (HSDP)
 ```
 
 This shards parameters across 8 GPUs within each node, but replicates across 4 nodes. The tradeoff: more memory usage (4× replication) but less cross-node traffic.
@@ -1100,7 +1079,7 @@ The code examples in this chapter are complete and runnable. Try them on your ha
 
 FSDP2 handles most large model training scenarios well. But what if even full sharding isn't enough? What if you need CPU or NVMe offloading to push memory limits further, or optimized communication patterns for training across many nodes? That's where DeepSpeed's ZeRO comes in. In the next chapter, we'll explore ZeRO-Offload, ZeRO-Infinity, and ZeRO++—features that extend beyond what FSDP2 currently offers—and when to choose DeepSpeed over PyTorch-native solutions.
 
-## References
+## Useful Links
 
 __PyTorch FSDP Documentation__
 

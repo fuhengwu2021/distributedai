@@ -29,9 +29,9 @@ This chapter walks through resource estimation, decision frameworks for choosing
 
 ![Model Parameters v.s. Year](img/model_comparison_table.png){#fig:model-comparison .block width=100%}
 
-A few years ago, you could train most models on a single GPU. ResNet-50 on ImageNet took a couple of days. Training a 70B parameter language model on a single GPU would take months, if it even fits in memory. The models got bigger, the datasets got bigger, and single-GPU training became impractical.
+A few years ago, you could train most models on a single GPU. ResNet-50 on ImageNet took a couple of days. Today, training a 70B parameter language model on a single GPU would take months, if it even fits in memory. The models got bigger, the datasets got bigger, and single-GPU training became impractical.
 
-As shown in @fig:model-comparison, the exponential growth in model parameters over recent years is evident. Looking at recent models detailed in @tbl:model-comparison, the scale is clear[^model_size_comp]. GPT-4 has over 1 trillion parameters, and frontier models continue to push well beyond that scale. Training them requires thousands of GPUs working together[^gpt4_training]. Even smaller models like Llama 2 (70B parameters) need multiple GPUs just to fit in memory, let alone train efficiently.
+As shown in @fig:model-comparison, the exponential growth in model parameters over recent years is evident. Looking at recent models detailed in @tbl:model-comparison, the scale is clear[^model_size_comp]. GPT-4 has over 1 trillion parameters, and frontier models continue to push well beyond that scale[^llm_param_lie]. Training them requires thousands of GPUs working together[^gpt4_training]. Even smaller models like Llama 2 (70B parameters) need multiple GPUs just to fit in memory, let alone train efficiently.
 
 This isn't just a training problem—serving these models at scale for production workloads demands distributed inference architectures that can handle thousands of concurrent requests.
 
@@ -59,11 +59,14 @@ The era of single-machine AI is over; modern AI systems are inherently distribut
 | Kimi K2.6 | 1T | Moonshot AI | 2026 |
 | DeepSeek-V4-Pro | 1.6T | DeepSeek | 2026 |
 | Grok V9 Medium | 1.5T | xAI | 2026 |
+| Claude Mythos 5 | ~10T | Anthropic | 2026 |
 
 Table: Comparison of Large AI Models {#tbl:model-comparison}
 :::
 
 [^model_size_comp]: The tilde (~) indicates approximate parameter counts. Many large models are closed-source, so exact parameter counts are not publicly disclosed. These approximations are based on inference from model architecture, training costs, and industry estimates.
+
+[^llm_param_lie]: Wu, "The LLM Parameter Lie," *Summer in Charlotte* (diary), June 7, 2026. \url{https://wu-99.com/diary/20260607.html\#the-llm-parameter-lie}. Discusses MoE total vs. active parameters, unreliable regression-based probes, industry estimates for frontier closed models (GPT-4 ~1.76T total, Claude Opus 4.x ~5T MoE, GPT-5/Gemini 3.1 in a ~2T–5T band), and Claude Mythos 5 as the first publicly discussed ~10T-class model (~800B–1.2T active per token).
 
 [^gpt4_training]: SemiAnalysis, "GPT-4 Architecture, Infrastructure, Training Dataset, Costs, Vision, MoE," 2023; Epoch AI, "Compute Trends Across Three eras of Machine Learning," 2023.
 
@@ -253,7 +256,11 @@ To understand which activation functions require storing the pre-activation valu
 | **Softmax** | $\text{Softmax}(\mathbf{z})_i = \frac{e^{z_i}}{\sum_{j=1}^{n} e^{z_j}}$ | $\nabla_{\mathbf{z}} \text{Softmax}(\mathbf{z})_{ij} = \text{Softmax}(\mathbf{z})_i(1 - \text{Softmax}(\mathbf{z})_i)$ if $i = j$, $-\text{Softmax}(\mathbf{z})_i \cdot \text{Softmax}(\mathbf{z})_j$ if $i \neq j$ |
 
 
-*Note: All activations above are element-wise (each output depends only on its corresponding input), except Softmax which is vector-valued (takes a vector input and produces a probability distribution that sums to 1). The derivative of Softmax is a Jacobian matrix, denoted by $\nabla_{\mathbf{z}}$. The parameter $\alpha$ in Leaky ReLU and ELU is a constant hyperparameter (typically $\alpha = 0.01$ for Leaky ReLU and $\alpha = 1.0$ for ELU). The GLU (Gated Linear Unit) family (GEGLU, ReGLU, SwiGLU) are gated activations that use element-wise multiplication ($\odot$) to combine two branches: one branch passes through unchanged ($z$) and the other branch applies an activation function. In practice, GLU variants are often implemented with separate linear projections for the two branches, but the simplified form shown here uses the same input $z$ for both branches.*
+>NOTES: **Activation Table Conventions**
+
+All activations above are element-wise (each output depends only on its corresponding input), except Softmax which is vector-valued (takes a vector input and produces a probability distribution that sums to 1). The derivative of Softmax is a Jacobian matrix, denoted by $\nabla_{\mathbf{z}}$. The parameter $\alpha$ in Leaky ReLU and ELU is a constant hyperparameter (typically $\alpha = 0.01$ for Leaky ReLU and $\alpha = 1.0$ for ELU). The GLU (Gated Linear Unit) family (GEGLU, ReGLU, SwiGLU) are gated activations that use element-wise multiplication ($\odot$) to combine two branches: one branch passes through unchanged ($z$) and the other branch applies an activation function. In practice, GLU variants are often implemented with separate linear projections for the two branches, but the simplified form shown here uses the same input $z$ for both branches.
+
+>NOTEE
 
 Looking at the derivatives, we can categorize activation functions based on whether their derivatives can be expressed purely in terms of the output $h$:
 
@@ -986,7 +993,11 @@ OMP_NUM_THREADS=1 torchrun --nproc_per_node=2 code/collective-operation/demo_all
 
 The communication cost of AlltoAll is the highest among all collectives, as it requires every rank to send data to every other rank. The total data movement is world_size² × chunk_size, creating quadratic scaling with world size. This makes AlltoAll expensive for large world sizes, which is why it's used selectively in tensor parallelism and other advanced parallelism strategies where the communication pattern cannot be expressed with simpler collectives.
 
-Note: AlltoAll requires NCCL backend. GLOO (CPU backend) doesn't support it. If you see an error with `--use_cpu`, switch to GPU mode. This limitation exists because AlltoAll's complex communication pattern benefits significantly from GPU-optimized communication libraries like NCCL.
+>NOTES: **AlltoAll Requires NCCL**
+
+AlltoAll requires the NCCL backend. GLOO (CPU backend) doesn't support it. If you see an error with `--use_cpu`, switch to GPU mode. This limitation exists because AlltoAll's complex communication pattern benefits significantly from GPU-optimized communication libraries like NCCL.
+
+>NOTEE
 
 #### Choosing the Right Operation
 
@@ -1053,4 +1064,3 @@ Now that we understand when and why to use distributed systems, we need to under
 
 <!-- include: exercises/torch.md if include_math -->
 <!-- include: exercises/torch.md if include_torch -->
-

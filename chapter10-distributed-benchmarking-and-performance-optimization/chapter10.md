@@ -25,7 +25,7 @@ You've built the distributed AI system. DDP synchronizes gradients across your 8
 
 This is the question that separates functional systems from optimized ones. A training run that completes is not the same as a training run that efficiently utilizes your \$100,000 worth of GPUs. An inference endpoint that returns responses is not the same as one that meets your 200ms P99 latency SLA. The difference between "working" and "working well" can mean days of wasted training time, violated service agreements, and unnecessary cloud costs.
 
-Consider this scenario: your team trains a model on 64 GPUs across 8 nodes. The training completes, the model performs well on benchmarks, and everyone celebrates. But hidden in the logs is a troubling pattern—GPU utilization hovers around 45%, and scaling efficiency from 8 to 64 GPUs is only 52%. You're paying for 64 GPUs but getting the effective compute of 33. Over a two-week training run, that's \$50,000 in wasted compute.
+Consider this scenario: your team trains a model on 64 GPUs across 8 nodes. The training completes, the model performs well on benchmarks, and everyone celebrates. But hidden in the logs is a troubling pattern—GPU utilization hovers around 45%, and scaling efficiency from 8 to 64 GPUs is only 52%. You're paying for 64 GPUs but getting the effective compute of 33. Over a two-week run (336 hours per GPU), the idle 48% of that fleet is roughly 31 GPU-equivalents of wasted time—on the order of \$50,000 at typical cloud rates of \$4–5 per GPU-hour.
 
 This chapter teaches you to find and fix these hidden inefficiencies. We'll cover the complete benchmarking lifecycle: the metrics that actually matter for distributed systems, profiling tools that reveal where time goes, accuracy evaluation to ensure optimizations don't degrade model quality, network diagnostics for communication bottlenecks, and scaling analysis to understand your system's limits. By the end, you'll have the skills to systematically identify performance bottlenecks, make data-driven optimization decisions, and validate that your distributed systems are running at peak efficiency.
 
@@ -79,7 +79,7 @@ __Cost per Token/Sample__ translates technical metrics into business reality. Th
 
 Rigorous methodology separates meaningful benchmarks from noise. Three critical practices apply to both training and inference:
 
-__Warmup before measurement.__ CUDA operations are lazily compiled—the first execution triggers JIT compilation, memory allocation, and cache population. Always run several warmup iterations before starting your timer, and ensure CUDA synchronization completes before recording the start time.
+__Warmup before measurement.__ CUDA operations are lazily compiled—the first execution triggers JIT compilation, memory allocation, and cache population. Run enough warmup iterations that timings stabilize: roughly 5–10 for standard eager PyTorch, or 20–50 when `torch.compile` or CUDA graphs spend early steps on capture and compilation. Start the timer only after warmup, with `torch.cuda.synchronize()` completing before you record the start time.
 
 __Measure multiple iterations with statistics.__ A single measurement tells you almost nothing. Performance varies due to thermal throttling, background processes, memory fragmentation, and network congestion. Run at least 100 iterations and report mean, standard deviation, and percentiles.
 
@@ -276,7 +276,7 @@ The simplest approach to inference benchmarking—sending identical requests in 
 
 genai-bench[^genai-bench] addresses this gap by supporting configurable traffic patterns that mirror production workloads. Rather than sending identical requests, it generates realistic distributions of prompt lengths and output lengths, allowing you to stress-test the scenarios that actually occur in deployment.
 
-[^genai-bench]: https://github.com/sgl-project/sglang/tree/main/benchmark/genai_bench
+[^genai-bench]: genai-bench: LLM inference benchmark from the SGLang project with configurable input/output length distributions. \url{https://github.com/sgl-project/genai-bench}
 
 The tool uses traffic scenarios to define request distributions. `D(100,100)` sends deterministic requests with exactly 100 input and 100 output tokens—useful for controlled comparisons. `D(512,512)` tests longer contexts. For realistic benchmarking, you'll want to test a matrix of scenarios: low concurrency with short context establishes baseline latency without batching effects; high concurrency with short context reveals how well your system batches requests; any concurrency with long context exposes memory pressure and KV cache behavior. When latency increases non-linearly as context length grows, you've found a memory bandwidth bottleneck.
 
@@ -296,7 +296,7 @@ Custom benchmarks are particularly valuable for CI/CD integration. You can defin
 
 ### Cold Start vs Warm Performance
 
-The first request after loading a model behaves very differently from subsequent requests. CUDA kernels must be JIT-compiled, memory must be allocated, and caches must be populated. This cold start latency can be 10-100x slower than warm requests—a ratio of 16x is typical for large language models.
+The first request after loading a model behaves very differently from subsequent requests. CUDA kernels must be JIT-compiled, memory must be allocated, and caches must be populated. Cold-start latency is often 3–5× warm decode for small models (1–3B), roughly 16× for mid-size LLMs where kernel compilation and cache fill dominate, and 50× or more for 70B+ checkpoints that take minutes to load from disk.
 
 This matters enormously for autoscaling. If cold starts take 30 seconds but warm requests complete in 100 milliseconds, aggressive scale-down policies create a trap: you save money by terminating idle instances, but when traffic returns, users experience 30-second delays while new instances warm up. The solution is benchmarking both cold and warm performance, then using that data to configure autoscaler minimum instances. Keep enough warm instances running to handle baseline traffic without triggering cold starts.
 
@@ -359,7 +359,7 @@ Effective benchmarking is the foundation of performance optimization. Without ac
 Throughout this book, we've covered the current state of distributed AI: DDP and FSDP for training, vLLM and SGLang for inference, Slurm for job scheduling, and production serving stacks. But the field is rapidly evolving. The final chapter explores emerging trends and future directions: MoE scaling, hybrid edge-cloud architectures, advanced parallelism strategies, and cost optimization techniques. Understanding where the field is heading will help you position yourself for the next wave of distributed AI innovations.
 
 
-## References
+## Useful Links
 
 __Performance Benchmarking Tools__
 
