@@ -75,7 +75,7 @@ Table: Comparison of Large AI Models {#tbl:model-comparison}
 
 ### The Scale Challenge
 
-Take a 70B parameter model as an example. In full precision (FP32), the model weights alone need 280GB of memory. An A100 GPU can have 80GB memory. You can't even load the model, let alone train it.
+Take a 70B parameter model as an example. In full precision (FP32), the model weights alone need 280GB of memory. No mainstream datacenter GPU holds that much today—even H200 (141 GB) and B200 (192 GB) fall short (Chapter~\ref{chap:gpu-hardware-networking-and-parallelism-strategies} discusses GPU generations and memory trends). You need multiple GPUs just to load the model, let alone train it.
 
 Training these models takes thousands of GPU-hours. A single GPU training run would take months. The datasets are massive too - trillions of tokens. Loading and preprocessing this data efficiently requires _distributed pipelines_.
 
@@ -98,11 +98,13 @@ Here's a quick reference for common precision formats:
 | FP16 | 2 | 16-bit float (1 sign, 5 exponent, 10 mantissa) | Inference |
 | FP8 E4M3 | 1 | 8-bit float (1 sign, 4 exponent, 3 mantissa) | Inference (activations, weights) |
 | FP8 E5M2 | 1 | 8-bit float (1 sign, 5 exponent, 2 mantissa) | Training (gradient storage) |
+| MXFP8 | ~1 | E4M3 + 32-value block scale | Blackwell training |
+| NVFP4 | ~0.5 | E2M1 + 16-value block scale | Blackwell inference |
 | Int8 | 1 | 8-bit integer | Quantized inference |
 | Int4 | 0.5 | 4-bit integer | Quantized inference (extreme compression) |
 
 
-Note that FP8 has two formats: E4M3 (higher precision, used for inference activations and weights) and E5M2 (wider dynamic range, used for storage). Both use 1 byte per parameter but serve different purposes.
+Note that FP8 has two formats: E4M3 (higher precision, used for inference activations and weights) and E5M2 (wider dynamic range, used for storage). Both use 1 byte per parameter but serve different purposes. On NVIDIA Blackwell, **MXFP8** refines Hopper-style per-tensor FP8 with finer block scaling; **NVFP4** pushes below 8-bit for inference (and some training stacks). Both use microscaling—effective memory is slightly above the nominal bits per value. See Chapter~\ref{chap:gpu-hardware-networking-and-parallelism-strategies} for hardware context and Chapter~\ref{chap:beyond-state-sharding-with-deepspeed-and-megatron} for FP8 training.
 
 For training, BF16 (bfloat16) is preferred over FP16 (float16). BF16 has the same exponent range as FP32 (8 bits) but reduced mantissa (7 bits), giving it the same dynamic range as FP32. This makes training more stable—less likely to overflow or underflow. FP16 has a smaller exponent range (5 bits), which can cause numerical issues during training. Modern GPUs (A100, H100) have Tensor Cores optimized for BF16. For inference, both FP16 and BF16 work, but BF16 is still preferred for consistency with training.
 
@@ -291,7 +293,10 @@ $$
 where $c \approx 0.044715$ is a constant. The derivative of this approximation is:
 
 $$
-\frac{\partial h}{\partial z} = 0.5 \cdot \left(1 + \tanh\left(\sqrt{\frac{2}{\pi}} \cdot (z + c \cdot z^3)\right)\right) + 0.5 \cdot z \cdot \left(1 - \tanh^2\left(\sqrt{\frac{2}{\pi}} \cdot (z + c \cdot z^3)\right)\right) \cdot \sqrt{\frac{2}{\pi}} \cdot (1 + 3c \cdot z^2)
+\begin{aligned}
+\frac{\partial h}{\partial z} &= 0.5 \cdot \left(1 + \tanh\left(\sqrt{\frac{2}{\pi}} \cdot (z + c \cdot z^3)\right)\right) \\
+&\quad + 0.5 \cdot z \cdot \left(1 - \tanh^2\left(\sqrt{\frac{2}{\pi}} \cdot (z + c \cdot z^3)\right)\right) \cdot \sqrt{\frac{2}{\pi}} \cdot (1 + 3c \cdot z^2)
+\end{aligned}
 $$
 
 Even with the tanh approximation, the derivative still explicitly contains $z$ in multiple terms, including $z$ itself and $z^2$ and $z^3$ inside the tanh arguments. Since $\tanh$ is not easily invertible and the expression involves $z$ in multiple places, you cannot recover $z$ from $h$ alone. Therefore, you need to store the original $z$ value to compute the derivative during backpropagation, regardless of whether you use the exact GELU form or the tanh approximation.

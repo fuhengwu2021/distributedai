@@ -1048,7 +1048,7 @@ def train_with_profiling(model, dataloader, optimizer, criterion, num_iterations
         # Export to Chrome trace format for visualization
         prof.export_chrome_trace("ddp_trace.json")
         print("\nChrome trace exported to ddp_trace.json")
-        print("Open chrome://tracing in Chrome browser to visualize")
+        print("Open chrome://tracing or https://ui.perfetto.dev/ to visualize")
     return prof
 ```
 
@@ -1060,22 +1060,21 @@ CUDA_VISIBLE_DEVICES=0,1 torchrun --nproc_per_node=2 code/profile_ddp.py
 
 Rank 0 prints key profile tables and writes `ddp_trace.json` in __Chrome trace__ format in the current working directory.
 
+PyTorch's `export_chrome_trace()` writes a Chrome trace JSON file—a timeline of CPU and CUDA events you can inspect visually. Open it in Chrome at `chrome://tracing` (Load → select the `.json`) or in [Perfetto UI](https://ui.perfetto.dev/). Figure~\ref{fig:ddp-tracing-chrome} shows a representative DDP timeline. Timeline viewers suffice for spotting AllReduce overlap and data-loader gaps; for kernel-level NCCL analysis or cross-rank visibility on multi-GPU and multi-node runs, step up to NVIDIA Nsight Systems (`nsys`)—see Chapter~\ref{chap:distributed-benchmarking-and-performance-optimization}.
+
 ![Chrome Tracing View of a DDP Run](img/ddp_tracing_analysis_in_chrome.png){#fig:ddp-tracing-chrome .block width=90% align=center}
 
-To open it at [chrome://tracing](chrome://tracing) in Chrome to inspect the timeline:
+To inspect the timeline:
 
-1. Open Chrome browser
-2. Navigate to `chrome://tracing`
-3. Click "Load" and select the exported `.json` file
-4. In the timeline view, look for:
+1. Open Chrome and navigate to `chrome://tracing`, or open [ui.perfetto.dev](https://ui.perfetto.dev/) in any browser    
+2. Click "Load" and select the exported `.json` file (in Perfetto, drag the file onto the page)    
+3. In the timeline view, look for:    
 
     - **AllReduce operations**: Should see `nccl:all_reduce` or similar. These represent gradient synchronization.
     - **Overlap indicators**: If you see backward compute operations (e.g., `ConvolutionBackward0`, `LinearBackward`) happening concurrently with AllReduce, overlap is working.
     - **Communication time**: AllReduce time should be a small fraction of total backward time for good performance. As a rule of thumb: communication overhead (AllReduce time as a share of total step time) under 20% is good; 20–40% is acceptable; over 40% means communication is a bottleneck. If backward compute time is much larger than AllReduce time, overlap is working well.
     - **Bucket boundaries**: You might see multiple AllReduce operations during backward pass—these correspond to different gradient buckets.
     - **Data loading**: Look for `DataLoader` operations. If data loading time is significant, increase `num_workers` or optimize data preprocessing.
-
-Figure~\ref{fig:ddp-tracing-chrome} above is an example of this timeline view.
 
 ### Analyzing Computation-Communication Overlap
 
@@ -1205,7 +1204,7 @@ To practice profiling a larger model, use the script in `code/profile_ddp_resnet
 torchrun --nproc_per_node=2 code/profile_ddp_resnet50.py
 ```
 
-Open `resnet50_ddp_trace.json` in Chrome at [chrome://tracing](chrome://tracing) and use the same checklist as before: look for AllReduce operations, whether they overlap with backward compute, and how communication time compares to total step time. With ResNet50 you should see more backward compute and a clearer picture of overlap than with the minimal linear model in the earlier scripts.
+Open `resnet50_ddp_trace.json` at [chrome://tracing](chrome://tracing) or in [Perfetto UI](https://ui.perfetto.dev/) and use the same checklist as before: look for AllReduce operations, whether they overlap with backward compute, and how communication time compares to total step time. With ResNet50 you should see more backward compute and a clearer picture of overlap than with the minimal linear model in the earlier scripts.
 
 ## Optimizing DDP Performance
 
