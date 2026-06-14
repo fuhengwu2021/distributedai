@@ -42,7 +42,7 @@ This is **data parallelism**: the model is replicated, but data is sharded. Each
 
 ### Data Parallel (DP) vs Distributed Data Parallel (DDP)
 
-Before DDP, PyTorch had `DataParallel` (DP), which is still available but treated as legacy. DP uses a single-process, multi-threaded approach that runs on a single machine. It has several limitations: Python's GIL prevents true parallelism, all gradient synchronization happens on GPU 0 creating a bottleneck, and it can't scale across multiple machines.
+Before DDP, PyTorch had `DataParallel` (DP), which is still available but discouraged in favor of DDP—the official docs recommend `DistributedDataParallel` even for single-node multi-GPU training. DP uses a single-process, multi-threaded approach that runs on a single machine. It has several limitations: Python's GIL prevents true parallelism, all gradient synchronization happens on GPU 0 creating a bottleneck, and it can't scale across multiple machines.
 
 <!-- ![](img/data_parallel.png) -->
 
@@ -603,6 +603,12 @@ ib_write_bw <node0_ip>  # on node 1
 
 Multi-node uses the same variables as single-node—`RANK`, `LOCAL_RANK`, `WORLD_SIZE`, `MASTER_ADDR`, and `MASTER_PORT`—all set by torchrun or your job launcher (see "Understanding the Environment Variables"). On multiple nodes, `MASTER_ADDR` must be the master node’s real IP address, not localhost, and every node must use the same `MASTER_PORT` (pick a free port on the master—reusing `29500` across back-to-back jobs can hit "address already in use" while the socket is in `TIME_WAIT`). Torchrun also sets `NODE_RANK` (this node’s index from 0 to num_nodes−1) and `NNODES`. When you launch with SLURM, you usually pass the node index and node count into torchrun from `$SLURM_NODEID` and `$SLURM_NNODES`.
 
+Before your first multi-node run, verify a few cluster basics that otherwise produce hangs or mysteriously slow jobs:
+
+- **Matching software stack**: CUDA driver, NCCL, and PyTorch builds should match on every node. A rank on an older driver—or a different PyTorch build—is a common source of `init_process_group` hangs and cryptic NCCL errors.
+- **`MASTER_ADDR` is an IP, not a hostname**: Every node must reach the same address on the cluster network. Hostnames that resolve differently per node (or only on the master) break rendezvous even when the launch command looks correct.
+- **Pick the right network interface**: On machines with multiple NICs (management Ethernet plus InfiniBand), NCCL may bind to the wrong one. Set `NCCL_SOCKET_IFNAME` to the cluster fabric interface (e.g. `ib0`; check with `ip addr`). See the Performance Issues section for an example when debugging slow cross-node AllReduce.
+
 ### A Complete Multi-Node Example
 
 The same training script can be used for both single-node and multi-node; only the launch command changes. A runnable version is in `code/train_ddp_multi_mini.py`. Its structure looks like this:
@@ -912,14 +918,14 @@ with torch.profiler.profile(
 print(prof.key_averages().table(sort_by="cuda_time_total"))
 ```
 
-4. **Inefficient NCCL topology**: NCCL might pick a suboptimal algorithm.
+4. **Inefficient NCCL topology**: NCCL might pick a suboptimal algorithm or the wrong network interface (see the multi-node checklist under Setting Up Multi-Node DDP).
 
 ```bash
 # Set NCCL debug to see what algorithm is used
 export NCCL_DEBUG=INFO
 # Force specific algorithm (advanced, usually not needed)
 export NCCL_IB_DISABLE=0
-export NCCL_SOCKET_IFNAME=ib0
+export NCCL_SOCKET_IFNAME=ib0  # cluster fabric NIC, not management Ethernet
 ```
 
 **Debugging performance**:
@@ -1070,15 +1076,17 @@ To inspect the timeline:
 2. Click "Load" and select the exported `.json` file (in Perfetto, drag the file onto the page)    
 3. In the timeline view, look for:    
 
+    Chrome and Perfetto organize CUDA events by **stream**. DDP runs backward compute on the default stream and launches NCCL AllReduce on separate communication streams (see the overlap mechanism earlier in this chapter). Bars that overlap in time but sit on different stream rows indicate overlap; events on the same stream are sequential regardless of horizontal alignment.
+
     - **AllReduce operations**: Should see `nccl:all_reduce` or similar. These represent gradient synchronization.
-    - **Overlap indicators**: If you see backward compute operations (e.g., `ConvolutionBackward0`, `LinearBackward`) happening concurrently with AllReduce, overlap is working.
-    - **Communication time**: AllReduce time should be a small fraction of total backward time for good performance. As a rule of thumb: communication overhead (AllReduce time as a share of total step time) under 20% is good; 20–40% is acceptable; over 40% means communication is a bottleneck. If backward compute time is much larger than AllReduce time, overlap is working well.
+    - **Overlap indicators**: On different CUDA streams, backward compute (e.g., `ConvolutionBackward0`, `LinearBackward`) overlapping in time with AllReduce means overlap is working.
+    - **Communication time**: AllReduce time should be a small fraction of total backward time for good performance. As a rule of thumb: communication overhead (AllReduce time as a share of total step time) under 20% is good; 20–40% is acceptable; over 40% means communication is a bottleneck—these bands depend on model size and cluster topology (a small model on NVLink might sit near 5%; a large model over Ethernet can land near 50% and still be expected). If backward compute time is much larger than AllReduce time, overlap is working well.
     - **Bucket boundaries**: You might see multiple AllReduce operations during backward pass—these correspond to different gradient buckets.
     - **Data loading**: Look for `DataLoader` operations. If data loading time is significant, increase `num_workers` or optimize data preprocessing.
 
 ### Analyzing Computation-Communication Overlap
 
-The key metric for DDP performance is whether communication overlaps with computation. You can verify this by looking for concurrent AllReduce and backward operations in the profiler output.
+The key metric for DDP performance is whether communication overlaps with computation. In the trace, look for AllReduce on a communication stream running concurrently with backward kernels on the compute stream—not merely adjacent boxes on the same row.
 
 Here's a focused example that profiles just the backward pass to analyze overlap:
 
@@ -1208,58 +1216,7 @@ Open `resnet50_ddp_trace.json` at [chrome://tracing](chrome://tracing) or in [Pe
 
 ## Optimizing DDP Performance
 
-Once you've profiled and identified bottlenecks, the next step is optimization. There are several levers you can tune: __bucket size, gradient accumulation, mixed precision, and communication overlap__.
-
-### Tuning Bucket Size
-
-DDP groups gradients into buckets for AllReduce. The default bucket size is 25 MB, but you can tune it:
-
-```python
-model = DDP(
-    model,
-    device_ids=[local_rank],
-    bucket_cap_mb=50  # Increase from default 25 MB
-)
-```
-
-Larger buckets mean fewer AllReduce calls and lower communication overhead, but gradients are synchronized later in the backward pass. Smaller buckets synchronize earlier and can improve overlap on slow interconnects, at the cost of more AllReduce invocations. Larger buckets tend to work well for large models, for fast interconnects such as NVLink, or when profiling shows that communication dominates. Smaller buckets are more appropriate for small models, for slow or cross-node links, or when memory for communication buffers is limited.
-
-A suitable value can be found by profiling a few choices (e.g. 10, 25, 50, and 100 MB), running a short training segment for each, and comparing throughput. The default 25 MB is a reasonable starting point for most setups.
-
-```python
-bucket_sizes = [10, 25, 50, 100]  # MB
-for bucket_size in bucket_sizes:
-    model = DDP(model, device_ids=[local_rank], bucket_cap_mb=bucket_size)
-    # Run training for a few iterations
-    # Measure throughput
-    # Record results
-```
-
-### Gradient Accumulation
-
-Gradient accumulation simulates a larger batch size without increasing memory use: parameters are updated only every few steps, while gradients are accumulated over those steps. The pattern looks like this:
-
-```python
-accumulation_steps = 4
-optimizer.zero_grad()
-for i, (data, target) in enumerate(dataloader):
-    output = model(data)
-    loss = criterion(output, target) / accumulation_steps
-    # AllReduce only on the last micro-batch in each window
-    if (i + 1) % accumulation_steps != 0:
-        with model.no_sync():
-            loss.backward()
-    else:
-        loss.backward()
-        optimizer.step()
-        optimizer.zero_grad()
-# If the epoch ends mid-window, step the remaining gradients once
-if (i + 1) % accumulation_steps != 0:
-    optimizer.step()
-    optimizer.zero_grad()
-```
-
-It is useful when the desired batch size does not fit in memory, when a larger effective batch size is needed for training stability, or when the dataset size is not divisible by the per-step batch size. With DDP, `backward()` triggers AllReduce by default, so wrap intermediate micro-batches in `model.no_sync()` and run AllReduce only on the last backward in each accumulation window—otherwise you pay for `accumulation_steps` collectives per optimizer step instead of one.
+Once you've profiled and identified bottlenecks, optimize in this order: mixed precision and gradient accumulation when memory or effective batch size is the limit; data-loader tuning and overlap hygiene (`no_sync()`, avoiding blocking syncs in backward); `bucket_cap_mb` last, when profiling shows a communication-bound backward pass.
 
 ### Mixed Precision Training
 
@@ -1291,6 +1248,32 @@ with autocast(dtype=torch.bfloat16):
 ```
 
 With DDP, the scaler should be created before wrapping the model in DDP, and `scaler.step()` and `scaler.update()` must be called on every process. The scaler skips the optimizer step when it detects overflow.
+
+### Gradient Accumulation
+
+Gradient accumulation simulates a larger batch size without increasing memory use: parameters are updated only every few steps, while gradients are accumulated over those steps. The pattern looks like this:
+
+```python
+accumulation_steps = 4
+optimizer.zero_grad()
+for i, (data, target) in enumerate(dataloader):
+    output = model(data)
+    loss = criterion(output, target) / accumulation_steps
+    # AllReduce only on the last micro-batch in each window
+    if (i + 1) % accumulation_steps != 0:
+        with model.no_sync():
+            loss.backward()
+    else:
+        loss.backward()
+        optimizer.step()
+        optimizer.zero_grad()
+# If the epoch ends mid-window, step the remaining gradients once
+if (i + 1) % accumulation_steps != 0:
+    optimizer.step()
+    optimizer.zero_grad()
+```
+
+It is useful when the desired batch size does not fit in memory, when a larger effective batch size is needed for training stability, or when the dataset size is not divisible by the per-step batch size. With DDP, `backward()` triggers AllReduce by default, so wrap intermediate micro-batches in `model.no_sync()` and run AllReduce only on the last backward in each accumulation window—otherwise you pay for `accumulation_steps` collectives per optimizer step instead of one.
 
 ### Communication Overlap Optimization
 
@@ -1330,6 +1313,31 @@ with torch.profiler.profile(
     loss.backward()
 # Check if AllReduce overlaps with backward compute
 print(prof.key_averages().table())
+```
+
+### Tuning Bucket Size
+
+DDP groups gradients into buckets for AllReduce. The default bucket size is 25 MB, but you can tune it:
+
+```python
+model = DDP(
+    model,
+    device_ids=[local_rank],
+    bucket_cap_mb=50  # Increase from default 25 MB
+)
+```
+
+Larger buckets mean fewer AllReduce calls and lower communication overhead, but gradients are synchronized later in the backward pass. Smaller buckets synchronize earlier and can improve overlap on slow interconnects, at the cost of more AllReduce invocations. Larger buckets tend to work well for large models, for fast interconnects such as NVLink, or when profiling shows that communication dominates. Smaller buckets are more appropriate for small models, for slow or cross-node links, or when memory for communication buffers is limited.
+
+A suitable value can be found by profiling a few choices (e.g. 10, 25, 50, and 100 MB), running a short training segment for each, and comparing throughput. The default 25 MB is a reasonable starting point for most setups.
+
+```python
+bucket_sizes = [10, 25, 50, 100]  # MB
+for bucket_size in bucket_sizes:
+    model = DDP(model, device_ids=[local_rank], bucket_cap_mb=bucket_size)
+    # Run training for a few iterations
+    # Measure throughput
+    # Record results
 ```
 
 ### Finding Unused Parameters
@@ -1372,7 +1380,7 @@ if can_set_static_graph:
 
 ## Checkpointing and Resuming Distributed Jobs
 
-After optimizing your DDP training, you'll want to save progress regularly. Long training jobs need checkpointing, and with DDP, you need to save and restore model state, optimizer state, and random number generator state correctly.
+After optimizing your DDP training, you'll want to save progress regularly. Long training jobs need checkpointing, and with DDP, you need to save and restore model state, optimizer state, and random number generator state correctly. The patterns below use rank-0-only `torch.save`, which fits replicated DDP weights; at larger scale, gathering full state to one rank becomes a write bottleneck. For parallel sharded saves, PyTorch provides `torch.distributed.checkpoint` (DCP)—each rank writes its shard—covered in Chapter~\ref{chap:scaling-with-fully-sharded-data-parallel-fsdp}.
 
 ### Saving Checkpoints
 
@@ -1667,7 +1675,7 @@ You launch with the same tool you have been using: `torchrun`. Without any elast
 
 ### How Elastic Training Works
 
-Workers are formed through **rendezvous**. Nodes contact a rendezvous endpoint (for example, a host and port where the c10d backend is running) and wait until the required number of participants is reached—for elastic jobs, any number between MIN and MAX. The rendezvous then completes and each process receives a global `RANK` and `WORLD_SIZE`. These values can change after a restart or a membership change, so the training script must not hard-code assumptions about them. Each node runs an **elastic agent** that starts and monitors local workers, participates in rendezvous, and restarts the worker group when a node fails or leaves: the agent stops all workers, runs a new rendezvous, and restarts. Agents coordinate via a **rendezvous backend**. The **c10d** backend uses a TCP store and needs no extra services; you pass `--rdzv-backend=c10d` and `--rdzv-endpoint=host:port` (port defaults to 29400). The **etcd** and **etcd-v2** backends use an etcd server (v2 API must be enabled); prefer etcd-v2, as the etcd backend is legacy and may be removed.
+Workers are formed through **rendezvous**. Nodes contact a rendezvous endpoint (for example, a host and port where the c10d backend is running) and wait until the required number of participants is reached—for elastic jobs, any number between MIN and MAX. The rendezvous then completes and each process receives a global `RANK` and `WORLD_SIZE`. These values can change after a restart or a membership change, so the training script must not hard-code assumptions about them; when world size changes, effective global batch size changes too (per-rank batch × world size), which shifts gradient noise and step-based learning-rate schedules—loss spikes right after a resize are often this dynamics, not a DDP bug. Each node runs an **elastic agent** that starts and monitors local workers, participates in rendezvous, and restarts the worker group when a node fails or leaves: the agent stops all workers, runs a new rendezvous, and restarts. Agents coordinate via a **rendezvous backend**. The **c10d** backend uses a TCP store and needs no extra services; you pass `--rdzv-backend=c10d` and `--rdzv-endpoint=host:port` (port defaults to 29400). The **etcd** and **etcd-v2** backends use an etcd server (v2 API must be enabled); prefer etcd-v2, as the etcd backend is legacy and may be removed.
 
 ### Launching Elastic Training
 
@@ -1725,7 +1733,7 @@ Understanding how DDP works—gradient synchronization, bucketing, overlap—hel
 - **Computation-communication overlap**: DDP overlaps gradient synchronization with computation to hide communication latency
 - **Process management**: Using `torchrun` for launching and managing DDP processes
 - **Data sharding**: Using `DistributedSampler` to ensure each process sees different data
-- **Performance optimization**: Profiling, bucket tuning, mixed precision, and other optimization techniques
+- **Performance optimization**: Profiling, mixed precision, gradient accumulation, overlap hygiene, and bucket tuning
 - **Fault tolerance**: Checkpointing and elastic training for long-running jobs
 
 DDP is mature, well-optimized, and suitable for most distributed training scenarios. However, for very large models that don't fit on a single GPU, you'll need to move beyond DDP to techniques like FSDP (Fully Sharded Data Parallel), which we'll cover in the next chapter. FSDP extends DDP by sharding model parameters across GPUs, enabling training of models that are too large for any single GPU's memory.
