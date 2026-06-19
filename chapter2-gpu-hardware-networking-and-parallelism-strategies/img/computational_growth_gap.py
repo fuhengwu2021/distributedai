@@ -6,7 +6,8 @@ GPU data from NVIDIA SKUs; models from @tbl:model-comparison plus MT-NLG (2021)
 and PaLM (2022).
 
 Red solid (top): frontier scale including approximate (~) entries.
-Yellow dashed (middle): disclosed models only (no ~).
+Yellow dashed (middle): largest open-weight release per year (@tbl:model-comparison
+plus GPT-2, GPT-J, BLOOM, and LLaMA 3 where the table has no open-weight entry).
 Blue solid (bottom): mainstream single-GPU HBM.
 """
 
@@ -34,15 +35,15 @@ gpu_memory = np.array([40, 80, 80, 80, 141, 192, 192])  # 2026: B200 still mains
 
 model_years = np.array([2020, 2021, 2022, 2023, 2024, 2025, 2026])
 
-# Disclosed representative per year (no ~)
-disclosed_memory = np.array([
-    350.0,    # GPT-3 175B
-    1060.0,   # MT-NLG 530B
-    1080.0,   # PaLM 540B
-    2170.0,   # PanGu-Σ 1.085T
-    472.0,    # DeepSeek-V2 236B
+# Largest open-weight release per year (weights publicly released)
+open_weight_memory = np.array([
+    3.0,      # GPT-2 1.5B
+    12.0,     # GPT-J 6B
+    352.0,    # BLOOM 176B
+    628.0,    # Grok-1 314B
+    810.0,    # LLaMA 3 405B
     1342.0,   # DeepSeek-V3 671B
-    2000.0,   # Kimi K2.6 1T
+    3200.0,   # DeepSeek-V4-Pro 1.6T
 ])
 
 # Frontier per year (incl. ~); largest in @tbl:model-comparison per release year
@@ -69,13 +70,13 @@ ax.plot(
 )
 ax.plot(
     model_years,
-    disclosed_memory,
+    open_weight_memory,
     color="gold",
     linestyle="--",
     marker="s",
     linewidth=2.5,
     markersize=8,
-    label="Disclosed Representative (BF16)",
+    label="Open-Weight Representative (BF16)",
     zorder=3,
 )
 ax.plot(
@@ -89,7 +90,7 @@ ax.plot(
 )
 
 gpu_interp = np.interp(model_years, gpu_years, gpu_memory)
-gap_memory = np.maximum(disclosed_memory, frontier_memory)
+gap_memory = np.maximum(open_weight_memory, frontier_memory)
 gap_mask = gap_memory > gpu_interp
 ax.fill_between(
     model_years,
@@ -102,22 +103,25 @@ ax.fill_between(
     zorder=1,
 )
 
-disclosed_annotations = [
-    (2020, 350, "GPT-3\n(175B)", (2020.04, 550), "left"),
-    (2021, 1060, "MT-NLG\n(530B)", (2021.35, 1700), "left"),
-    (2022, 1080, "PaLM\n(540B)", (2022.035, 1650), "left"),
-    (2023, 2170, "PanGu-Σ\n(1.085T)", (2022.15, 3100), "left"),
-    (2024, 472, "DeepSeek-V2\n(236B)", (2024.0, 680), "left"),
-    (2025, 1342, "DeepSeek-V3\n(671B)", (2025.0, 2000), "left"),
-    (2026, 2000, "Kimi K2.6\n(1T)", (2025.45, 3200), "left"),
+open_weight_annotations = [
+    (2020, 3, "GPT-2\n(1.5B)", (2020.35, 8), "left"),
+    (2021, 12, "GPT-J\n(6B)", (2021.35, 20), "left"),
+    (2022, 352, "BLOOM\n(176B)", (2022.35, 580), "left"),
+    (2023, 628, "Grok-1\n(314B)", (2023.0, 1000), "left"),
+    (2024, 810, "LLaMA 3\n(405B)", (2024.0, 1300), "left"),
+    (2025, 1342, "DeepSeek-V3\n(671B)", (2025.1, 2200), "left"),
+    (2026, 3200, "DeepSeek-V4-Pro\n(1.6T)", (2025.05, 600), "left"),
 ]
 frontier_annotations = [
+    (2020, 350, "GPT-3\n(175B)", (2020.04, 550), "left"),
+    (2021, 1060, "MT-NLG\n(530B)", (2021.0, 1700), "left"),
+    (2022, 1080, "PaLM\n(540B)", (2022.0, 1650), "left"),
     (2023, 3200, "Gemini-1\n(1.6T)", (2023.55, 5200), "left"),
-    (2024, 3600, "GPT-4V\n(~1.8T)", (2024.55, 5800), "left"),
-    (2025, 4000, "GPT-5\n(~2T)", (2025.55, 6500), "left"),
-    (2026, 20000, "Claude Mythos 5\n(~10T)", (2026.05, 28000), "right"),
+    (2024, 3600, "GPT-4V\n(~1.8T)", (2024.155, 5800), "left"),
+    (2025, 4000, "GPT-5\n(~2T)", (2024.55, 14500), "left"),
+    (2026, 20000, "Claude Mythos 5\n(~10T)", (2025.65, 18000), "right"),
 ]
-for x, y, label, (tx, ty), ha in disclosed_annotations:
+for x, y, label, (tx, ty), ha in open_weight_annotations:
     ax.annotate(
         label,
         xy=(x, y),
@@ -142,7 +146,7 @@ ax.set_xlabel("Year", fontsize=12)
 ax.set_ylabel("Memory (GB)", fontsize=12)
 ax.grid(True, alpha=0.3, linestyle="--", zorder=0)
 handles, labels = ax.get_legend_handles_labels()
-order = [2, 1, 0, 3]  # frontier, disclosed, GPU, gap
+order = [2, 1, 0, 3]  # frontier, open-weight, GPU, gap
 ax.legend(
     [handles[i] for i in order],
     [labels[i] for i in order],
@@ -153,7 +157,7 @@ ax.legend(
 ax.tick_params(labelsize=11)
 ax.set_yscale("log")
 ax.set_xlim(2019.5, 2026.1)
-ax.set_ylim(bottom=30, top=41000)
+ax.set_ylim(bottom=1, top=41000)
 
 plt.tight_layout()
 save_figure(__file__)
