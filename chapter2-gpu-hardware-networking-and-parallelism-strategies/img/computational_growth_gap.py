@@ -157,7 +157,7 @@ ax.legend(
 ax.tick_params(labelsize=11)
 ax.set_yscale("log")
 ax.set_xlim(2019.5, 2026.1)
-ax.set_ylim(bottom=1, top=41000)
+ax.set_ylim(bottom=2, top=41000)
 
 plt.tight_layout()
 save_figure(__file__)
