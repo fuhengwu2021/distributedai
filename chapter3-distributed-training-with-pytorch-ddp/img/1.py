@@ -47,4 +47,4 @@ ax.set_ylim(0,1)
 ax.axis('off')
 
 plt.title("2-Node Heterogeneous GPU DDP Architecture")
-plt.show()
+#plt.show()
