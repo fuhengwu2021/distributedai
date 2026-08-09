@@ -82,3 +82,6 @@ cover/*
 book*.pdf
 docs/*
 shared/*
+
+*pptx
+
