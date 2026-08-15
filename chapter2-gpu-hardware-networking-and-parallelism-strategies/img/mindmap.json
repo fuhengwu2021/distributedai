@@ -1,0 +1,269 @@
+{
+  "canvas": {
+    "figsize": [12.0, 18.0],
+    "xlim": [0.3, 14.5],
+    "ylim": [-8.96, 12.3],
+    "icon_size": 0.4,
+    "placeholder_icon_size": 0.1,
+    "text_gap": 0.18
+  },
+  "nodes": [
+    {
+      "id": "root",
+      "pos": [1.1, 2.02],
+      "label": "GPU Hardware,\nNetworking & Parallelism",
+      "color": "#8c1d40",
+      "is_branch": true
+    },
+
+    {
+      "id": "branch_clusters",
+      "pos": [4.3, 11.18],
+      "label": "AI Clusters &\nKey Metrics",
+      "color": "#2a9d8f",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "compute_power",
+      "pos": [7.0, 12.00],
+      "label": "Compute Power:\nTFLOPS → PFLOPS → EFLOPS",
+      "parent": "branch_clusters",
+      "icon": "compute_power",
+      "text_offset": 0.3
+    },
+    {
+      "id": "cluster_topology",
+      "pos": [7.0, 11.18],
+      "label": "Cluster Topology:\nNVSwitch (Intra) + InfiniBand (Inter)",
+      "parent": "branch_clusters",
+      "icon": "multi_gpu",
+      "text_offset": 0.3
+    },
+    {
+      "id": "mfu",
+      "pos": [7.0, 10.36],
+      "label": "MFU:\nActual FLOPS / Peak FLOPS (40–60% Good)",
+      "parent": "branch_clusters",
+      "icon": "mfu",
+      "text_offset": 0.3
+    },
+
+    {
+      "id": "branch_alt_compute",
+      "pos": [4.3, 8.42],
+      "label": "CPU, TPU & NPU:\nSupporting Compute",
+      "color": "#0077b6",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "cpu_role",
+      "pos": [7.0, 9.24],
+      "label": "CPU:\nOrchestration, Data Loading, NUMA",
+      "parent": "branch_alt_compute",
+      "icon": "cpu",
+      "text_offset": 0.3
+    },
+    {
+      "id": "tpu_role",
+      "pos": [7.0, 8.42],
+      "label": "TPU:\nSystolic Arrays (MXU), XLA",
+      "parent": "branch_alt_compute",
+      "icon": "tpu",
+      "text_offset": 0.3
+    },
+    {
+      "id": "npu_role",
+      "pos": [7.0, 7.60],
+      "label": "NPU:\nAI Cores, Vendor-Specific Stacks",
+      "parent": "branch_alt_compute",
+      "icon": "npu",
+      "text_offset": 0.3
+    },
+
+    {
+      "id": "branch_gpu",
+      "pos": [4.3, 5.25],
+      "label": "GPU Architecture",
+      "color": "#9d4edd",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "gpu_basics",
+      "pos": [7.0, 6.48],
+      "label": "GPU Basics:\nHBM, Tensor Cores, NVLink",
+      "parent": "branch_gpu",
+      "icon": "single_gpu",
+      "text_offset": 0.3
+    },
+    {
+      "id": "gpu_gens",
+      "pos": [7.0, 5.66],
+      "label": "Hopper → Blackwell:\nH100, H200, B200",
+      "parent": "branch_gpu",
+      "icon": "placeholder"
+    },
+    {
+      "id": "product_families",
+      "pos": [7.0, 4.84],
+      "label": "HGX / DGX / SuperPOD:\nBoard → System → Pod",
+      "parent": "branch_gpu",
+      "icon": "placeholder"
+    },
+    {
+      "id": "tensor_cores",
+      "pos": [7.0, 4.02],
+      "label": "Tensor Cores &\nTransformer Engine (FP8)",
+      "parent": "branch_gpu",
+      "icon": "placeholder"
+    },
+
+    {
+      "id": "branch_interconnect",
+      "pos": [4.3, 2.08],
+      "label": "Interconnects",
+      "color": "#e76f51",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "nvlink",
+      "pos": [7.0, 2.90],
+      "label": "PCIe → NVLink → NVSwitch\n(Intra-Node)",
+      "parent": "branch_interconnect",
+      "icon": "multi_gpu",
+      "text_offset": 0.3
+    },
+    {
+      "id": "infiniband",
+      "pos": [7.0, 2.08],
+      "label": "InfiniBand & RDMA\n(Inter-Node)",
+      "parent": "branch_interconnect",
+      "icon": "infiniband",
+      "text_offset": 0.3
+    },
+    {
+      "id": "roce",
+      "pos": [7.0, 1.26],
+      "label": "RoCE:\nRDMA over Ethernet",
+      "parent": "branch_interconnect",
+      "icon": "roce",
+      "text_offset": 0.3
+    },
+
+    {
+      "id": "branch_cuda",
+      "pos": [4.3, -0.68],
+      "label": "CUDA Programming\nModel",
+      "color": "#3a5a40",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "spmd",
+      "pos": [7.0, 0.14],
+      "label": "SPMD:\nOne Kernel, Many Threads",
+      "parent": "branch_cuda",
+      "icon": "spmd",
+      "text_offset": 0.3
+    },
+    {
+      "id": "simt",
+      "pos": [7.0, -0.68],
+      "label": "SIMT Execution:\nThread → Warp → Block → Grid",
+      "parent": "branch_cuda",
+      "icon": "simt",
+      "text_offset": 0.3
+    },
+    {
+      "id": "mem_hierarchy",
+      "pos": [7.0, -1.50],
+      "label": "Memory Hierarchy:\nRegisters → Shared → Global",
+      "parent": "branch_cuda",
+      "icon": "gpu_mem",
+      "text_offset": 0.3
+    },
+
+    {
+      "id": "branch_parallelism",
+      "pos": [4.3, -4.26],
+      "label": "Parallelism\nStrategies",
+      "color": "#b5651d",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "taxonomy",
+      "pos": [7.0, -2.62],
+      "label": "What's Being Sharded?\nComputation vs State vs Data",
+      "parent": "branch_parallelism",
+      "icon": "placeholder"
+    },
+    {
+      "id": "ddp_replicated",
+      "pos": [7.0, -3.44],
+      "label": "Replicated:\nDDP (Full Copy per GPU)",
+      "parent": "branch_parallelism",
+      "icon": "ddp",
+      "text_offset": 0.3
+    },
+    {
+      "id": "fsdp_sharded",
+      "pos": [7.0, -4.26],
+      "label": "Sharded:\nFSDP / ZeRO (Params, Grad, Optim)",
+      "parent": "branch_parallelism",
+      "icon": "fsdp",
+      "text_offset": 0.3
+    },
+    {
+      "id": "model_parallel",
+      "pos": [7.0, -5.08],
+      "label": "Model Parallel:\nTensor, Pipeline, Expert, Sequence",
+      "parent": "branch_parallelism",
+      "icon": "megatron",
+      "text_offset": 0.3
+    },
+    {
+      "id": "strategy_choice",
+      "pos": [7.0, -5.90],
+      "label": "Choosing a Strategy:\nTraining vs Inference Decision Tree",
+      "parent": "branch_parallelism",
+      "icon": "decision_tree",
+      "text_offset": 0.3
+    },
+
+    {
+      "id": "branch_handson",
+      "pos": [4.3, -7.84],
+      "label": "Hands-On:\nHardware Inspection",
+      "color": "#6d597a",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "topo_check",
+      "pos": [7.0, -7.02],
+      "label": "nvidia-smi topo -m:\nNVLink vs PCIe Topology",
+      "parent": "branch_handson",
+      "icon": "placeholder"
+    },
+    {
+      "id": "bandwidth_test",
+      "pos": [7.0, -7.84],
+      "label": "Single-GPU Bandwidth:\n~2–3 TB/s HBM (H100/H200)",
+      "parent": "branch_handson",
+      "icon": "single_gpu",
+      "text_offset": 0.3
+    },
+    {
+      "id": "allreduce_bench",
+      "pos": [7.0, -8.66],
+      "label": "AllReduce Microbench:\nBus Bandwidth via torchrun",
+      "parent": "branch_handson",
+      "icon": "allreduce",
+      "text_offset": 0.35
+    }
+  ]
+}
