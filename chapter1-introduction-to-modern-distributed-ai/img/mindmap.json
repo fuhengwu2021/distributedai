@@ -1,0 +1,197 @@
+{
+  "canvas": {
+    "figsize": [12.0, 12.9],
+    "xlim": [0.3, 14.5],
+    "ylim": [-2.9, 12.3],
+    "icon_size": 0.4,
+    "placeholder_icon_size": 0.1,
+    "text_gap": 0.18
+  },
+  "nodes": [
+    {
+      "id": "root",
+      "pos": [1.1, 4.84],
+      "label": "Introduction to\nModern Distributed AI",
+      "color": "#8c1d40",
+      "is_branch": true
+    },
+
+    {
+      "id": "branch_why",
+      "pos": [4.3, 10.77],
+      "label": "Why Modern AI\nRequires Distribution",
+      "color": "#2a9d8f",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "growth",
+      "pos": [7.0, 12.00],
+      "label": "Exponential Model Growth\n(70B → 10T+ Params)",
+      "parent": "branch_why",
+      "icon": "placeholder"
+    },
+    {
+      "id": "mem_footprint",
+      "pos": [7.0, 11.18],
+      "label": "Weights + Gradients +\nOptimizer State + Activations",
+      "parent": "branch_why",
+      "icon": "gradient",
+      "text_offset": 0.3
+    },
+    {
+      "id": "activation_mem",
+      "pos": [7.0, 10.36],
+      "label": "Activation Memory:\nKeep $h$ or $z$?",
+      "parent": "branch_why",
+      "icon": "activation_deriv",
+      "text_offset": 0.3
+    },
+    {
+      "id": "precision_formats",
+      "pos": [7.0, 9.54],
+      "label": "Precision Formats\n(FP32 → BF16 → INT4)",
+      "parent": "branch_why",
+      "icon": "placeholder"
+    },
+
+    {
+      "id": "branch_lifecycle",
+      "pos": [4.3, 7.60],
+      "label": "The Modern AI\nModel Lifecycle",
+      "color": "#0077b6",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "train_stage",
+      "pos": [7.0, 8.42],
+      "label": "Training:\nForward → Backward → Update",
+      "parent": "branch_lifecycle",
+      "icon": "training",
+      "text_offset": 0.3
+    },
+    {
+      "id": "infer_stage",
+      "pos": [7.0, 7.60],
+      "label": "Inference:\nForward Pass + KV Cache",
+      "parent": "branch_lifecycle",
+      "icon": "inference",
+      "text_offset": 0.3
+    },
+    {
+      "id": "serve_stage",
+      "pos": [7.0, 6.78],
+      "label": "Serving:\nAPI Gateway & Autoscaling",
+      "parent": "branch_lifecycle",
+      "icon": "serving",
+      "text_offset": 0.3
+    },
+
+    {
+      "id": "branch_decision",
+      "pos": [4.3, 4.84],
+      "label": "Decision Framework:\nWhen to Distribute?",
+      "color": "#9d4edd",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "fits_memory",
+      "pos": [7.0, 5.66],
+      "label": "Model Fits in\nMemory?",
+      "parent": "branch_decision",
+      "icon": "decision_tree",
+      "text_offset": 0.3
+    },
+    {
+      "id": "too_slow",
+      "pos": [7.0, 4.84],
+      "label": "Training Too Slow?\n→ Data Parallelism (DDP)",
+      "parent": "branch_decision",
+      "icon": "placeholder"
+    },
+    {
+      "id": "finetune_lora",
+      "pos": [7.0, 4.02],
+      "label": "Fine-Tuning Only?\n→ LoRA / QLoRA",
+      "parent": "branch_decision",
+      "icon": "low_rank_adaptation",
+      "text_offset": 0.3
+    },
+
+    {
+      "id": "branch_handson",
+      "pos": [4.3, 2.08],
+      "label": "Hands-On:\nDDP Speedup",
+      "color": "#e76f51",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "single_gpu_baseline",
+      "pos": [7.0, 2.90],
+      "label": "Single-GPU Baseline\n(ResNet18, FashionMNIST)",
+      "parent": "branch_handson",
+      "icon": "single_gpu",
+      "text_offset": 0.3
+    },
+    {
+      "id": "ddp_speedup",
+      "pos": [7.0, 2.08],
+      "label": "torchrun DDP:\n1→8 GPUs, up to 4.01× Speedup",
+      "parent": "branch_handson",
+      "icon": "torchrun",
+      "text_offset": 0.3
+    },
+    {
+      "id": "dist_inference",
+      "pos": [7.0, 1.26],
+      "label": "Distributed Inference:\nThroughput Scaling, 1.89×",
+      "parent": "branch_handson",
+      "icon": "multi_gpu",
+      "text_offset": 0.3
+    },
+
+    {
+      "id": "branch_stack",
+      "pos": [4.3, -1.09],
+      "label": "PyTorch Distributed\nStack",
+      "color": "#3a5a40",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "process_groups",
+      "pos": [7.0, 0.14],
+      "label": "Process Groups & Ranks\n(world_size, NCCL / GLOO)",
+      "parent": "branch_stack",
+      "icon": "process_group",
+      "text_offset": 0.3
+    },
+    {
+      "id": "collective_ops",
+      "pos": [7.0, -0.68],
+      "label": "Collective Operations:\nAllReduce, Broadcast,\nGather, Scatter, AlltoAll",
+      "parent": "branch_stack",
+      "icon": "allreduce",
+      "text_offset": 0.35
+    },
+    {
+      "id": "ddp_wrap",
+      "pos": [7.0, -1.50],
+      "label": "DistributedDataParallel:\nWraps Model, Syncs\nvia AllReduce",
+      "parent": "branch_stack",
+      "icon": "ddp",
+      "text_offset": 0.3
+    },
+    {
+      "id": "fsdp_note",
+      "pos": [7.0, -2.32],
+      "label": "FSDP:\nShards Model Across GPUs (Ch.4)",
+      "parent": "branch_stack",
+      "icon": "fsdp",
+      "text_offset": 0.3
+    }
+  ]
+}
