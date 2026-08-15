@@ -1,0 +1,284 @@
+{
+  "canvas": {
+    "figsize": [12.0, 19.4],
+    "xlim": [0.3, 14.5],
+    "ylim": [-10.6, 12.3],
+    "icon_size": 0.4,
+    "placeholder_icon_size": 0.1,
+    "text_gap": 0.18
+  },
+  "nodes": [
+    {
+      "id": "root",
+      "pos": [1.1, 0.26],
+      "label": "Production LLM\nServing Stack",
+      "color": "#8c1d40",
+      "is_branch": true
+    },
+
+    {
+      "id": "branch_anatomy",
+      "pos": [4.3, 10.77],
+      "label": "Serving Stack\nAnatomy",
+      "color": "#2a9d8f",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "api_gateway",
+      "pos": [7.0, 12.00],
+      "label": "API Gateway:\nRouting, Auth, Rate Limiting",
+      "parent": "branch_anatomy",
+      "icon": "placeholder"
+    },
+    {
+      "id": "model_runner",
+      "pos": [7.0, 11.18],
+      "label": "Model Runner:\nvLLM/SGLang, KV Cache, Batching",
+      "parent": "branch_anatomy",
+      "icon": "inference",
+      "text_offset": 0.3
+    },
+    {
+      "id": "observability_leaf",
+      "pos": [7.0, 10.36],
+      "label": "Observability:\nMetrics, Tracing, Logging",
+      "parent": "branch_anatomy",
+      "icon": "observability",
+      "text_offset": 0.3
+    },
+    {
+      "id": "tokenizer_service",
+      "pos": [7.0, 9.54],
+      "label": "Tokenizer Service:\nOptional, Billing/Validation",
+      "parent": "branch_anatomy",
+      "icon": "tokenizer",
+      "text_offset": 0.3
+    },
+
+    {
+      "id": "branch_routing",
+      "pos": [4.3, 7.19],
+      "label": "Routing &\nLoad Balancing",
+      "color": "#0077b6",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "routing_strategies",
+      "pos": [7.0, 8.42],
+      "label": "Routing Strategies:\nFeature-Based, A/B Hash, Dynamic",
+      "parent": "branch_routing",
+      "icon": "routing",
+      "text_offset": 0.3
+    },
+    {
+      "id": "load_balancing",
+      "pos": [7.0, 7.60],
+      "label": "Load Balancing:\nRound-Robin, Least Connections, Weighted",
+      "parent": "branch_routing",
+      "icon": "multi_gpu",
+      "text_offset": 0.3
+    },
+    {
+      "id": "canary_deploy",
+      "pos": [7.0, 6.78],
+      "label": "Canary Deployment:\n10% → 100% Traffic Shift",
+      "parent": "branch_routing",
+      "icon": "placeholder"
+    },
+    {
+      "id": "ab_testing",
+      "pos": [7.0, 5.96],
+      "label": "A/B Testing:\nConsistent User→Variant Hashing",
+      "parent": "branch_routing",
+      "icon": "ab_testing",
+      "text_offset": 0.3
+    },
+
+    {
+      "id": "branch_reliability",
+      "pos": [4.3, 3.61],
+      "label": "Reliability &\nCost",
+      "color": "#9d4edd",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "cold_start",
+      "pos": [7.0, 4.84],
+      "label": "Cold Start:\nWarmup + Keep-Alive (30–60s Load)",
+      "parent": "branch_reliability",
+      "icon": "placeholder"
+    },
+    {
+      "id": "autoscaling",
+      "pos": [7.0, 4.02],
+      "label": "Autoscaling:\nTarget RPS, Scale-Up/Down Thresholds",
+      "parent": "branch_reliability",
+      "icon": "compute_power",
+      "text_offset": 0.3
+    },
+    {
+      "id": "backpressure",
+      "pos": [7.0, 3.20],
+      "label": "Backpressure:\nBounded Queue, 503 on Full",
+      "parent": "branch_reliability",
+      "icon": "placeholder"
+    },
+    {
+      "id": "cost_opt",
+      "pos": [7.0, 2.38],
+      "label": "Cost:\nSpot Instances (60–90% Cheaper)",
+      "parent": "branch_reliability",
+      "icon": "placeholder"
+    },
+
+    {
+      "id": "branch_k8s",
+      "pos": [4.3, 0.03],
+      "label": "Kubernetes\nDeployment",
+      "color": "#e76f51",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "k3d_cluster",
+      "pos": [7.0, 1.26],
+      "label": "k3d:\nLocal GPU Cluster in Docker",
+      "parent": "branch_k8s",
+      "icon": "multi_gpu",
+      "text_offset": 0.3
+    },
+    {
+      "id": "vllm_k8s",
+      "pos": [7.0, 0.44],
+      "label": "vLLM on K8s:\nHealth Probes, GPU Scheduling",
+      "parent": "branch_k8s",
+      "icon": "single_gpu",
+      "text_offset": 0.3
+    },
+    {
+      "id": "multi_model_routing",
+      "pos": [7.0, -0.38],
+      "label": "Multi-Model Routing:\nGateway Maps model → Service",
+      "parent": "branch_k8s",
+      "icon": "multi_model_routing",
+      "text_offset": 0.3
+    },
+    {
+      "id": "multi_engine_routing",
+      "pos": [7.0, -1.20],
+      "label": "Multi-Engine Routing:\nvLLM + SGLang, Same Model",
+      "parent": "branch_k8s",
+      "icon": "multi_engine_routing",
+      "text_offset": 0.3
+    },
+
+    {
+      "id": "branch_llmd_arch",
+      "pos": [4.3, -3.55],
+      "label": "llm-d\nArchitecture",
+      "color": "#3a5a40",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "igw_routing",
+      "pos": [7.0, -2.32],
+      "label": "Envoy + Inference Gateway:\nSmart, Prefix-Cache-Aware Routing",
+      "parent": "branch_llmd_arch",
+      "icon": "routing",
+      "text_offset": 0.3
+    },
+    {
+      "id": "pd_disagg_llmd",
+      "pos": [7.0, -3.14],
+      "label": "PD Disaggregation:\nNIXL RDMA KV Transfer",
+      "parent": "branch_llmd_arch",
+      "icon": "infiniband",
+      "text_offset": 0.3
+    },
+    {
+      "id": "disagg_prefix_cache",
+      "pos": [7.0, -3.96],
+      "label": "Disaggregated Prefix Caching:\nLocal + Shared + Global",
+      "parent": "branch_llmd_arch",
+      "icon": "gpu_mem",
+      "text_offset": 0.3
+    },
+    {
+      "id": "variant_autoscale",
+      "pos": [7.0, -4.78],
+      "label": "Variant Autoscaling:\nTokens/sec, Not CPU%",
+      "parent": "branch_llmd_arch",
+      "icon": "compute_power",
+      "text_offset": 0.3
+    },
+
+    {
+      "id": "branch_paths",
+      "pos": [4.3, -6.72],
+      "label": "llm-d\nWell-Lit Paths",
+      "color": "#b5651d",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "sched_path",
+      "pos": [7.0, -5.90],
+      "label": "Intelligent Scheduling:\nGentlest Learning Curve",
+      "parent": "branch_paths",
+      "icon": "placeholder"
+    },
+    {
+      "id": "pd_path",
+      "pos": [7.0, -6.72],
+      "label": "PD Disaggregation Path:\nLong Prompts, Fast Interconnect",
+      "parent": "branch_paths",
+      "icon": "pd_disaggregation",
+      "text_offset": 0.3
+    },
+    {
+      "id": "ep_path",
+      "pos": [7.0, -7.54],
+      "label": "Wide Expert Parallelism:\nMoE Models (Mixtral, DeepSeek)",
+      "parent": "branch_paths",
+      "icon": "moe",
+      "text_offset": 0.3
+    },
+
+    {
+      "id": "branch_choosing",
+      "pos": [4.3, -9.48],
+      "label": "K8s Primitives &\nChoosing",
+      "color": "#6d597a",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "k8s_primitives",
+      "pos": [7.0, -8.66],
+      "label": "K8s Primitives:\nHPA, Probes, Ingress, GPU Plugin",
+      "parent": "branch_choosing",
+      "icon": "k8s",
+      "text_offset": 0.3
+    },
+    {
+      "id": "k3d_vs_llmd",
+      "pos": [7.0, -9.48],
+      "label": "k3d vs llm-d:\nManual vs Production-Grade",
+      "parent": "branch_choosing",
+      "icon": "decision_tree",
+      "text_offset": 0.3
+    },
+    {
+      "id": "alternatives",
+      "pos": [7.0, -10.30],
+      "label": "Alternatives:\nKServe, KubeAI, vLLM Production-Stack",
+      "parent": "branch_choosing",
+      "icon": "kserve",
+      "text_offset": 0.3
+    }
+  ]
+}

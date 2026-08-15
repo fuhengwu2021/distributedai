@@ -1,0 +1,256 @@
+{
+  "canvas": {
+    "figsize": [12.0, 16.6],
+    "xlim": [0.3, 14.5],
+    "ylim": [-7.32, 12.3],
+    "icon_size": 0.4,
+    "placeholder_icon_size": 0.1,
+    "text_gap": 0.18
+  },
+  "nodes": [
+    {
+      "id": "root",
+      "pos": [1.1, 2.49],
+      "label": "The Evolving Landscape\nof Distributed AI",
+      "color": "#8c1d40",
+      "is_branch": true
+    },
+
+    {
+      "id": "branch_state",
+      "pos": [4.3, 11.18],
+      "label": "State of\nthe Field",
+      "color": "#2a9d8f",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "scale_today",
+      "pos": [7.0, 12.00],
+      "label": "Scale Today:\n100K+ GPUs, DeepSeek-V3 $5.5M",
+      "parent": "branch_state",
+      "icon": "compute_power",
+      "text_offset": 0.3
+    },
+    {
+      "id": "inference_dominant",
+      "pos": [7.0, 11.18],
+      "label": "Inference > Training:\n55%+ of AI Infra Spend",
+      "parent": "branch_state",
+      "icon": "inference",
+      "text_offset": 0.3
+    },
+    {
+      "id": "new_bottleneck",
+      "pos": [7.0, 10.36],
+      "label": "New Bottleneck:\nPower & Cooling, Not Silicon",
+      "parent": "branch_state",
+      "icon": "placeholder"
+    },
+
+    {
+      "id": "branch_moe",
+      "pos": [4.3, 8.42],
+      "label": "MoE Frontier",
+      "color": "#0077b6",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "latentmoe_mose",
+      "pos": [7.0, 9.24],
+      "label": "LatentMoE & MoSE:\nHW-SW Co-Design, Slimmable Experts",
+      "parent": "branch_moe",
+      "icon": "moe",
+      "text_offset": 0.3
+    },
+    {
+      "id": "elastic_moe",
+      "pos": [7.0, 8.42],
+      "label": "Elastic MoE:\n2–3× Training-Time Expert Count",
+      "parent": "branch_moe",
+      "icon": "moe",
+      "text_offset": 0.3
+    },
+    {
+      "id": "remoe",
+      "pos": [7.0, 7.60],
+      "label": "ReMoE:\nDifferentiable ReLU Routing",
+      "parent": "branch_moe",
+      "icon": "moe",
+      "text_offset": 0.3
+    },
+
+    {
+      "id": "branch_edge",
+      "pos": [4.3, 5.66],
+      "label": "Edge-Cloud\nContinuum",
+      "color": "#9d4edd",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "ondevice_models",
+      "pos": [7.0, 6.48],
+      "label": "On-Device Models:\nSub-1B Params, 2–4GB RAM",
+      "parent": "branch_edge",
+      "icon": "small_model",
+      "text_offset": 0.3
+    },
+    {
+      "id": "mem_bandwidth_bound",
+      "pos": [7.0, 5.66],
+      "label": "Memory Bandwidth Bound:\n50–90 GB/s Phones vs TB/s GPUs",
+      "parent": "branch_edge",
+      "icon": "gpu_mem",
+      "text_offset": 0.3
+    },
+    {
+      "id": "edge_cloud_spec",
+      "pos": [7.0, 4.84],
+      "label": "Edge-Cloud Speculative Decoding:\nDraft on Device, Verify in Cloud",
+      "parent": "branch_edge",
+      "icon": "inference",
+      "text_offset": 0.3
+    },
+
+    {
+      "id": "branch_scale_parallel",
+      "pos": [4.3, 2.49],
+      "label": "Parallelism\nat Scale",
+      "color": "#e76f51",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "torchcomms",
+      "pos": [7.0, 3.72],
+      "label": "Torchcomms:\n100K+ GPU, Heterogeneous HW",
+      "parent": "branch_scale_parallel",
+      "icon": "multi_gpu",
+      "text_offset": 0.3
+    },
+    {
+      "id": "ncclx",
+      "pos": [7.0, 2.90],
+      "label": "NCCLX/RCCLX:\n10–50% Faster AllReduce",
+      "parent": "branch_scale_parallel",
+      "icon": "allreduce",
+      "text_offset": 0.35
+    },
+    {
+      "id": "hierarchical_parallel",
+      "pos": [7.0, 2.08],
+      "label": "Hierarchical Parallelism:\nDP × TP × PP = World Size",
+      "parent": "branch_scale_parallel",
+      "icon": "megatron",
+      "text_offset": 0.3
+    },
+    {
+      "id": "ring_attention",
+      "pos": [7.0, 1.26],
+      "label": "Ring Attention:\nMemory-Efficient, Million-Token Context",
+      "parent": "branch_scale_parallel",
+      "icon": "ring_attention",
+      "text_offset": 0.3
+    },
+
+    {
+      "id": "branch_fault",
+      "pos": [4.3, -0.68],
+      "label": "Fault Tolerance\nat Scale",
+      "color": "#3a5a40",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "failure_rate",
+      "pos": [7.0, 0.14],
+      "label": "100K GPUs:\n~100 Failures/Day is Normal",
+      "parent": "branch_fault",
+      "icon": "multi_gpu",
+      "text_offset": 0.3
+    },
+    {
+      "id": "async_checkpoint",
+      "pos": [7.0, -0.68],
+      "label": "Async Checkpointing:\n6× Faster (DCP)",
+      "parent": "branch_fault",
+      "icon": "placeholder"
+    },
+    {
+      "id": "elastic_training_ch11",
+      "pos": [7.0, -1.50],
+      "label": "Elastic Training:\nWorkers Join/Leave Mid-Run",
+      "parent": "branch_fault",
+      "icon": "process_group",
+      "text_offset": 0.3
+    },
+
+    {
+      "id": "branch_agentic",
+      "pos": [4.3, -3.44],
+      "label": "Multimodal &\nAgentic",
+      "color": "#b5651d",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "vlms",
+      "pos": [7.0, -2.62],
+      "label": "VLMs:\nCross-Modal Attention, Vision+Language TP",
+      "parent": "branch_agentic",
+      "icon": "tensor_parallel",
+      "text_offset": 0.3
+    },
+    {
+      "id": "multi_agent",
+      "pos": [7.0, -3.44],
+      "label": "Multi-Agent Patterns:\nSequential, Parallel, Hierarchical",
+      "parent": "branch_agentic",
+      "icon": "process_group",
+      "text_offset": 0.3
+    },
+    {
+      "id": "reasoning_agents",
+      "pos": [7.0, -4.26],
+      "label": "Reasoning Agents:\nExtended Multi-Step Inference",
+      "parent": "branch_agentic",
+      "icon": "agent",
+      "text_offset": 0.3
+    },
+
+    {
+      "id": "branch_federated",
+      "pos": [4.3, -6.20],
+      "label": "Federated Learning\n& Economics",
+      "color": "#6d597a",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "fedavg",
+      "pos": [7.0, -5.38],
+      "label": "FedAvg:\nData Stays on Device, Share Only Weights",
+      "parent": "branch_federated",
+      "icon": "federated_learning",
+      "text_offset": 0.3
+    },
+    {
+      "id": "non_iid",
+      "pos": [7.0, -6.20],
+      "label": "Non-IID Challenge:\nFedProx, Scaffold, Secure Aggregation",
+      "parent": "branch_federated",
+      "icon": "non_iid",
+      "text_offset": 0.3
+    },
+    {
+      "id": "grad_compression",
+      "pos": [7.0, -7.02],
+      "label": "Gradient Compression:\nTop-k Sparsification, 100× Reduction",
+      "parent": "branch_federated",
+      "icon": "gradient",
+      "text_offset": 0.3
+    }
+  ]
+}

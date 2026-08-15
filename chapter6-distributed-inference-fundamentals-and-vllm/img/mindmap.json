@@ -1,0 +1,247 @@
+{
+  "canvas": {
+    "figsize": [12.0, 15.9],
+    "xlim": [0.3, 14.5],
+    "ylim": [-6.5, 12.3],
+    "icon_size": 0.4,
+    "placeholder_icon_size": 0.1,
+    "text_gap": 0.18
+  },
+  "nodes": [
+    {
+      "id": "root",
+      "pos": [1.1, 2.90],
+      "label": "Distributed Inference\n& vLLM",
+      "color": "#8c1d40",
+      "is_branch": true
+    },
+
+    {
+      "id": "branch_traininfer",
+      "pos": [4.3, 11.18],
+      "label": "Training vs\nInference",
+      "color": "#2a9d8f",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "train_side",
+      "pos": [7.0, 12.00],
+      "label": "Training:\nThroughput, Fixed Batches",
+      "parent": "branch_traininfer",
+      "icon": "training",
+      "text_offset": 0.3
+    },
+    {
+      "id": "infer_side",
+      "pos": [7.0, 11.18],
+      "label": "Inference:\nLatency+Throughput, Variable Requests",
+      "parent": "branch_traininfer",
+      "icon": "inference",
+      "text_offset": 0.3
+    },
+    {
+      "id": "oom_problem",
+      "pos": [7.0, 10.36],
+      "label": "OOM Problem:\n405B Model = 810GB in FP16",
+      "parent": "branch_traininfer",
+      "icon": "placeholder"
+    },
+
+    {
+      "id": "branch_kvcache",
+      "pos": [4.3, 8.42],
+      "label": "KV Cache &\nAttention Phases",
+      "color": "#0077b6",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "prefill",
+      "pos": [7.0, 9.24],
+      "label": "Prefill:\nCompute-Bound, Full Prompt in Parallel",
+      "parent": "branch_kvcache",
+      "icon": "prefill",
+      "text_offset": 0.3
+    },
+    {
+      "id": "decode",
+      "pos": [7.0, 8.42],
+      "label": "Decode:\nMemory-Bound, One Token at a Time",
+      "parent": "branch_kvcache",
+      "icon": "gpu_mem",
+      "text_offset": 0.3
+    },
+    {
+      "id": "kv_complexity",
+      "pos": [7.0, 7.60],
+      "label": "KV Cache:\nO(T²) → O(T) via Caching K, V",
+      "parent": "branch_kvcache",
+      "icon": "kv_cache",
+      "text_offset": 0.3
+    },
+
+    {
+      "id": "branch_paged",
+      "pos": [4.3, 5.66],
+      "label": "PagedAttention",
+      "color": "#9d4edd",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "fragmentation",
+      "pos": [7.0, 6.48],
+      "label": "Fragmentation:\n60–80% Memory Waste",
+      "parent": "branch_paged",
+      "icon": "fragmentation",
+      "text_offset": 0.3
+    },
+    {
+      "id": "block_memory",
+      "pos": [7.0, 5.66],
+      "label": "Block-Based Memory:\n16-Token Pages + Block Table",
+      "parent": "branch_paged",
+      "icon": "vllm",
+      "text_offset": 0.3
+    },
+    {
+      "id": "padding_flops",
+      "pos": [7.0, 4.84],
+      "label": "Eliminates Padding FLOPs:\n2–4× Throughput",
+      "parent": "branch_paged",
+      "icon": "placeholder"
+    },
+
+    {
+      "id": "branch_arch",
+      "pos": [4.3, 2.90],
+      "label": "vLLM\nArchitecture",
+      "color": "#e76f51",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "scheduler",
+      "pos": [7.0, 3.72],
+      "label": "Scheduler:\nContinuous Batching (Orca-Style)",
+      "parent": "branch_arch",
+      "icon": "process_group",
+      "text_offset": 0.3
+    },
+    {
+      "id": "executor_workers",
+      "pos": [7.0, 2.90],
+      "label": "Executor & Workers:\nOne GPU/Worker, NCCL Collectives",
+      "parent": "branch_arch",
+      "icon": "multi_gpu",
+      "text_offset": 0.3
+    },
+    {
+      "id": "deployment",
+      "pos": [7.0, 2.08],
+      "label": "Deployment:\nDocker, vllm serve, Offline API",
+      "parent": "branch_arch",
+      "icon": "deployment",
+      "text_offset": 0.3
+    },
+
+    {
+      "id": "branch_parallelism",
+      "pos": [4.3, 0.14],
+      "label": "Parallelism:\nTP, DP, PP",
+      "color": "#3a5a40",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "tp_vllm",
+      "pos": [7.0, 0.96],
+      "label": "Tensor Parallelism:\nColumn+Row Split, AllReduce/Layer",
+      "parent": "branch_parallelism",
+      "icon": "tensor_parallel",
+      "text_offset": 0.3
+    },
+    {
+      "id": "dp_vllm",
+      "pos": [7.0, 0.14],
+      "label": "Data Parallelism:\nFull Replicas, Zero Comm, Linear Scaling",
+      "parent": "branch_parallelism",
+      "icon": "data_parallel",
+      "text_offset": 0.3
+    },
+    {
+      "id": "pp_vllm",
+      "pos": [7.0, -0.68],
+      "label": "Pipeline Parallelism:\nLayers Split, Bubbles + Chunked Prefill",
+      "parent": "branch_parallelism",
+      "icon": "pipeline_parallel",
+      "text_offset": 0.3
+    },
+
+    {
+      "id": "branch_ep",
+      "pos": [4.3, -2.62],
+      "label": "Expert Parallelism\n(MoE)",
+      "color": "#b5651d",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "ep_flag",
+      "pos": [7.0, -1.80],
+      "label": "EP = Modifier Flag:\nRequires TP × DP > 1",
+      "parent": "branch_ep",
+      "icon": "placeholder"
+    },
+    {
+      "id": "tp_ep",
+      "pos": [7.0, -2.62],
+      "label": "TP+EP:\nAll-Reduce, Latency-Sensitive",
+      "parent": "branch_ep",
+      "icon": "tensor_parallel",
+      "text_offset": 0.3
+    },
+    {
+      "id": "dp_ep",
+      "pos": [7.0, -3.44],
+      "label": "DP+EP:\nAll-to-All, Partitioned KV Cache",
+      "parent": "branch_ep",
+      "icon": "dp_ep",
+      "text_offset": 0.3
+    },
+
+    {
+      "id": "branch_choosing",
+      "pos": [4.3, -5.38],
+      "label": "Combining &\nChoosing",
+      "color": "#6d597a",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "topology",
+      "pos": [7.0, -4.56],
+      "label": "TP Intra-Node,\nPP Inter-Node (Standard Combo)",
+      "parent": "branch_choosing",
+      "icon": "multi_gpu",
+      "text_offset": 0.3
+    },
+    {
+      "id": "decision_framework",
+      "pos": [7.0, -5.38],
+      "label": "Decision Framework:\nFit First (TP/PP), Then Scale (DP)",
+      "parent": "branch_choosing",
+      "icon": "decision_tree",
+      "text_offset": 0.3
+    },
+    {
+      "id": "profiling_vllm",
+      "pos": [7.0, -6.20],
+      "label": "Profiling:\nNsight Systems, Comm vs Compute",
+      "parent": "branch_choosing",
+      "icon": "profiling",
+      "text_offset": 0.3
+    }
+  ]
+}

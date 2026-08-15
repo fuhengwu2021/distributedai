@@ -1,0 +1,251 @@
+{
+  "canvas": {
+    "figsize": [12.0, 16.6],
+    "xlim": [0.3, 14.5],
+    "ylim": [-7.32, 12.3],
+    "icon_size": 0.4,
+    "placeholder_icon_size": 0.1,
+    "text_gap": 0.18
+  },
+  "nodes": [
+    {
+      "id": "root",
+      "pos": [1.1, 2.72],
+      "label": "Cross-Request\nOptimization with SGLang",
+      "color": "#8c1d40",
+      "is_branch": true
+    },
+
+    {
+      "id": "branch_philosophy",
+      "pos": [4.3, 11.18],
+      "label": "Philosophy:\nCross-Request Optimization",
+      "color": "#2a9d8f",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "vllm_vs_sglang",
+      "pos": [7.0, 12.00],
+      "label": "vLLM vs SGLang:\nIntra- vs Inter-Request Efficiency",
+      "parent": "branch_philosophy",
+      "icon": "placeholder"
+    },
+    {
+      "id": "core_innovations",
+      "pos": [7.0, 11.18],
+      "label": "Core Innovations:\nRadixAttention + Zero-Overhead Scheduler",
+      "parent": "branch_philosophy",
+      "icon": "placeholder"
+    },
+    {
+      "id": "router_scaling",
+      "pos": [7.0, 10.36],
+      "label": "Router as Scaling Primitive:\nRoute Requests, Not Just Shard Weights",
+      "parent": "branch_philosophy",
+      "icon": "process_group",
+      "text_offset": 0.3
+    },
+
+    {
+      "id": "branch_radix",
+      "pos": [4.3, 8.42],
+      "label": "RadixAttention",
+      "color": "#0077b6",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "radix_tree",
+      "pos": [7.0, 9.24],
+      "label": "Radix Tree:\nShared Prefixes Cached Once",
+      "parent": "branch_radix",
+      "icon": "radix_tree",
+      "text_offset": 0.3
+    },
+    {
+      "id": "cache_hit",
+      "pos": [7.0, 8.42],
+      "label": "Cache Hit:\nUp to 90% Less Prefill Compute",
+      "parent": "branch_radix",
+      "icon": "placeholder"
+    },
+    {
+      "id": "lru_eviction",
+      "pos": [7.0, 7.60],
+      "label": "LRU Eviction:\nSystem Prompts Survive, Idle Branches Pruned",
+      "parent": "branch_radix",
+      "icon": "lru",
+      "text_offset": 0.3
+    },
+
+    {
+      "id": "branch_engine",
+      "pos": [4.3, 5.66],
+      "label": "Execution Engine\nOptimizations",
+      "color": "#9d4edd",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "zero_overhead",
+      "pos": [7.0, 6.48],
+      "label": "Zero-Overhead Scheduler:\nCPU/GPU Overlap, up to 2× Throughput",
+      "parent": "branch_engine",
+      "icon": "placeholder"
+    },
+    {
+      "id": "xgrammar",
+      "pos": [7.0, 5.66],
+      "label": "XGrammar:\nFSA-Compiled Structured Output",
+      "parent": "branch_engine",
+      "icon": "xgrammar",
+      "text_offset": 0.3
+    },
+    {
+      "id": "operator_fusion",
+      "pos": [7.0, 4.84],
+      "label": "Operator Fusion:\nFused Kernels, Fewer Launches",
+      "parent": "branch_engine",
+      "icon": "op_fusion",
+      "text_offset": 0.3
+    },
+
+    {
+      "id": "branch_arch",
+      "pos": [4.3, 2.90],
+      "label": "SGLang\nArchitecture",
+      "color": "#e76f51",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "frontend_backend",
+      "pos": [7.0, 3.72],
+      "label": "Frontend/Backend:\nAPI Server + SRT Pipeline",
+      "parent": "branch_arch",
+      "icon": "sglang",
+      "text_offset": 0.3
+    },
+    {
+      "id": "model_gateway",
+      "pos": [7.0, 2.90],
+      "label": "Model Gateway (Router):\nControl Plane + Data Plane",
+      "parent": "branch_arch",
+      "icon": "multi_gpu",
+      "text_offset": 0.3
+    },
+    {
+      "id": "cache_aware_routing",
+      "pos": [7.0, 2.08],
+      "label": "Cache-Aware Routing:\nPrefix Match → Best Worker",
+      "parent": "branch_arch",
+      "icon": "placeholder"
+    },
+
+    {
+      "id": "branch_pd",
+      "pos": [4.3, 0.14],
+      "label": "PD Disaggregation",
+      "color": "#3a5a40",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "prefill_pd",
+      "pos": [7.0, 0.96],
+      "label": "Prefill:\nCompute-Bound (85% Util)",
+      "parent": "branch_pd",
+      "icon": "compute_power",
+      "text_offset": 0.3
+    },
+    {
+      "id": "decode_pd",
+      "pos": [7.0, 0.14],
+      "label": "Decode:\nMemory-Bound (90% BW)",
+      "parent": "branch_pd",
+      "icon": "gpu_mem",
+      "text_offset": 0.3
+    },
+    {
+      "id": "kv_transfer",
+      "pos": [7.0, -0.68],
+      "label": "KV Transfer:\nMooncake (RDMA), NIXL, ASCEND",
+      "parent": "branch_pd",
+      "icon": "infiniband",
+      "text_offset": 0.3
+    },
+
+    {
+      "id": "branch_parallel_moe",
+      "pos": [4.3, -3.03],
+      "label": "Parallelism &\nMoE",
+      "color": "#b5651d",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "four_dims",
+      "pos": [7.0, -1.80],
+      "label": "TP / PP / DP / EP:\nFour Orthogonal Dimensions",
+      "parent": "branch_parallel_moe",
+      "icon": "tensor_parallel",
+      "text_offset": 0.3
+    },
+    {
+      "id": "ep_tbo",
+      "pos": [7.0, -2.62],
+      "label": "Expert Parallelism:\nTwo-Batch Overlap (TBO)",
+      "parent": "branch_parallel_moe",
+      "icon": "moe",
+      "text_offset": 0.3
+    },
+    {
+      "id": "dp_attention",
+      "pos": [7.0, -3.44],
+      "label": "DP Attention:\nNo KV Duplication, 1.9× Decode Throughput",
+      "parent": "branch_parallel_moe",
+      "icon": "multi_gpu",
+      "text_offset": 0.3
+    },
+    {
+      "id": "spec_decoding",
+      "pos": [7.0, -4.26],
+      "label": "Speculative Decoding:\nDraft + Verify, 2–4× Speedup",
+      "parent": "branch_parallel_moe",
+      "icon": "speculative_decoding",
+      "text_offset": 0.3
+    },
+
+    {
+      "id": "branch_deploy",
+      "pos": [4.3, -6.20],
+      "label": "Deployment &\nReliability",
+      "color": "#6d597a",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "session_affinity",
+      "pos": [7.0, -5.38],
+      "label": "Session Affinity:\nSame Worker, Warm Cache, 2–3× Faster",
+      "parent": "branch_deploy",
+      "icon": "placeholder"
+    },
+    {
+      "id": "fault_tolerance",
+      "pos": [7.0, -6.20],
+      "label": "Fault Tolerance:\nHealth Checks, Circuit Breakers",
+      "parent": "branch_deploy",
+      "icon": "placeholder"
+    },
+    {
+      "id": "choosing",
+      "pos": [7.0, -7.02],
+      "label": "Choosing SGLang vs vLLM:\nWorkload-Dependent",
+      "parent": "branch_deploy",
+      "icon": "decision_tree",
+      "text_offset": 0.3
+    }
+  ]
+}

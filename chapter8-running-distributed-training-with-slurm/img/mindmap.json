@@ -1,0 +1,261 @@
+{
+  "canvas": {
+    "figsize": [12.0, 18.0],
+    "xlim": [0.3, 14.5],
+    "ylim": [-8.96, 12.3],
+    "icon_size": 0.4,
+    "placeholder_icon_size": 0.1,
+    "text_gap": 0.18
+  },
+  "nodes": [
+    {
+      "id": "root",
+      "pos": [1.1, 1.67],
+      "label": "Running Distributed\nTraining with SLURM",
+      "color": "#8c1d40",
+      "is_branch": true
+    },
+
+    {
+      "id": "branch_hpc",
+      "pos": [4.3, 11.18],
+      "label": "HPC Clusters &\nSLURM Architecture",
+      "color": "#2a9d8f",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "schedulers",
+      "pos": [7.0, 12.00],
+      "label": "Job Schedulers:\nPBS, LSF, HTCondor, K8s, SLURM",
+      "parent": "branch_hpc",
+      "icon": "placeholder"
+    },
+    {
+      "id": "why_slurm",
+      "pos": [7.0, 11.18],
+      "label": "Why SLURM:\nGRES for GPUs, torchrun Integration",
+      "parent": "branch_hpc",
+      "icon": "single_gpu",
+      "text_offset": 0.3
+    },
+    {
+      "id": "daemons",
+      "pos": [7.0, 10.36],
+      "label": "Daemons:\nslurmctld, slurmd, slurmdbd",
+      "parent": "branch_hpc",
+      "icon": "placeholder"
+    },
+
+    {
+      "id": "branch_setup",
+      "pos": [4.3, 8.42],
+      "label": "Setup &\nVerification",
+      "color": "#0077b6",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "virtual_cluster",
+      "pos": [7.0, 9.24],
+      "label": "Virtual Multi-Node:\nMultiple slurmd on One Machine",
+      "parent": "branch_setup",
+      "icon": "multi_gpu",
+      "text_offset": 0.3
+    },
+    {
+      "id": "sinfo_verify",
+      "pos": [7.0, 8.42],
+      "label": "sinfo / srun:\nVerify Partition & Node Status",
+      "parent": "branch_setup",
+      "icon": "placeholder"
+    },
+    {
+      "id": "gres_mapping",
+      "pos": [7.0, 7.60],
+      "label": "gres.conf:\nMap Virtual Nodes to Physical GPUs",
+      "parent": "branch_setup",
+      "icon": "single_gpu",
+      "text_offset": 0.3
+    },
+
+    {
+      "id": "branch_submit",
+      "pos": [4.3, 5.25],
+      "label": "Submitting Jobs",
+      "color": "#9d4edd",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "srun_interactive",
+      "pos": [7.0, 6.48],
+      "label": "srun:\nInteractive Execution",
+      "parent": "branch_submit",
+      "icon": "slurm",
+      "text_offset": 0.3
+    },
+    {
+      "id": "sbatch_batch",
+      "pos": [7.0, 5.66],
+      "label": "sbatch:\nBatch Scripts, #SBATCH Directives",
+      "parent": "branch_submit",
+      "icon": "placeholder"
+    },
+    {
+      "id": "env_mapping",
+      "pos": [7.0, 4.84],
+      "label": "SLURM → PyTorch:\nPROCID→RANK, LOCALID→LOCAL_RANK",
+      "parent": "branch_submit",
+      "icon": "process_group",
+      "text_offset": 0.3
+    },
+    {
+      "id": "job_lifecycle",
+      "pos": [7.0, 4.02],
+      "label": "Job Lifecycle:\nPENDING → RUNNING → COMPLETED",
+      "parent": "branch_submit",
+      "icon": "placeholder"
+    },
+
+    {
+      "id": "branch_frameworks",
+      "pos": [4.3, 1.67],
+      "label": "Launching\nFrameworks",
+      "color": "#e76f51",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "ddp_slurm",
+      "pos": [7.0, 2.90],
+      "label": "DDP:\ntorchrun, Manual Init",
+      "parent": "branch_frameworks",
+      "icon": "ddp",
+      "text_offset": 0.3
+    },
+    {
+      "id": "fsdp_slurm",
+      "pos": [7.0, 2.08],
+      "label": "FSDP:\nSame Launch, Different Wrapper",
+      "parent": "branch_frameworks",
+      "icon": "fsdp",
+      "text_offset": 0.3
+    },
+    {
+      "id": "deepspeed_slurm",
+      "pos": [7.0, 1.26],
+      "label": "DeepSpeed:\nAutomatic Init, LOCAL_RANK Export",
+      "parent": "branch_frameworks",
+      "icon": "deepspeed",
+      "text_offset": 0.3
+    },
+    {
+      "id": "megatron_slurm",
+      "pos": [7.0, 0.44],
+      "label": "Megatron-LM:\nInstall from Source, .distcp Checkpoints",
+      "parent": "branch_frameworks",
+      "icon": "megatron",
+      "text_offset": 0.3
+    },
+
+    {
+      "id": "branch_advanced",
+      "pos": [4.3, -1.91],
+      "label": "Advanced\nFeatures",
+      "color": "#3a5a40",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "job_arrays",
+      "pos": [7.0, -0.68],
+      "label": "Job Arrays:\n--array, Hyperparameter Sweeps",
+      "parent": "branch_advanced",
+      "icon": "placeholder"
+    },
+    {
+      "id": "salloc_debug",
+      "pos": [7.0, -1.50],
+      "label": "salloc:\nInteractive Debugging Allocation",
+      "parent": "branch_advanced",
+      "icon": "placeholder"
+    },
+    {
+      "id": "job_deps",
+      "pos": [7.0, -2.32],
+      "label": "Job Dependencies:\nafterok, Chained Pipelines",
+      "parent": "branch_advanced",
+      "icon": "placeholder"
+    },
+    {
+      "id": "signal_checkpoint",
+      "pos": [7.0, -3.14],
+      "label": "Signal-Based Checkpointing:\n--signal=SIGUSR1@90",
+      "parent": "branch_advanced",
+      "icon": "placeholder"
+    },
+
+    {
+      "id": "branch_monitor",
+      "pos": [4.3, -5.08],
+      "label": "Monitoring &\nProfiling",
+      "color": "#b5651d",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "queue_monitor",
+      "pos": [7.0, -4.26],
+      "label": "squeue / sacct:\nQueue Status, Resource Accounting",
+      "parent": "branch_monitor",
+      "icon": "placeholder"
+    },
+    {
+      "id": "rank_logging",
+      "pos": [7.0, -5.08],
+      "label": "Per-Rank Logging:\n--label, Rank-Specific Files",
+      "parent": "branch_monitor",
+      "icon": "placeholder"
+    },
+    {
+      "id": "profiler_nccl",
+      "pos": [7.0, -5.90],
+      "label": "torch.profiler + NCCL_DEBUG:\nFind Communication Bottlenecks",
+      "parent": "branch_monitor",
+      "icon": "allreduce",
+      "text_offset": 0.35
+    },
+
+    {
+      "id": "branch_practices",
+      "pos": [4.3, -7.84],
+      "label": "Best Practices &\nTroubleshooting",
+      "color": "#6d597a",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "explicit_resources",
+      "pos": [7.0, -7.02],
+      "label": "Explicit Resources:\n--nodes, --gres, --mem, --exclusive",
+      "parent": "branch_practices",
+      "icon": "cpu",
+      "text_offset": 0.3
+    },
+    {
+      "id": "robust_checkpoint",
+      "pos": [7.0, -7.84],
+      "label": "Robust Checkpointing:\nRegular Intervals, Test Resume",
+      "parent": "branch_practices",
+      "icon": "placeholder"
+    },
+    {
+      "id": "common_failures",
+      "pos": [7.0, -8.66],
+      "label": "Common Failures:\nHangs, GPU Alloc, NCCL Errors",
+      "parent": "branch_practices",
+      "icon": "placeholder"
+    }
+  ]
+}

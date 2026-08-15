@@ -1,0 +1,276 @@
+{
+  "canvas": {
+    "figsize": [12.0, 19.4],
+    "xlim": [0.3, 14.5],
+    "ylim": [-10.6, 12.3],
+    "icon_size": 0.4,
+    "placeholder_icon_size": 0.1,
+    "text_gap": 0.18
+  },
+  "nodes": [
+    {
+      "id": "root",
+      "pos": [1.1, 0.15],
+      "label": "Distributed Training\nwith PyTorch DDP",
+      "color": "#8c1d40",
+      "is_branch": true
+    },
+
+    {
+      "id": "branch_internals",
+      "pos": [4.3, 10.36],
+      "label": "How DDP\nWorks Internally",
+      "color": "#2a9d8f",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "dp_vs_ddp",
+      "pos": [7.0, 12.00],
+      "label": "DP vs DDP:\nMulti-Process, No GIL Bottleneck",
+      "parent": "branch_internals",
+      "icon": "ddp",
+      "text_offset": 0.3
+    },
+    {
+      "id": "grad_bucketing",
+      "pos": [7.0, 11.18],
+      "label": "Gradient Bucketing:\n25MB Buckets (bucket_cap_mb)",
+      "parent": "branch_internals",
+      "icon": "placeholder"
+    },
+    {
+      "id": "comm_overlap",
+      "pos": [7.0, 10.36],
+      "label": "Comm-Compute Overlap:\nAutograd Hooks + Async AllReduce",
+      "parent": "branch_internals",
+      "icon": "placeholder"
+    },
+    {
+      "id": "ring_allreduce",
+      "pos": [7.0, 9.54],
+      "label": "Ring AllReduce:\nBandwidth-Optimal, 2(N−1)/N",
+      "parent": "branch_internals",
+      "icon": "allreduce",
+      "text_offset": 0.35
+    },
+    {
+      "id": "mixed_precision",
+      "pos": [7.0, 8.72],
+      "label": "Mixed Precision:\nGradScaler (FP16) vs BF16",
+      "parent": "branch_internals",
+      "icon": "gradient",
+      "text_offset": 0.3
+    },
+
+    {
+      "id": "branch_singlenode",
+      "pos": [4.3, 6.37],
+      "label": "Single-Node Setup",
+      "color": "#0077b6",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "torchrun_launch",
+      "pos": [7.0, 7.60],
+      "label": "torchrun:\nRANK, LOCAL_RANK, WORLD_SIZE",
+      "parent": "branch_singlenode",
+      "icon": "torchrun",
+      "text_offset": 0.3
+    },
+    {
+      "id": "dist_sampler",
+      "pos": [7.0, 6.78],
+      "label": "DistributedSampler:\nShards Data, set_epoch()",
+      "parent": "branch_singlenode",
+      "icon": "process_group",
+      "text_offset": 0.3
+    },
+    {
+      "id": "dataloader_internals",
+      "pos": [7.0, 5.96],
+      "label": "DataLoader:\nWorkers, Prefetch, Pin Memory",
+      "parent": "branch_singlenode",
+      "icon": "placeholder"
+    },
+    {
+      "id": "device_selection",
+      "pos": [7.0, 5.14],
+      "label": "Device Selection:\nLOCAL_RANK → cuda:N",
+      "parent": "branch_singlenode",
+      "icon": "single_gpu",
+      "text_offset": 0.3
+    },
+
+    {
+      "id": "branch_multinode",
+      "pos": [4.3, 3.20],
+      "label": "Multi-Node Setup",
+      "color": "#9d4edd",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "multinode_arch",
+      "pos": [7.0, 4.02],
+      "label": "Multi-Node Architecture:\nNODE_RANK, NNODES",
+      "parent": "branch_multinode",
+      "icon": "multi_gpu",
+      "text_offset": 0.3
+    },
+    {
+      "id": "multinode_launch",
+      "pos": [7.0, 3.20],
+      "label": "Launching:\ntorchrun per Node or SLURM",
+      "parent": "branch_multinode",
+      "icon": "slurm",
+      "text_offset": 0.3
+    },
+    {
+      "id": "network_config",
+      "pos": [7.0, 2.38],
+      "label": "Network:\nInfiniBand > Ethernet (RDMA)",
+      "parent": "branch_multinode",
+      "icon": "infiniband",
+      "text_offset": 0.3
+    },
+
+    {
+      "id": "branch_debug",
+      "pos": [4.3, 0.44],
+      "label": "Debugging &\nTroubleshooting",
+      "color": "#e76f51",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "hangs",
+      "pos": [7.0, 1.26],
+      "label": "Hangs:\nMismatched Collectives, Timeouts",
+      "parent": "branch_debug",
+      "icon": "placeholder"
+    },
+    {
+      "id": "wrong_results",
+      "pos": [7.0, 0.44],
+      "label": "Wrong Results:\nMissing set_epoch(), Seed Mismatch",
+      "parent": "branch_debug",
+      "icon": "placeholder"
+    },
+    {
+      "id": "oom",
+      "pos": [7.0, -0.38],
+      "label": "OOM:\nPer-GPU Batch Size, Grad Checkpointing",
+      "parent": "branch_debug",
+      "icon": "placeholder"
+    },
+
+    {
+      "id": "branch_profiling",
+      "pos": [4.3, -3.14],
+      "label": "Profiling &\nOptimization",
+      "color": "#3a5a40",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "profiler",
+      "pos": [7.0, -1.50],
+      "label": "torch.profiler:\nChrome Trace, Overlap Analysis",
+      "parent": "branch_profiling",
+      "icon": "profiling",
+      "text_offset": 0.3
+    },
+    {
+      "id": "nccl_perf",
+      "pos": [7.0, -2.32],
+      "label": "NCCL & Performance:\nTopology, num_workers Tuning",
+      "parent": "branch_profiling",
+      "icon": "placeholder"
+    },
+    {
+      "id": "bucket_tuning",
+      "pos": [7.0, -3.14],
+      "label": "Bucket Size Tuning:\n10–100 MB",
+      "parent": "branch_profiling",
+      "icon": "placeholder"
+    },
+    {
+      "id": "grad_accum",
+      "pos": [7.0, -3.96],
+      "label": "Gradient Accumulation:\nno_sync() for Micro-Batches",
+      "parent": "branch_profiling",
+      "icon": "training",
+      "text_offset": 0.3
+    },
+    {
+      "id": "unused_static",
+      "pos": [7.0, -4.78],
+      "label": "find_unused_parameters &\nstatic_graph",
+      "parent": "branch_profiling",
+      "icon": "placeholder"
+    },
+
+    {
+      "id": "branch_checkpoint",
+      "pos": [4.3, -6.72],
+      "label": "Checkpointing",
+      "color": "#b5651d",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "save_load",
+      "pos": [7.0, -5.90],
+      "label": "Save / Load:\nRank 0 Only, model.module.state_dict()",
+      "parent": "branch_checkpoint",
+      "icon": "placeholder"
+    },
+    {
+      "id": "atomic_ckpt",
+      "pos": [7.0, -6.72],
+      "label": "Atomic Writes:\nTemp File + Rename",
+      "parent": "branch_checkpoint",
+      "icon": "placeholder"
+    },
+    {
+      "id": "rng_state",
+      "pos": [7.0, -7.54],
+      "label": "RNG State:\nReproducible Resumes",
+      "parent": "branch_checkpoint",
+      "icon": "placeholder"
+    },
+
+    {
+      "id": "branch_advanced",
+      "pos": [4.3, -9.48],
+      "label": "Advanced Features &\nElastic Training",
+      "color": "#6d597a",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "hooks",
+      "pos": [7.0, -8.66],
+      "label": "Gradient & Comm Hooks:\nCustom Reduction",
+      "parent": "branch_advanced",
+      "icon": "placeholder"
+    },
+    {
+      "id": "join_uneven",
+      "pos": [7.0, -9.48],
+      "label": "join():\nHandle Uneven Inputs",
+      "parent": "branch_advanced",
+      "icon": "placeholder"
+    },
+    {
+      "id": "elastic",
+      "pos": [7.0, -10.30],
+      "label": "Elastic Training:\ntorchrun Rendezvous, max_restarts",
+      "parent": "branch_advanced",
+      "icon": "torchrun",
+      "text_offset": 0.3
+    }
+  ]
+}

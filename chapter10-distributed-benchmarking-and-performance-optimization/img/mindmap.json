@@ -1,0 +1,261 @@
+{
+  "canvas": {
+    "figsize": [12.0, 18.0],
+    "xlim": [0.3, 14.5],
+    "ylim": [-8.96, 12.3],
+    "icon_size": 0.4,
+    "placeholder_icon_size": 0.1,
+    "text_gap": 0.18
+  },
+  "nodes": [
+    {
+      "id": "root",
+      "pos": [1.1, 1.67],
+      "label": "Distributed Benchmarking\n& Performance Optimization",
+      "color": "#8c1d40",
+      "is_branch": true
+    },
+
+    {
+      "id": "branch_why",
+      "pos": [4.3, 11.18],
+      "label": "Why Benchmarking\nMatters",
+      "color": "#2a9d8f",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "perf_gap",
+      "pos": [7.0, 12.00],
+      "label": "Performance Gap:\n45% GPU Util = $50K Wasted",
+      "parent": "branch_why",
+      "icon": "placeholder"
+    },
+    {
+      "id": "suboptimal_selection",
+      "pos": [7.0, 11.18],
+      "label": "Suboptimal Selection:\nBenchmarks Must Match Production",
+      "parent": "branch_why",
+      "icon": "placeholder"
+    },
+    {
+      "id": "amdahls_law",
+      "pos": [7.0, 10.36],
+      "label": "Amdahl's Law:\nSerial Fraction Bounds Speedup",
+      "parent": "branch_why",
+      "icon": "compute_power",
+      "text_offset": 0.3
+    },
+
+    {
+      "id": "branch_fundamentals",
+      "pos": [4.3, 8.42],
+      "label": "Benchmarking\nFundamentals",
+      "color": "#0077b6",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "percentile_latency",
+      "pos": [7.0, 9.24],
+      "label": "Percentile Latencies:\nP50/P95/P99 > Average",
+      "parent": "branch_fundamentals",
+      "icon": "mfu",
+      "text_offset": 0.3
+    },
+    {
+      "id": "efficiency_metrics",
+      "pos": [7.0, 8.42],
+      "label": "Efficiency Metrics:\nScaling, Memory, Cost/Token",
+      "parent": "branch_fundamentals",
+      "icon": "compute_power",
+      "text_offset": 0.3
+    },
+    {
+      "id": "methodology",
+      "pos": [7.0, 7.60],
+      "label": "Methodology:\nWarmup, 100+ Iterations, Sync",
+      "parent": "branch_fundamentals",
+      "icon": "placeholder"
+    },
+
+    {
+      "id": "branch_training",
+      "pos": [4.3, 5.25],
+      "label": "Training Metrics &\nProfiling",
+      "color": "#9d4edd",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "training_metrics",
+      "pos": [7.0, 6.48],
+      "label": "Key Metrics:\nSamples/sec, GPU Util, Comm Overhead",
+      "parent": "branch_training",
+      "icon": "placeholder"
+    },
+    {
+      "id": "pytorch_profiler",
+      "pos": [7.0, 5.66],
+      "label": "PyTorch Profiler:\nCPU+CUDA, Chrome Trace",
+      "parent": "branch_training",
+      "icon": "training",
+      "text_offset": 0.3
+    },
+    {
+      "id": "nsight",
+      "pos": [7.0, 4.84],
+      "label": "Nsight Systems:\nKernel & NCCL-Level Detail",
+      "parent": "branch_training",
+      "icon": "placeholder"
+    },
+    {
+      "id": "custom_benchmark",
+      "pos": [7.0, 4.02],
+      "label": "Custom Benchmark:\nPer-Phase Timing (Data/Fwd/Bwd)",
+      "parent": "branch_training",
+      "icon": "placeholder"
+    },
+
+    {
+      "id": "branch_scaling",
+      "pos": [4.3, 1.67],
+      "label": "Scaling &\nNetwork Diagnostics",
+      "color": "#e76f51",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "scaling_efficiency",
+      "pos": [7.0, 2.90],
+      "label": "Scaling Efficiency:\n>90% Excellent, <50% Poor",
+      "parent": "branch_scaling",
+      "icon": "multi_gpu",
+      "text_offset": 0.3
+    },
+    {
+      "id": "network_hierarchy",
+      "pos": [7.0, 2.08],
+      "label": "Network Hierarchy:\nNVLink 600 > IB 200 > Eth 12.5 GB/s",
+      "parent": "branch_scaling",
+      "icon": "infiniband",
+      "text_offset": 0.3
+    },
+    {
+      "id": "allreduce_bw",
+      "pos": [7.0, 1.26],
+      "label": "AllReduce Bandwidth:\nIsolate Network from Compute",
+      "parent": "branch_scaling",
+      "icon": "allreduce",
+      "text_offset": 0.35
+    },
+    {
+      "id": "bottleneck_analysis",
+      "pos": [7.0, 0.44],
+      "label": "Bottleneck Analysis:\nData Loading, Comm, or Compute",
+      "parent": "branch_scaling",
+      "icon": "decision_tree",
+      "text_offset": 0.3
+    },
+
+    {
+      "id": "branch_infer_metrics",
+      "pos": [4.3, -1.91],
+      "label": "Inference\nMetrics",
+      "color": "#3a5a40",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "ttft",
+      "pos": [7.0, -0.68],
+      "label": "TTFT:\nTokenize + Prefill + First Token",
+      "parent": "branch_infer_metrics",
+      "icon": "inference",
+      "text_offset": 0.3
+    },
+    {
+      "id": "itl_tpot",
+      "pos": [7.0, -1.50],
+      "label": "ITL / TPOT:\nTyping Speed Between Tokens",
+      "parent": "branch_infer_metrics",
+      "icon": "placeholder"
+    },
+    {
+      "id": "e2e_latency",
+      "pos": [7.0, -2.32],
+      "label": "e2e Latency:\nTTFT + (Tokens−1) × ITL",
+      "parent": "branch_infer_metrics",
+      "icon": "placeholder"
+    },
+    {
+      "id": "tps_rps",
+      "pos": [7.0, -3.14],
+      "label": "TPS & RPS:\nThroughput vs Full Request Lifecycle",
+      "parent": "branch_infer_metrics",
+      "icon": "placeholder"
+    },
+
+    {
+      "id": "branch_infer_tools",
+      "pos": [4.3, -5.08],
+      "label": "Inference\nBenchmarking Tools",
+      "color": "#b5651d",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "genai_bench",
+      "pos": [7.0, -4.26],
+      "label": "genai-bench:\nRealistic Traffic Distributions",
+      "parent": "branch_infer_tools",
+      "icon": "placeholder"
+    },
+    {
+      "id": "cold_start",
+      "pos": [7.0, -5.08],
+      "label": "Cold Start:\n3–50× Slower Than Warm",
+      "parent": "branch_infer_tools",
+      "icon": "gpu_mem",
+      "text_offset": 0.3
+    },
+    {
+      "id": "reasoning_models",
+      "pos": [7.0, -5.90],
+      "label": "Reasoning Models:\n60%+ Latency from External Calls",
+      "parent": "branch_infer_tools",
+      "icon": "placeholder"
+    },
+
+    {
+      "id": "branch_accuracy",
+      "pos": [4.3, -7.84],
+      "label": "Accuracy\nValidation",
+      "color": "#6d597a",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "training_accuracy",
+      "pos": [7.0, -7.02],
+      "label": "Training Accuracy:\nDistributed = Single-GPU Quality?",
+      "parent": "branch_accuracy",
+      "icon": "ddp",
+      "text_offset": 0.3
+    },
+    {
+      "id": "inference_accuracy",
+      "pos": [7.0, -7.84],
+      "label": "Inference Accuracy:\nQuantization Trade-offs",
+      "parent": "branch_accuracy",
+      "icon": "placeholder"
+    },
+    {
+      "id": "statistical_sig",
+      "pos": [7.0, -8.66],
+      "label": "Statistical Significance:\np=0.001 vs p=0.3",
+      "parent": "branch_accuracy",
+      "icon": "placeholder"
+    }
+  ]
+}

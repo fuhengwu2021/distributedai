@@ -1,0 +1,269 @@
+{
+  "canvas": {
+    "figsize": [12.0, 18.0],
+    "xlim": [0.3, 14.5],
+    "ylim": [-8.96, 12.3],
+    "icon_size": 0.4,
+    "placeholder_icon_size": 0.1,
+    "text_gap": 0.18
+  },
+  "nodes": [
+    {
+      "id": "root",
+      "pos": [1.1, 1.79],
+      "label": "Beyond State Sharding:\nDeepSpeed & Megatron",
+      "color": "#8c1d40",
+      "is_branch": true
+    },
+
+    {
+      "id": "branch_zero",
+      "pos": [4.3, 10.77],
+      "label": "DeepSpeed ZeRO\nStages",
+      "color": "#2a9d8f",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "zero1",
+      "pos": [7.0, 12.00],
+      "label": "ZeRO-1:\nShard Optimizer States (56→28GB)",
+      "parent": "branch_zero",
+      "icon": "zero1",
+      "text_offset": 0.3
+    },
+    {
+      "id": "zero2",
+      "pos": [7.0, 11.18],
+      "label": "ZeRO-2:\n+ Shard Gradients (reduce_scatter)",
+      "parent": "branch_zero",
+      "icon": "zero2",
+      "text_offset": 0.3
+    },
+    {
+      "id": "zero3",
+      "pos": [7.0, 10.36],
+      "label": "ZeRO-3:\n+ Shard Parameters (= FSDP)",
+      "parent": "branch_zero",
+      "icon": "fsdp",
+      "text_offset": 0.3
+    },
+    {
+      "id": "zeropp",
+      "pos": [7.0, 9.54],
+      "label": "ZeRO++:\nQuantized Weights/Grads + hpZ",
+      "parent": "branch_zero",
+      "icon": "zero_plus_plus",
+      "text_offset": 0.3
+    },
+
+    {
+      "id": "branch_offload",
+      "pos": [4.3, 7.60],
+      "label": "Offloading:\nCPU & NVMe",
+      "color": "#0077b6",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "zero_offload",
+      "pos": [7.0, 8.42],
+      "label": "ZeRO-Offload:\nOptimizer → CPU RAM (20–40% Slower)",
+      "parent": "branch_offload",
+      "icon": "cpu",
+      "text_offset": 0.3
+    },
+    {
+      "id": "zero_infinity",
+      "pos": [7.0, 7.60],
+      "label": "ZeRO-Infinity:\nNVMe Tier (30–50% Slower)",
+      "parent": "branch_offload",
+      "icon": "gpu_mem",
+      "text_offset": 0.3
+    },
+    {
+      "id": "offload_tradeoff",
+      "pos": [7.0, 6.78],
+      "label": "Feasibility, Not Speed:\nLast Resort After Sharding",
+      "parent": "branch_offload",
+      "icon": "placeholder"
+    },
+
+    {
+      "id": "branch_tp",
+      "pos": [4.3, 4.84],
+      "label": "Megatron:\nTensor Parallelism",
+      "color": "#9d4edd",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "column_parallel",
+      "pos": [7.0, 5.66],
+      "label": "Column-Parallel:\nSplit Weights by Columns, No Comm",
+      "parent": "branch_tp",
+      "icon": "tensor_parallel",
+      "text_offset": 0.3
+    },
+    {
+      "id": "row_parallel",
+      "pos": [7.0, 4.84],
+      "label": "Row-Parallel:\nSplit by Rows, AllReduce Combines",
+      "parent": "branch_tp",
+      "icon": "allreduce",
+      "text_offset": 0.35
+    },
+    {
+      "id": "tp_nvlink",
+      "pos": [7.0, 4.02],
+      "label": "TP Needs NVLink:\nComm Every Layer, Intra-Node",
+      "parent": "branch_tp",
+      "icon": "multi_gpu",
+      "text_offset": 0.3
+    },
+
+    {
+      "id": "branch_pp",
+      "pos": [4.3, 2.08],
+      "label": "Megatron:\nPipeline Parallelism",
+      "color": "#e76f51",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "naive_pipeline",
+      "pos": [7.0, 2.90],
+      "label": "Naive Pipeline:\nBubbles Waste up to 50%",
+      "parent": "branch_pp",
+      "icon": "pipeline_parallel",
+      "text_offset": 0.3
+    },
+    {
+      "id": "onef_oneb",
+      "pos": [7.0, 2.08],
+      "label": "1F1B Schedule:\nMicro-Batches Keep GPUs Busy",
+      "parent": "branch_pp",
+      "icon": "training",
+      "text_offset": 0.3
+    },
+    {
+      "id": "virtual_pipeline",
+      "pos": [7.0, 1.26],
+      "label": "Virtual Pipeline:\nInterleaved, Smaller Bubbles",
+      "parent": "branch_pp",
+      "icon": "pipeline_parallel",
+      "text_offset": 0.3
+    },
+
+    {
+      "id": "branch_longctx",
+      "pos": [4.3, -1.09],
+      "label": "Long-Context\nParallelism",
+      "color": "#3a5a40",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "seq_parallel",
+      "pos": [7.0, 0.14],
+      "label": "Sequence Parallelism:\nShard LayerNorm/Dropout Activations",
+      "parent": "branch_longctx",
+      "icon": "placeholder"
+    },
+    {
+      "id": "context_parallel",
+      "pos": [7.0, -0.68],
+      "label": "Context Parallelism:\nRing Attention, KV Rotates",
+      "parent": "branch_longctx",
+      "icon": "ring_attention",
+      "text_offset": 0.3
+    },
+    {
+      "id": "ulysses",
+      "pos": [7.0, -1.50],
+      "label": "DeepSpeed-Ulysses:\nAll-to-All Transpose (Alt. to Ring)",
+      "parent": "branch_longctx",
+      "icon": "placeholder"
+    },
+    {
+      "id": "expert_parallel",
+      "pos": [7.0, -2.32],
+      "label": "Expert Parallelism:\nOne Expert/GPU, All-to-All Routing",
+      "parent": "branch_longctx",
+      "icon": "expert_parallel",
+      "text_offset": 0.3
+    },
+
+    {
+      "id": "branch_mcore",
+      "pos": [4.3, -4.26],
+      "label": "Megatron Core &\nProduction Features",
+      "color": "#b5651d",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "megatron_fsdp",
+      "pos": [7.0, -3.44],
+      "label": "Megatron-FSDP:\n15–25% Faster than FSDP2",
+      "parent": "branch_mcore",
+      "icon": "fsdp",
+      "text_offset": 0.3
+    },
+    {
+      "id": "dist_optimizer",
+      "pos": [7.0, -4.26],
+      "label": "Distributed Optimizer:\nZeRO-1-Style, 18→7.5 Bytes/Param",
+      "parent": "branch_mcore",
+      "icon": "process_group",
+      "text_offset": 0.3
+    },
+    {
+      "id": "fp8_training",
+      "pos": [7.0, -5.08],
+      "label": "FP8 Training:\nTransformer Engine, 1.5–2× Speedup",
+      "parent": "branch_mcore",
+      "icon": "placeholder"
+    },
+
+    {
+      "id": "branch_hybrid",
+      "pos": [4.3, -7.43],
+      "label": "Hybrid Parallelism &\nChoosing a Strategy",
+      "color": "#6d597a",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "two_axes",
+      "pos": [7.0, -6.20],
+      "label": "Two Orthogonal Axes:\nState Sharding vs Computation Sharding",
+      "parent": "branch_hybrid",
+      "icon": "placeholder"
+    },
+    {
+      "id": "hybrid_example",
+      "pos": [7.0, -7.02],
+      "label": "70B on 64 GPUs:\nTP=4 × PP=2 × DP=8",
+      "parent": "branch_hybrid",
+      "icon": "megatron",
+      "text_offset": 0.3
+    },
+    {
+      "id": "topology_rule",
+      "pos": [7.0, -7.84],
+      "label": "TP Intra-Node,\nPP/DP Inter-Node",
+      "parent": "branch_hybrid",
+      "icon": "multi_gpu",
+      "text_offset": 0.3
+    },
+    {
+      "id": "decision_tree_leaf",
+      "pos": [7.0, -8.66],
+      "label": "Decision Tree:\nDDP → FSDP/ZeRO → TP → PP/CP/EP",
+      "parent": "branch_hybrid",
+      "icon": "decision_tree",
+      "text_offset": 0.3
+    }
+  ]
+}

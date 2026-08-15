@@ -1,0 +1,267 @@
+{
+  "canvas": {
+    "figsize": [12.0, 18.7],
+    "xlim": [0.3, 14.5],
+    "ylim": [-9.78, 12.3],
+    "icon_size": 0.4,
+    "placeholder_icon_size": 0.1,
+    "text_gap": 0.18
+  },
+  "nodes": [
+    {
+      "id": "root",
+      "pos": [1.1, 1.26],
+      "label": "Scaling with\nFully Sharded Data Parallel",
+      "color": "#8c1d40",
+      "is_branch": true
+    },
+
+    {
+      "id": "branch_why",
+      "pos": [4.3, 10.77],
+      "label": "Why FSDP:\nMemory Math",
+      "color": "#2a9d8f",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "ddp_ceiling",
+      "pos": [7.0, 12.00],
+      "label": "DDP Ceiling:\n7B Model = 84GB/GPU",
+      "parent": "branch_why",
+      "icon": "ddp",
+      "text_offset": 0.3
+    },
+    {
+      "id": "fsdp_sharding",
+      "pos": [7.0, 11.18],
+      "label": "FSDP Sharding:\n84GB ÷ 8 GPUs = 10.5GB/GPU",
+      "parent": "branch_why",
+      "icon": "fsdp",
+      "text_offset": 0.3
+    },
+    {
+      "id": "allgather_reducescatter",
+      "pos": [7.0, 10.36],
+      "label": "All-Gather (Fwd) +\nReduce-Scatter (Bwd)",
+      "parent": "branch_why",
+      "icon": "placeholder"
+    },
+    {
+      "id": "zero_origin",
+      "pos": [7.0, 9.54],
+      "label": "ZeRO Origin:\nMicrosoft Research, 2019",
+      "parent": "branch_why",
+      "icon": "placeholder"
+    },
+
+    {
+      "id": "branch_versions",
+      "pos": [4.3, 7.60],
+      "label": "FSDP1 vs FSDP2",
+      "color": "#0077b6",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "fsdp1",
+      "pos": [7.0, 8.42],
+      "label": "FSDP1:\nFlatParameter, Wrapper Class",
+      "parent": "branch_versions",
+      "icon": "placeholder"
+    },
+    {
+      "id": "fsdp2",
+      "pos": [7.0, 7.60],
+      "label": "FSDP2:\nPer-Parameter Sharding (DTensor)",
+      "parent": "branch_versions",
+      "icon": "fsdp",
+      "text_offset": 0.3
+    },
+    {
+      "id": "fully_shard_api",
+      "pos": [7.0, 6.78],
+      "label": "fully_shard():\nIn-Place, Functional API",
+      "parent": "branch_versions",
+      "icon": "placeholder"
+    },
+
+    {
+      "id": "branch_config",
+      "pos": [4.3, 4.43],
+      "label": "FSDP2\nConfiguration",
+      "color": "#9d4edd",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "device_mesh",
+      "pos": [7.0, 5.66],
+      "label": "Device Mesh:\n1D (FSDP) vs 2D (HSDP)",
+      "parent": "branch_config",
+      "icon": "multi_gpu",
+      "text_offset": 0.3
+    },
+    {
+      "id": "reshard_forward",
+      "pos": [7.0, 4.84],
+      "label": "reshard_after_forward:\nMemory vs Communication",
+      "parent": "branch_config",
+      "icon": "placeholder"
+    },
+    {
+      "id": "mp_policy",
+      "pos": [7.0, 4.02],
+      "label": "Mixed Precision:\nBF16 Params, FP32 Reduce",
+      "parent": "branch_config",
+      "icon": "gradient",
+      "text_offset": 0.3
+    },
+    {
+      "id": "hierarchical",
+      "pos": [7.0, 3.20],
+      "label": "Hierarchical Sharding:\nPer-Block fully_shard() Calls",
+      "parent": "branch_config",
+      "icon": "placeholder"
+    },
+
+    {
+      "id": "branch_checkpoint",
+      "pos": [4.3, 1.26],
+      "label": "Checkpointing",
+      "color": "#e76f51",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "dcp_api",
+      "pos": [7.0, 2.08],
+      "label": "DCP API:\nSharded Save/Load, No Gathering",
+      "parent": "branch_checkpoint",
+      "icon": "placeholder"
+    },
+    {
+      "id": "full_state_dict",
+      "pos": [7.0, 1.26],
+      "label": "Full State Dict:\nGather to Rank 0 for Inference",
+      "parent": "branch_checkpoint",
+      "icon": "process_group",
+      "text_offset": 0.3
+    },
+    {
+      "id": "multinode_ckpt",
+      "pos": [7.0, 0.44],
+      "label": "Multi-Node Storage:\nShared FS, Local Sync, or S3",
+      "parent": "branch_checkpoint",
+      "icon": "placeholder"
+    },
+
+    {
+      "id": "branch_perf",
+      "pos": [4.3, -1.91],
+      "label": "Performance:\nPrefetch & Offload",
+      "color": "#3a5a40",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "prefetching",
+      "pos": [7.0, -0.68],
+      "label": "Prefetching:\nOverlap All-Gather with Compute",
+      "parent": "branch_perf",
+      "icon": "placeholder"
+    },
+    {
+      "id": "act_checkpoint",
+      "pos": [7.0, -1.50],
+      "label": "Activation Checkpointing:\n50–80% Memory Cut",
+      "parent": "branch_perf",
+      "icon": "placeholder"
+    },
+    {
+      "id": "cpu_offload",
+      "pos": [7.0, -2.32],
+      "label": "CPU Offloading:\n20–50% Slowdown, Last Resort",
+      "parent": "branch_perf",
+      "icon": "placeholder"
+    },
+    {
+      "id": "fsdp_profiling",
+      "pos": [7.0, -3.14],
+      "label": "Profiling:\ntorch.profiler, Chrome Trace",
+      "parent": "branch_perf",
+      "icon": "profiling",
+      "text_offset": 0.3
+    },
+
+    {
+      "id": "branch_multinode",
+      "pos": [4.3, -5.08],
+      "label": "Multi-Node &\nDebugging",
+      "color": "#b5651d",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "multinode_launch",
+      "pos": [7.0, -4.26],
+      "label": "Multi-Node Launch:\ntorchrun, SLURM",
+      "parent": "branch_multinode",
+      "icon": "slurm",
+      "text_offset": 0.3
+    },
+    {
+      "id": "fsdp_oom",
+      "pos": [7.0, -5.08],
+      "label": "OOM:\nCheck param.to_local() Shard Size",
+      "parent": "branch_multinode",
+      "icon": "placeholder"
+    },
+    {
+      "id": "fsdp_hangs",
+      "pos": [7.0, -5.90],
+      "label": "Hangs:\nConditional Collectives",
+      "parent": "branch_multinode",
+      "icon": "placeholder"
+    },
+
+    {
+      "id": "branch_choosing",
+      "pos": [4.3, -8.25],
+      "label": "Choosing:\nDDP vs ZeRO vs FSDP2",
+      "color": "#6d597a",
+      "parent": "root",
+      "is_branch": true
+    },
+    {
+      "id": "choose_ddp",
+      "pos": [7.0, -7.02],
+      "label": "DDP:\nFits on 1 GPU, Fastest",
+      "parent": "branch_choosing",
+      "icon": "ddp",
+      "text_offset": 0.3
+    },
+    {
+      "id": "choose_zero",
+      "pos": [7.0, -7.84],
+      "label": "ZeRO (DeepSpeed):\nStaged Sharding + Offload",
+      "parent": "branch_choosing",
+      "icon": "placeholder"
+    },
+    {
+      "id": "choose_fsdp2",
+      "pos": [7.0, -8.66],
+      "label": "FSDP2:\nPyTorch-Native, torch.compile",
+      "parent": "branch_choosing",
+      "icon": "placeholder"
+    },
+    {
+      "id": "hsdp",
+      "pos": [7.0, -9.48],
+      "label": "HSDP:\nShard Intra-Node, Replicate Inter-Node",
+      "parent": "branch_choosing",
+      "icon": "multi_gpu",
+      "text_offset": 0.3
+    }
+  ]
+}
