@@ -3,6 +3,7 @@ marp: true
 theme: default
 paginate: true
 size: 16:9
+html: true
 backgroundColor: #fbf9f4
 color: #33393e
 style: |
@@ -15,6 +16,10 @@ style: |
     justify-content: center !important;
     align-items: flex-start !important;
     background: linear-gradient(135deg, #fff1e0 0%, #ffe3ee 35%, #e3edff 70%, #e0fbf1 100%) !important;
+  }
+  section img {
+    display: block;
+    margin: 0.3em auto;
   }
   section h1 {
     color: #1f7a72 !important;
@@ -55,7 +60,7 @@ style: |
     color: #f4a261 !important;
   }
   section.lead h1 {
-    font-size: 2.7em;
+    font-size: 1.8em;
     border-bottom: none;
     color: #1f7a72 !important;
   }
@@ -106,13 +111,14 @@ style: |
 
 ## Building Distributed AI Systems for Training and Inference
 
-**Henry Fuheng Wu**
-Author of *Distributed AI System*
+![h:280](../../cover/7x10/amazon_cover_260w.jpg)
+
+**Henry Fuheng Wu** (Author of *Distributed AI System*)
 
 Global Data & AI Virtual Tech Conference 2026 · August 22–24
 
 <!--
-Welcome everyone, thanks for having me. I'm Henry, and today I want to walk through what it actually takes to go from a single-GPU experiment to a production-grade distributed AI system, for both training and inference. This is drawn from hands-on production work at places like Wells Fargo, Uber, Oracle, and Google, plus material from my book Distributed AI Systems. Let's get started.
+Welcome everyone, thanks for having me. I'm Henry, and today I want to walk through what it actually takes to go from a single-GPU experiment to a production-grade distributed AI system, for both training and inference. This is drawn from hands-on production work at places like Oracle, Wells Fargo, Uber plus material from my book Distributed AI Systems. Let's get started.
 -->
 
 ---
@@ -124,11 +130,61 @@ Welcome everyone, thanks for having me. I'm Henry, and today I want to walk thro
 - AI leader and distributed systems expert
 - Author of *Above the Clouds*, *Mathematics for AI and Machine Learning*, and *Distributed AI Systems*
 - Amazon Best-Selling Author in AI · Judge, International AI Innovation Olympiad
-- Production AI experience across **Wells Fargo, Oracle, Uber, Oscar Health, Bloomberg, Google, and WorldQuant**
+- Production AI experience across **Wells Fargo, Oracle, Uber, and Oscar Health**
 - Built large-scale inference, distributed training, GPU infrastructure, and real-time data platforms
 
 <!--
-A quick bit about my background so you know where this is coming from. I've spent my career building production AI systems, distributed training, large-scale inference, GPU infrastructure, across Wells Fargo, Oracle, Uber, Oscar Health, Bloomberg, Google, and WorldQuant. I've also written about this space, including my book Distributed AI Systems, and I judge AI competitions on the side. Everything in this talk is grounded in things I've actually shipped, not just theory.
+A quick bit about my background so you know where this is coming from. I've spent my career building production AI systems, distributed training, large-scale inference, GPU infrastructure, across Oracle, Wells Fargo, Uber, Oscar Health. I've also written about this space, including my book Distributed AI Systems, and I judge AI competitions on the side. Everything in this talk is grounded in things I've actually shipped, not just theory.
+-->
+
+---
+
+## The Most Lucrative Skill Set on the Planet
+
+![h:430](meta-poached-pang-with-over-200M-dollars.png)
+
+**Meta paid Apple's Ruoming Pang a package reportedly over $200 million** to lead AI research — the going rate for people who actually know how to build and scale these systems.
+
+<!--
+So with that background, let me tell you why I actually wrote this book. Last year, Meta poached Apple's Ruoming Pang with a compensation package reportedly north of two hundred million dollars, to work on AI. That is not a typo, and it is not a one-off. Companies are paying unprecedented numbers for people who deeply understand how to train, scale, and serve these models, because that knowledge is the bottleneck standing between a research idea and a product that actually works at scale. Everything we're about to walk through, distributed training, GPU infrastructure, inference at scale, that's the actual substance behind headlines like this one. This book, and this talk, are about building that knowledge, not just admiring the paycheck.
+-->
+
+---
+
+## It's Not a One-Off
+
+![h:200](ai-pay-news.png)
+
+![h:200](ai-pay-news2.png)
+
+**Meta raids Apple. Microsoft raids Meta.** Every major lab is fighting over the same, narrow pool of people who can actually build and scale these systems.
+
+<!--
+And this isn't an isolated headline, it's a pattern. Meta hired two of Apple's AI researchers, Mark Lee and Tom Gunter, for its Superintelligence Labs team. Then, within weeks, reports surfaced that Microsoft was compiling a target list of Meta's own AI engineers and researchers, offering multimillion-dollar packages to pull them away. Meta raids Apple, Microsoft raids Meta, and this cycle keeps going. It tells you something important: this isn't one company overpaying for hype, it's every major lab agreeing, with their wallets, that this specific expertise is scarce and valuable.
+-->
+
+---
+
+## I've Actually Worked With One of Them
+
+![h:350](uber-ai-infra-mark-lee.png)
+
+That's **Mark Lee**, my teammate at Uber ATG — same project, same interview panel, same team. This news isn't far from me. And I almost joined Apple myself — that story's in my literary memoir, *[Above the Clouds](https://www.amazon.com/dp/B0GVJY5ZZD)*.
+
+<!--
+And that Mark Lee name isn't just a headline to me, this is personal. Back at Uber ATG, Mark Lee was on my team. We sat on the same interview panel together, running initial tech phone screens for candidates side by side. This is a real person I worked with, whose judgment on code and systems I trusted enough to interview candidates alongside. I'm not going to get into what he's making, that's his business, not mine to put on a slide. But when I say this talent war is real, I'm not reading it off a news feed, this story showed up in my own network, on my own team. And funny enough, I almost ended up on the Apple side of this myself, years ago. I go into that story in my literary memoir, Above the Clouds, if you're curious how close that came.
+-->
+
+---
+
+## The Pattern, Confirmed Everywhere You Look
+
+![h:430](ai-pay-news3.png)
+
+**$100M bonuses. $250M pay packages.** Reported independently by Reuters, Business Insider, the New York Times, and Inc.
+
+<!--
+And it's not just two or three headlines I cherry-picked, this is what you find the moment you search. A hundred-million-dollar bonuses reported in the AI talent war. AI researchers earning millions, with entire articles on how to break into that market yourself. The New York Times comparing quarter-billion-dollar AI pay packages to NBA superstar contracts. Zuckerberg personally cooking and hand-delivering soup to recruit engineers. This is Reuters, Business Insider, the New York Times, Inc dot com, all independently reporting the same underlying story. When that many independent outlets converge on the same number, that's not a fluke, that's the market telling you exactly what this knowledge is worth. That's the gap this book exists to close.
 -->
 
 ---
