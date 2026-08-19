@@ -9,26 +9,65 @@ color: #33393e
 style: |
   section {
     font-family: "Helvetica Neue", Arial, sans-serif;
-    padding: 56px 72px;
+    padding: 52px 68px;
     background: #fbf9f4 !important;
+    justify-content: flex-start !important;
   }
-  section.lead {
-    justify-content: center !important;
-    align-items: flex-start !important;
-    background: linear-gradient(135deg, #fff1e0 0%, #ffe3ee 35%, #e3edff 70%, #e0fbf1 100%) !important;
+  section h1,
+  section h2,
+  section > h1:first-child,
+  section > h2:first-child {
+    margin-top: 0 !important;
+    padding-top: 0 !important;
+  }
+  section h1 {
+    color: #1f7a72 !important;
+    font-size: 1.85em;
+    font-weight: 800;
+    line-height: 1.2;
+    border-bottom: 3px solid #f4a261;
+    padding-bottom: 6px;
+    margin: 0 0 20px 0 !important;
+  }
+  section h2 {
+    color: #e76f51 !important;
+    font-size: 1.45em;
+    font-weight: 700;
+    line-height: 1.25;
+    margin: 0 0 20px 0 !important;
+    padding: 0 !important;
   }
   section img {
     display: block;
     margin: 0.3em auto;
   }
-  section h1 {
-    color: #1f7a72 !important;
-    font-size: 1.9em;
-    border-bottom: 4px solid #f4a261;
-    padding-bottom: 0.2em;
+  .two-columns {
+    display: grid !important;
+    grid-template-columns: 1fr 380px !important;
+    gap: 48px !important;
+    align-items: center !important;
+    width: 100% !important;
+    margin-top: 16px !important;
   }
-  section h2 {
-    color: #e76f51 !important;
+  .two-columns .left-content {
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: center !important;
+  }
+  .two-columns .right-img {
+    display: flex !important;
+    justify-content: flex-end !important;
+    align-items: center !important;
+  }
+  .two-columns img {
+    max-height: 380px !important;
+    max-width: 100% !important;
+    width: auto !important;
+    object-fit: contain !important;
+    border-radius: 8px !important;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.14) !important;
+    margin: 0 !important;
+    display: block !important;
   }
   section h3 {
     color: #3d84a8 !important;
@@ -58,6 +97,11 @@ style: |
   }
   section li::marker {
     color: #f4a261 !important;
+  }
+  section.lead {
+    justify-content: center !important;
+    align-items: flex-start !important;
+    background: linear-gradient(135deg, #fff1e0 0%, #ffe3ee 35%, #e3edff 70%, #e0fbf1 100%) !important;
   }
   section.lead h1 {
     font-size: 1.8em;
@@ -103,19 +147,93 @@ style: |
     padding: 0.4em 1em;
     border-radius: 0 8px 8px 0;
   }
+  section.cover {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    background: linear-gradient(135deg, #fff7ed 0%, #ffedf2 35%, #edf4ff 70%, #e6faf5 100%) !important;
+    padding: 48px 64px;
+  }
+  section.cover .badge {
+    display: inline-block;
+    font-size: 0.6em;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #ffffff;
+    background: linear-gradient(135deg, #e76f51, #f4a261);
+    padding: 4px 14px;
+    border-radius: 20px;
+    margin-bottom: 12px;
+    width: fit-content;
+    box-shadow: 0 2px 8px rgba(231, 111, 81, 0.25);
+  }
+  section.cover h1 {
+    font-size: 2.1em;
+    font-weight: 800;
+    line-height: 1.15;
+    color: #1a535c !important;
+    border-bottom: none;
+    padding-bottom: 0;
+    margin: 0 0 10px 0;
+  }
+  section.cover h2 {
+    font-size: 1.02em;
+    font-weight: 500;
+    line-height: 1.35;
+    color: #636b78 !important;
+    margin: 0 0 18px 0;
+  }
+  section.cover .divider {
+    width: 48px;
+    height: 4px;
+    background: #f4a261;
+    border-radius: 2px;
+    margin-bottom: 20px;
+  }
+  section.cover .footer-meta {
+    margin-top: 6px;
+  }
+  section.cover .author-name {
+    font-size: 1.05em;
+    font-weight: 700;
+    color: #d9622b;
+    margin-bottom: 2px;
+  }
+  section.cover .author-title {
+    font-size: 0.78em;
+    color: #5b6169;
+    margin-bottom: 4px;
+  }
+  section.cover .author-link {
+    font-size: 0.75em;
+    margin-bottom: 8px;
+  }
+  section.cover .conf-info {
+    font-size: 0.72em;
+    color: #8b929e;
+  }
 ---
 
-<!-- _class: lead -->
+<!-- _class: cover -->
+<!-- _paginate: false -->
 
-# From Single GPU to Production Clusters
+![bg right:34% 88%](../../cover/7x10/amazon_cover.jpg)
+
+<span class="badge">Conference Keynote</span>
+
+# From Single GPU to<br>Production Clusters
 
 ## Building Distributed AI Systems for Training and Inference
 
-![h:280](../../cover/7x10/amazon_cover_260w.jpg)
+<div class="divider"></div>
 
-**Henry Fuheng Wu** (Author of *Distributed AI System*)
-
-Global Data & AI Virtual Tech Conference 2026 · August 22–24
+<div class="footer-meta">
+  <div class="author-name">Henry Fuheng Wu</div>
+  <div class="author-title">Author of <em>Distributed AI Systems</em></div>
+  <div class="author-link">🔗 <a href="https://www.linkedin.com/in/henrywoo/" style="color: #2b7a78 !important;">linkedin.com/in/henrywoo</a></div>
+  <div class="conf-info">Global Data & AI Virtual Tech Conference 2026 · August 22–24</div>
+</div>
 
 <!--
 Welcome everyone, thanks for having me. I'm Henry, and today I want to walk through what it actually takes to go from a single-GPU experiment to a production-grade distributed AI system, for both training and inference. This is drawn from hands-on production work at places like Oracle, Wells Fargo, Uber plus material from my book Distributed AI Systems. Let's get started.
@@ -127,8 +245,11 @@ Welcome everyone, thanks for having me. I'm Henry, and today I want to walk thro
 
 **Henry Fuheng Wu**
 
+  <div class="author-link">🔗 <a href="https://www.linkedin.com/in/henrywoo/" style="color: #2b7a78 !important;">linkedin.com/in/henrywoo</a></div>
+<hr>
+
 - AI leader and distributed systems expert
-- Author of *Above the Clouds*, *Mathematics for AI and Machine Learning*, and *Distributed AI Systems*
+- Author of **Distributed AI Systems**, *Above the Clouds*, *Mathematics for AI and Machine Learning*
 - Amazon Best-Selling Author in AI · Judge, International AI Innovation Olympiad
 - Production AI experience across **Wells Fargo, Oracle, Uber, and Oscar Health**
 - Built large-scale inference, distributed training, GPU infrastructure, and real-time data platforms
@@ -179,9 +300,15 @@ And that Mark Lee name isn't just a headline to me, this is personal. Back at Ub
 
 ## The Pattern, Confirmed Everywhere You Look
 
-![h:430](ai-pay-news3.png)
-
-**$100M bonuses. $250M pay packages.** Reported independently by Reuters, Business Insider, the New York Times, and Inc.
+<div class="two-columns">
+  <div class="left-content">
+    <p style="font-size: 1.25em; font-weight: 700; color: #d9622b; margin: 0 0 16px 0; line-height: 1.3;">$100M bonuses. $250M pay packages.</p>
+    <p style="font-size: 0.95em; color: #5b6169; margin: 0; line-height: 1.5;">Reported independently by Reuters, Business Insider, the New York Times, and Inc.</p>
+  </div>
+  <div class="right-img">
+    <img src="ai-pay-news3.png" />
+  </div>
+</div>
 
 <!--
 And it's not just two or three headlines I cherry-picked, this is what you find the moment you search. A hundred-million-dollar bonuses reported in the AI talent war. AI researchers earning millions, with entire articles on how to break into that market yourself. The New York Times comparing quarter-billion-dollar AI pay packages to NBA superstar contracts. Zuckerberg personally cooking and hand-delivering soup to recruit engineers. This is Reuters, Business Insider, the New York Times, Inc dot com, all independently reporting the same underlying story. When that many independent outlets converge on the same number, that's not a fluke, that's the market telling you exactly what this knowledge is worth. That's the gap this book exists to close.
@@ -423,6 +550,7 @@ So if you remember five things from this talk: distribution is driven by memory 
 
 Author of *Distributed AI Systems*, *Above the Clouds*, and *Mathematics for AI and Machine Learning*
 
+🔗 Connect on LinkedIn: [linkedin.com/in/henrywoo](https://www.linkedin.com/in/henrywoo/)
 Global Data & AI Virtual Tech Conference 2026 · August 22–24
 Register: https://lnkd.in/gUR-jZ2N
 
