@@ -290,10 +290,12 @@ And this isn't an isolated headline, it's a pattern. Meta hired two of Apple's A
 
 ![h:350](uber-ai-infra-mark-lee.png)
 
-That's **Mark Lee**, my teammate at Uber ATG — same project, same interview panel, same team. This news isn't far from me. And I almost joined Apple myself — that story's in my literary memoir, *[Above the Clouds](https://www.amazon.com/dp/B0GVJY5ZZD)*.
+That's **Mark Lee**, my teammate at Uber ATG — same project, same interview panel, same team.
+
+Top engineers aren't wizards — they just had the rare opportunity to master the full production lifecycle. That knowledge has been trapped inside a few labs. To bridge that gap, I wrote ***Distributed AI Systems*** and open-sourced the complete codebase.
 
 <!--
-And that Mark Lee name isn't just a headline to me, this is personal. Back at Uber ATG, Mark Lee was on my team. We sat on the same interview panel together, running initial tech phone screens for candidates side by side. This is a real person I worked with, whose judgment on code and systems I trusted enough to interview candidates alongside. I'm not going to get into what he's making, that's his business, not mine to put on a slide. But when I say this talent war is real, I'm not reading it off a news feed, this story showed up in my own network, on my own team. And funny enough, I almost ended up on the Apple side of this myself, years ago. I go into that story in my literary memoir, Above the Clouds, if you're curious how close that came.
+And that Mark Lee name isn't just a headline to me, this is personal. Back at Uber ATG, Mark Lee was on my team. We sat on the same interview panel together, running initial tech phone screens for candidates side by side. When I say this talent war is real, it's not from a news feed, it's right in my network. But here's the real point: engineers in these positions aren't superheroes, they just had the rare opportunity to work across the full lifecycle at scale. That knowledge has been siloed inside a handful of top labs. It took me a decade across Oracle, Wells Fargo, and Uber to piece it all together — and that's exactly why I wrote Distributed AI Systems and open-sourced the code, to give every engineer that complete production playbook.
 -->
 
 ---
@@ -419,6 +421,8 @@ fully_shard(model, mesh=mesh)
 
 **Result:** models far larger than any single GPU's memory become trainable.
 
+> *Full implementation & recipes:* [`github.com/PacktPublishing/Distributed-AI-Systems`](https://github.com/PacktPublishing/Distributed-AI-Systems)
+
 <!--
 FSDP is the answer to that memory wall. Instead of every rank holding a full copy, FSDP shards parameters, gradients, and optimizer states across ranks, and only gathers the full parameters just-in-time for each layer's forward and backward pass, then frees them again. FSDP2 cleaned this up significantly with per-parameter sharding and the DeviceMesh API, which makes 1D and 2D, that is hybrid, sharding topologies much easier to reason about and configure. The net effect: you can train models that simply would not fit on any single GPU, using hardware you already have.
 -->
@@ -542,18 +546,41 @@ So if you remember five things from this talk: distribution is driven by memory 
 
 ---
 
-<!-- _class: lead -->
+<!-- _class: cover -->
+<!-- _paginate: false -->
 
-# Thank You
+# Thank You!
 
-**Henry Fuheng Wu**
+## Continue Learning & Build with Us
 
-Author of *Distributed AI Systems*, *Above the Clouds*, and *Mathematics for AI and Machine Learning*
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 16px 0;">
 
-🔗 Connect on LinkedIn: [linkedin.com/in/henrywoo](https://www.linkedin.com/in/henrywoo/)
-Global Data & AI Virtual Tech Conference 2026 · August 22–24
-Register: https://lnkd.in/gUR-jZ2N
+<div style="background: rgba(255, 255, 255, 0.75); padding: 14px 18px; border-radius: 8px; border: 1px solid rgba(0,0,0,0.06); box-shadow: 0 4px 12px rgba(0,0,0,0.04);">
+  <div style="font-weight: 700; color: #1f7a72; font-size: 0.95em; margin-bottom: 4px;">📖 Read the Book</div>
+  <div style="font-size: 0.78em; color: #555; line-height: 1.4;"><strong>Distributed AI Systems</strong><br>Hands-on guide to training, inference & cluster scaling</div>
+</div>
+
+<div style="background: rgba(255, 255, 255, 0.75); padding: 14px 18px; border-radius: 8px; border: 1px solid rgba(0,0,0,0.06); box-shadow: 0 4px 12px rgba(0,0,0,0.04);">
+  <div style="font-weight: 700; color: #e76f51; font-size: 0.95em; margin-bottom: 4px;">💻 Clone & Run Code</div>
+  <div style="font-size: 0.78em; color: #555; line-height: 1.4;"><strong>GitHub:</strong> <a href="https://github.com/PacktPublishing/Distributed-AI-Systems" style="color: #2a9d8f;">PacktPublishing/Distributed-AI-Systems</a><br>Full benchmarks, DDP, FSDP & vLLM scripts</div>
+</div>
+
+<div style="background: rgba(255, 255, 255, 0.75); padding: 14px 18px; border-radius: 8px; border: 1px solid rgba(0,0,0,0.06); box-shadow: 0 4px 12px rgba(0,0,0,0.04);">
+  <div style="font-weight: 700; color: #3d84a8; font-size: 0.95em; margin-bottom: 4px;">🌐 Technical Articles</div>
+  <div style="font-size: 0.78em; color: #555; line-height: 1.4;"><strong>Website:</strong> <a href="https://distaisys.com" style="color: #2a9d8f;">distaisys.com</a><br>Deep dives, architecture teardowns & updates</div>
+</div>
+
+<div style="background: rgba(255, 255, 255, 0.75); padding: 14px 18px; border-radius: 8px; border: 1px solid rgba(0,0,0,0.06); box-shadow: 0 4px 12px rgba(0,0,0,0.04);">
+  <div style="font-weight: 700; color: #6a4bbc; font-size: 0.95em; margin-bottom: 4px;">🤝 Connect with Author</div>
+  <div style="font-size: 0.78em; color: #555; line-height: 1.4;"><strong>Henry Fuheng Wu</strong><br>🔗 <a href="https://www.linkedin.com/in/henrywoo/" style="color: #2a9d8f;">linkedin.com/in/henrywoo</a></div>
+</div>
+
+</div>
+
+<div style="font-size: 0.72em; color: #8b929e; margin-top: 6px;">
+  Global Data & AI Virtual Tech Conference 2026 · Q&A
+</div>
 
 <!--
-Thank you all for your time today. If you want to go deeper on any of this, DDP, FSDP, vLLM, SGLang, benchmarking, all of it with hands-on examples, that's exactly what my book Distributed AI Systems covers. Registration details are on screen, and I'm happy to take questions now or connect afterward.
+Thank you all for your time today! We covered the foundational principles from GPU memory and interconnects to DDP, FSDP, and inference with vLLM/SGLang. If you want to go deeper and run every single script, test case, and benchmark yourself, head over to our GitHub repository at github.com/PacktPublishing/Distributed-AI-Systems and check out distaisys.com for ongoing deep dives. The complete blueprint is in Distributed AI Systems. Feel free to connect with me on LinkedIn, and I'd love to take your questions now!
 -->
