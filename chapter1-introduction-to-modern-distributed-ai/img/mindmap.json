@@ -1,7 +1,7 @@
 {
   "canvas": {
-    "figsize": [12.0, 12.9],
-    "xlim": [0.3, 14.5],
+    "figsize": [9.6, 12.9],
+    "xlim": [0.3, 11.6],
     "ylim": [-2.9, 12.3],
     "icon_size": 0.4,
     "placeholder_icon_size": 0.1,
