@@ -474,6 +474,15 @@ For inference or serving, the logic is similar. If the model exceeds single GPU 
 
 ![Decision Framework: When Do You Need Distributed Systems?](img/decision_tree.png){#fig:decision-framework .block width=100%}
 
+>NOTES: **Capacity Gate vs. Latency Optimization**
+
+It is essential to treat "fits on one device" as a **capacity gate**, not a guarantee that single-device execution is latency-optimal. Even when a model fits within a single GPU's VRAM, production teams frequently shard it with Tensor Parallelism across multiple devices to slash iteration time and latency:
+
+- **In Training (Strong Scaling):** As shown in the Megatron-LM benchmarks (Shoeybi et al., 2019, arXiv:1909.08053), sharding a 1.2B model that easily fits on one GPU across 8 GPUs achieves up to 2.98× strong-scaling speedup. The speedup curve eventually flattens as per-device compute shrinks and AllReduce communication overhead begins to dominate.
+- **In Inference (Memory-Bandwidth Bound):** The autoregressive decode phase streams the entire parameter set out of HBM into compute cores for *every single generated token*. As demonstrated by Pope et al. (2022, arXiv:2211.05102), sharding an 8B or 13B model across 2 or 4 GPUs pools the aggregate HBM bandwidth of multiple chips, dramatically slashing Time-to-First-Token (TTFT) and per-token decode latency (TPOT). Added chips continue paying latency dividends until inter-device AllReduce communication latency sets the floor.
+
+>NOTEE
+
 
 \fancydividerwithicon[center]{python.png}
 
