@@ -120,7 +120,7 @@ def create_spine_pdf_zh(spine_width_points, height_points, output_path):
     
     bottom_padding = 0.05 * height
     author_y = bottom_padding
-    ax.text(width / 2, author_y, "吴富恒 (Henry Wu) 著",
+    ax.text(width / 2, author_y, "巫富珩 (Fuheng Wu) 著",
             ha='center', va='bottom', fontsize=author_font_size,
             fontname=zh_font, weight='bold', color='#1e293b', zorder=21,
             rotation=-90)

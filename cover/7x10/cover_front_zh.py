@@ -188,7 +188,7 @@ def generate_book_front_cover_zh():
 
     # 作者
     author_y = 0.14 * height
-    ax.text(width / 2, author_y, "吴富恒 (Henry Wu) 著",
+    ax.text(width / 2, author_y, "巫富珩 (Henry Wu) 著",
             ha='center', fontsize=int(10.5 * scale_y), fontname=zh_font, 
             weight='bold', color='#0f172a', zorder=21)
 

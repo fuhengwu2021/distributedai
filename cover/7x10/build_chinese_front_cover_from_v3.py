@@ -94,7 +94,7 @@ def build_chinese_front_cover():
     draw.text((left_margin, 1192), "英伟达主任工程师 (Staff Engineer, Nvidia)", font=font_foreword_title, fill="#374151")
 
     # 3. Draw Bottom-Left Author Name (below orange line)
-    draw.text((left_margin, 1285), "吴富恒 (Fuheng Wu)", font=font_author_zh, fill="#000000")
+    draw.text((left_margin, 1285), "巫富珩 (Fuheng Wu)", font=font_author_zh, fill="#000000")
 
     # Convert back to RGB
     final_cover_rgb = base_img.convert("RGB")
