@@ -89,7 +89,7 @@ def build_chinese_front_cover():
     # 2. Draw Bottom-Left Foreword (above orange line)
     draw.text((left_margin, 1120), "推荐序", font=font_foreword_label, fill="#f05a28")
     draw.text((left_margin, 1158), "赵刚 (Gang Zhao)", font=font_foreword_name, fill="#000000")
-    draw.text((left_margin, 1192), "英伟达主任工程师 (Staff Engineer, Nvidia)", font=font_foreword_title, fill="#374151")
+    draw.text((left_margin, 1192), "英伟达高级工程师 (Staff Engineer, Nvidia)", font=font_foreword_title, fill="#374151")
 
     # 3. Draw Bottom-Left Author Name (below orange line)
     draw.text((left_margin, 1285), "巫富珩 (Fuheng Wu)", font=font_author_zh, fill="#000000")
