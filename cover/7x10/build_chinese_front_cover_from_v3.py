@@ -69,24 +69,22 @@ def build_chinese_front_cover():
     ]
 
     font_title_zh = get_font(bold_fonts, 96)
-    font_subtitle_zh = get_font(bold_fonts, 27)
-    font_subtitle_en = get_font(medium_fonts, 20)
+    font_subtitle_zh = get_font(bold_fonts, 28)
+    font_subtitle_en = get_font(medium_fonts, 21)
     font_foreword_label = get_font(bold_fonts, 24)
     font_foreword_name = get_font(bold_fonts, 22)
     font_foreword_title = get_font(medium_fonts, 20)
     font_author_zh = get_font(bold_fonts, 46)
 
-    # 1. Draw Top Title & Subtitle (Left aligned at x = 65)
+    # 1. Draw Top Title & Subtitle (Left aligned at x = 65, Single Line Title)
     left_margin = 65
     
-    # Title Line 1: 分布式
-    # Title Line 2: AI 系统
-    draw.text((left_margin, 70), "分布式", font=font_title_zh, fill="#000000")
-    draw.text((left_margin, 185), "AI 系统", font=font_title_zh, fill="#000000")
+    # Title (Single Line): 分布式 AI 系统
+    draw.text((left_margin, 110), "分布式 AI 系统", font=font_title_zh, fill="#000000")
     
     # Subtitle
-    draw.text((left_margin, 325), "大模型分布式训练、高性能推理与服务化实战指南", font=font_subtitle_zh, fill="#111827")
-    draw.text((left_margin, 370), "A practical guide to building scalable training, inference, and serving systems for production AI", font=font_subtitle_en, fill="#4b5563")
+    draw.text((left_margin, 235), "大模型分布式训练、高性能推理与服务化实战指南", font=font_subtitle_zh, fill="#111827")
+    draw.text((left_margin, 280), "A practical guide to building scalable training, inference, and serving systems for production AI", font=font_subtitle_en, fill="#4b5563")
 
     # 2. Draw Bottom-Left Foreword (above orange line)
     draw.text((left_margin, 1120), "推荐序", font=font_foreword_label, fill="#f05a28")
