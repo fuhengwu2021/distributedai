@@ -1,51 +1,52 @@
 \fancydividerwithicon[center]{hand.png}
 
 
-## 课后实战习题
+## 实战演练
 
 
-### 1. 从零实现 RadixAttention 基数树前缀缓存管理器
+### 实现 RadixAttention 基数树前缀缓存
 
-实现一个类似 SGLang RadixAttention 的基数树（Radix Tree / Trie）KV 缓存管理器，深入理解跨请求前缀复用与 LRU 淘汰机制。
+实现一个简化版的 RadixAttention 前缀树缓存结构，深入理解 SGLang 跨请求前缀重用机制。
 
-__要求：__
+__实战要求：__
 
-- 类签名：
+- 类签名定义：
 ```python
 class RadixCache:
     def __init__(self, max_size: int):
-        """初始化基数树前缀缓存池。"""
+        """初始化前缀基数树缓存池。"""
         pass
     
     def insert(self, token_ids: list[int], kv_cache: torch.Tensor) -> int:
-        """将 Token 序列及其对应的 KV Cache 插入基数树，返回缓存条目 ID。"""
+        """为特定 Token 序列挂载缓存节点，返回节点标识。"""
         pass
     
     def lookup(self, token_ids: list[int]) -> tuple[int, torch.Tensor | None]:
-        """查询最长匹配公共前缀，返回 (匹配 Token 长度, 匹配到的 KV Cache)。"""
+        """检索最长公共前缀匹配项，返回 (匹配Token长度, 对应前缀的KV Cache)。"""
         pass
     
     def evict(self, num_entries: int):
-        """依据 LRU（最近最少使用）策略淘汰非共享叶子节点以释放显存。"""
+        """依据 LRU 策略淘汰最久未被访问的叶子节点。"""
         pass
 ```
-- 基于前缀树（Trie / Radix Tree）组织存储
-- 支持多分支共享公共前缀节点
-- 记录每个节点的访问时间戳以实现 LRU 淘汰
-- 统计前缀命中率（Cache Hit Rate）
 
-__测试代码：__
+- 基于 Trie（基数树/前缀树）数据结构组织多轮对话及公共前缀
+- 在树节点上绑定各层物理 KV Cache 句柄
+- 实现 LRU（Least Recently Used）热度淘汰逻辑
+- 统计并报告前缀命中率（Cache Hit Rate）
+
+__测试验证：__
 ```python
 import torch
 
 cache = RadixCache(max_size=1000)
 
-# 插入多条存在重叠前缀的序列
+# 模拟写入具有公共前缀的请求序列
 seq1 = [1, 2, 3, 4, 5]
 seq2 = [1, 2, 3, 6, 7]
 seq3 = [1, 2, 8, 9]
 
-kv1 = torch.randn(5, 32, 128)  # 5 tokens, 32 heads, 128 dim
+kv1 = torch.randn(5, 32, 128)  # 5 个 token, 32 头, 128 维度
 kv2 = torch.randn(5, 32, 128)
 kv3 = torch.randn(4, 32, 128)
 
@@ -53,51 +54,55 @@ cache.insert(seq1, kv1)
 cache.insert(seq2, kv2)
 cache.insert(seq3, kv3)
 
-# 测试前缀查询
+# 测试最长前缀查找
 test_seq = [1, 2, 3, 4, 10, 11]
 match_len, kv = cache.lookup(test_seq)
 print(f"查询序列: {test_seq}")
-print(f"最长匹配前缀长度: {match_len}")  # 应为 4（匹配 [1, 2, 3, 4]）
-print(f"命中复用的 KV Cache 形状: {kv.shape if kv is not None else None}")
+print(f"最长匹配前缀长度: {match_len}")  # 应返回 4 (命中公共前缀 [1, 2, 3, 4])
+print(f"复用的 KV Cache 形状: {kv.shape if kv is not None else None}")
 ```
 
-### 2. 跨请求共享前缀基准性能对比测试
+### 前缀缓存加速效果基准评测
 
-编写测试脚本，量化评测 SGLang 在不同前缀共享程度下的首 Token 延迟（TTFT）与吞吐量收益。
+对比 SGLang 与传统推理引擎在共享前缀负载下的首字延迟（TTFT）与显存开销。
 
-__要求：__
+__实战要求：__
 
-- 构造不同前缀共享特征的合成请求流：
-  - 零共享（完全随机独立的 Prompts）
-  - 中度共享（共享标准 System Prompt）
-  - 高度共享（Few-shot 示例或长上下文单文档多轮提问）
-- 精确测量并对比：
-  - 首 Token 生成时间（TTFT, Time to First Token）
-  - Radix 缓存命中率（Cache Hit Rate）
-  - GPU 显存消耗峰值与请求并发度
-- 绘制加速曲线图
+- 构造不同前缀重用比例的工作负载：
+  - 无共享前缀（完全随机的独立 Prompt）
+  - 中度共享前缀（统一的 System Prompt）
+  - 高度共享前缀（长篇上下文检索问答、Few-shot 示例）
+- 综合度量对比：
+  - 首字生成延迟（TTFT）
+  - KV Cache 前缀命中率
+  - 显存驻留节省量
+  - 端到端并发吞吐表现
+- 绘制加速比与前缀长度变化趋势图
 
-__测试代码：__
+__测试验证：__
 ```python
 import sglang as sgl
-import time
+from vllm import LLM
 
 def create_shared_prefix_workload(num_requests: int, prefix_len: int, unique_len: int):
-    """构造包含指定共享前缀长度的工作负载。"""
-    shared_prefix = "你是一个拥有丰富专业知识的人工智能助手。" * (prefix_len // 30)
+    """构建具备固定长度共享前缀的批量测试请求。"""
+    shared_prefix = "你是一个全能人工智能研发工程师。" * (prefix_len // 15)
     prompts = [
-        shared_prefix + f"\n问题 {i}：请解释第 {i} 个概念？" 
+        shared_prefix + f"第 {i} 个问题：请计算 {i} + {i} 的结果？" 
         for i in range(num_requests)
     ]
     return prompts
 
 def benchmark_sglang(prompts: list[str]) -> dict:
-    """评测 SGLang 前缀缓存性能。"""
+    """评测 SGLang 运行时在前缀缓存下的性能。"""
     runtime = sgl.Runtime(model_path="Qwen/Qwen2.5-0.5B-Instruct")
     
+    import time
     start = time.time()
+    
     for prompt in prompts:
         response = runtime.generate(prompt, max_new_tokens=50)
+    
     elapsed = time.time() - start
     
     return {
@@ -105,26 +110,27 @@ def benchmark_sglang(prompts: list[str]) -> dict:
         "cache_hit_rate": runtime.get_cache_stats()["hit_rate"],
     }
 
-# 评测不同前缀长度下的加速比
+# 测试不同前缀长度下的加速收益
 for prefix_len in [0, 100, 500, 1000]:
     prompts = create_shared_prefix_workload(100, prefix_len, unique_len=50)
-    results = benchmark_sglang(prompts)
-    print(f"前缀长度={prefix_len:4d}: 总耗时={results['total_time']:5.2f}s, "
-          f"缓存命中率={results['cache_hit_rate']:6.2%}")
+    
+    sglang_results = benchmark_sglang(prompts)
+    print(f"前缀长度={prefix_len}: SGLang 总耗时={sglang_results['total_time']:.2f}s, "
+          f"前缀命中率={sglang_results['cache_hit_rate']:.2%}")
 ```
 
-### 3. 基于 XGrammar 的 JSON Schema 结构化约束解码
+### 实现结构化约束解码（Constrained Decoding）
 
-使用 SGLang 编写结构化生成程序，利用 XGrammar 语法状态机强制模型生成符合 Pydantic Schema 的合法 JSON 数据。
+编写基于 JSON Schema 的约束解码逻辑，强制大模型按严格的结构化格式输出。
 
-__要求：__
+__实战要求：__
 
-- 定义严格的 Pydantic 数据模型（包含嵌套对象或列表）
-- 使用 SGLang 约束解码接口生成结构化输出
-- 验证生成文本的 JSON 合法性与字段解析正确率
-- 对比约束解码与无约束自由生成的额外延迟开销（验证 XGrammar 的极低开销）
+- 支持基于 Pydantic 模型自动推导 JSON Schema 语法约束
+- 实现基于文法状态机（Grammar-based State Machine）的合法 Token 动态掩码过滤
+- 支持深度嵌套对象、数组及枚举字段的强类型约束
+- 度量约束解码机制对推理吞吐产生的性能开销
 
-__测试代码：__
+__测试验证：__
 ```python
 import sglang as sgl
 from pydantic import BaseModel
@@ -136,120 +142,147 @@ class Person(BaseModel):
 
 @sgl.function
 def extract_person(s, text: str):
-    s += "请从以下文本中提取人物信息：" + text + "\n"
-    s += "输出格式严格遵守 JSON：\n"
+    s += "从以下文本中提取人物属性信息: " + text + "\n"
+    s += "输出格式为标准 JSON:\n"
     s += sgl.gen("json_output", max_tokens=200, regex=Person.model_json_schema())
 
-# 测试结构化生成
+# 测试结构化提取
 runtime = sgl.Runtime(model_path="Qwen/Qwen2.5-0.5B-Instruct")
 
-text = "张伟今年35岁，是一名资深软件工程师，居住在北京。"
+text = "张伟是一名 35 岁的资深分布式系统软件架构师。"
 state = extract_person.run(text=text)
 
-print(f"生成的 JSON 字符串: {state['json_output']}")
+print(f"模型输出文本: {state['json_output']}")
 
-# 验证 Schema 解析
+# 验证输出是否符合 Pydantic 强类型规范
 try:
     person = Person.model_validate_json(state['json_output'])
-    print(f"成功解析对象: 姓名={person.name}, 年龄={person.age}, 职业={person.occupation}")
+    print(f"解析成功: 姓名={person.name}, 年龄={person.age}, 职业={person.occupation}")
 except Exception as e:
-    print(f"JSON 验证失败: {e}")
+    print(f"结构校验失败: {e}")
 ```
 
-### 4. 构建多轮带状态对话与 Fork 并行分支生成
+### 实现多轮对话状态持久化与复用
 
-使用 SGLang 原生状态管理与 `fork()` 机制，实现高效复用历史 KV Cache 的多轮对话与 Best-of-N 候选生成。
+借助 SGLang 的原生状态管理 API，构建零重复 Prefill 的高效多轮对话流水线。
 
-__要求：__
+__实战要求：__
 
-- 实现多轮对话程序，验证第 2 轮与第 3 轮自动复用前置轮次的 KV Cache
-- 使用 `s.fork(N)` 瞬间克隆当前对话状态，并行探索多个不同的推理回答分支
-- 测量 Fork 并行相比纯串行多次生成的加速比
+- 高效维护多轮对话的历史树，避免每次轮次全量重复编码
+- 跨轮次完全复用历史对话的 KV Cache
+- 支持树状分叉对话（探索同一上下文下的多种分支推演）
+- 量化多轮场景下相较朴素重复输入拼接的显存与延迟优势
 
-__测试代码：__
+__测试验证：__
 ```python
 import sglang as sgl
-import time
+
+@sgl.function
+def multi_turn_chat(s, system_prompt: str):
+    s += sgl.system(system_prompt)
+    
+    # 第一轮交互
+    s += sgl.user("什么是分布式系统？")
+    s += sgl.assistant(sgl.gen("response1", max_tokens=200))
+    
+    # 第二轮交互（完全复用前序系统提示与第一轮对话的 KV Cache）
+    s += sgl.user("能举一个通俗易懂的现实生活例子吗？")
+    s += sgl.assistant(sgl.gen("response2", max_tokens=200))
+    
+    # 第三轮交互
+    s += sgl.user("它与传统的单体系统有什么本质区别？")
+    s += sgl.assistant(sgl.gen("response3", max_tokens=200))
+
+# 运行多轮对话
+runtime = sgl.Runtime(model_path="Qwen/Qwen2.5-0.5B-Instruct")
+
+state = multi_turn_chat.run(
+    system_prompt="你是一位循循善诱的计算机科学领域教授，擅长用生动的比喻讲解深奥的技术。"
+)
+
+print("第 1 轮回复:", state["response1"][:100], "...")
+print("第 2 轮回复:", state["response2"][:100], "...")
+print("第 3 轮回复:", state["response3"][:100], "...")
+
+# 打印底层缓存命中指标
+print(f"缓存利用统计: {runtime.get_cache_stats()}")
+```
+
+### 基于 Fork 机制实现并行生成与重排（Best-of-N）
+
+利用 SGLang 原生 `fork()` 原语，单请求内部实现高效的分支并行采样与自动打分重排。
+
+__实战要求：__
+
+- 分叉会话上下文状态，同时探索多条生成分支
+- 配置不同采样温度与惩罚项，并行生成具有多样性的候选解答
+- 实现 Best-of-N 最优候选评估与自动筛选
+- 对比分支并行生成与顺序串行多次生成的端到端耗时
+
+__测试验证：__
+```python
+import sglang as sgl
 
 @sgl.function
 def parallel_generation(s, prompt: str, num_samples: int = 4):
     s += sgl.user(prompt)
     
-    # 克隆当前对话状态为 4 个独立分支并发生成
+    # 分叉状态生成多个独立候选
     forks = s.fork(num_samples)
+    
     for i, fork in enumerate(forks):
         fork += sgl.assistant(
             sgl.gen(f"response_{i}", max_tokens=200, temperature=0.8)
         )
     
-    # 汇总分支
+    # 合流汇聚所有分支
     s += sgl.join(forks)
 
-# 运行基准对比
+@sgl.function
+def best_of_n(s, prompt: str, n: int = 4):
+    """并行生成 N 个候选并自动优选最佳回复。"""
+    s += sgl.user(prompt)
+    
+    forks = s.fork(n)
+    responses = []
+    
+    for i, fork in enumerate(forks):
+        fork += sgl.assistant(sgl.gen(f"candidate_{i}", max_tokens=200))
+        responses.append(fork[f"candidate_{i}"])
+    
+    # 启发式评估逻辑（此处简化为优选内容最详尽的分支）
+    best_idx = max(range(n), key=lambda i: len(responses[i]))
+    s += sgl.select("best", responses[best_idx])
+
+# 启动基准对照测试
 runtime = sgl.Runtime(model_path="Qwen/Qwen2.5-0.5B-Instruct")
 
-# 串行生成 4 次
+import time
+
+# 串行生成基线
 start = time.time()
-for _ in range(4):
-    _ = runtime.generate("请简要解释量子计算的基本原理", max_new_tokens=200)
+for i in range(4):
+    state = runtime.generate("详细阐述量子计算的基本原理", max_new_tokens=200)
 sequential_time = time.time() - start
 
-# Fork 并发生成 4 个分支（共享 Prompt KV）
+# Fork 并行生成
 start = time.time()
-state = parallel_generation.run(prompt="请简要解释量子计算的基本原理", num_samples=4)
+state = parallel_generation.run(prompt="详细阐述量子计算的基本原理", num_samples=4)
 parallel_time = time.time() - start
 
-print(f"串行耗时: {sequential_time:.2f}s")
-print(f"Fork 并发耗时: {parallel_time:.2f}s")
-print(f"加速比: {sequential_time / parallel_time:.2f}x")
-```
-
-### 5. 部署 PD 分离（Prefill/Decode Disaggregation）与智能路由架构
-
-配置基于 Mooncake RDMA 引擎的 Prefill/Decode 计算分离集群，并启动 Cache-Aware 智能网关。
-
-__要求：__
-
-- 分别启动独立的 Prefill 算力节点与 Decode 显存节点
-- 配置 Mooncake RDMA 传输通道实现 KV Cache 零拷贝跨卡/跨机直传
-- 启动 `sglang_router` 并配置 `cache_aware` 负载均衡策略
-- 发送测试请求流，验证 Prefill 算力节点向 Decode 节点无缝交接 KV Cache
-
-__测试代码：__
-```bash
-# 1. 启动 Prefill 计算密集型 Worker
-python -m sglang.launch_server \
-    --model-path Qwen/Qwen2.5-0.5B-Instruct \
-    --disaggregation-mode prefill \
-    --port 30000 \
-    --disaggregation-ib-device mlx5_roce0
-
-# 2. 启动 Decode 显存密集型 Worker（使用 GPU 1）
-python -m sglang.launch_server \
-    --model-path Qwen/Qwen2.5-0.5B-Instruct \
-    --disaggregation-mode decode \
-    --port 30001 \
-    --base-gpu-id 1 \
-    --disaggregation-ib-device mlx5_roce0
-
-# 3. 启动 PD 分离智能路由网关
-python -m sglang_router.launch_router \
-    --pd-disaggregation \
-    --prefill http://127.0.0.1:30000 \
-    --decode http://127.0.0.1:30001 \
-    --policy cache_aware \
-    --port 8080
+print(f"串行生成耗时: {sequential_time:.2f}s")
+print(f"Fork 并行耗时: {parallel_time:.2f}s")
+print(f"并行加速比: {sequential_time / parallel_time:.2f}x")
 ```
 
 
-## 学习成果自测
+## 预期学习目标
 
-完成本章所有练习后，你应当能够：
+完成本章实战练习后，你将能够：
 
-- 深刻理解 SGLang 与 vLLM 在设计哲学上的差异（跨请求跨会话优化 vs 请求内模型并行）
-- 掌握 RadixAttention 基数树前缀缓存的生命周期与 LRU 自动剪枝机制
-- 掌握零开销调度器（Zero-Overhead Scheduler）CPU/GPU 重叠执行机理
-- 熟练使用 XGrammar 状态机实现极低开销的 JSON/正则结构化约束输出
-- 熟练编排并部署基于 Mooncake RDMA 的 Prefill/Decode 计算分离（PD Disaggregation）工业集群
-- 掌握 SGLang Router 的 Cache-Aware 路由策略、会话粘性（Session Affinity）与自动故障转移
-- 熟练调优 MoE 模型的专家并行（EP）、DP Attention 与两批重叠（Two-Batch Overlap）流水线
+- 深入掌握 RadixAttention 基数树前缀缓存算法的数据结构与驱逐策略
+- 熟练量化复杂工作负载下跨请求 KV Cache 重用的时延与显存收益
+- 实现基于文法与 JSON Schema 的约束解码，保障结构化输出的高可靠性
+- 利用 SGLang 函数式状态编程范式，构建高效多轮对话与树状工作流
+- 熟练使用 `fork` 与 `join` 原语实现端内并行分支生成与 Best-of-N 优选
+- 掌握复杂 LLM 复合流水线中的系统级开销压缩与吞吐极致优化

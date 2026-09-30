@@ -1,0 +1,4 @@
+玄心是Oracle生成式AI的首席ML技术主管，专门从事分布式训练、推理和企业AI工作负载的GPU系统。他交付了Oracle大规模视觉和文档AI模型以及Oracle Code Assist（Oracle的AI编码助手）的核心组件，并与Microsoft-Oracle合著了一篇关于使用ONNX Runtime进行高性能深度学习的博客。他毕业于新加坡-MIT联盟，在MIT期间学习了Gilbert Strang的线性代数。他在NetEase从事应用机器学习开始职业生涯，然后在华尔街从事定量金融——在Bloomberg为可转换债券定价，在WorldQuant开发算法交易策略——最后加入Uber，在那里他使用Petastorm和Horovod在Michelangelo上构建了分布式训练系统。
+
+玄心在PyTorch Distributed、DeepSpeed、Megatron风格的并行、Kubernetes GPU集群和生产LLM服务方面拥有实际经验。他对开源项目做出了贡献，包括SGLang、vLLM、genai-bench、pyLLaMA、chatLLaMA和HiQ，并是《AI和机器学习数学》的作者。他在德州大学奥斯汀分校McCombs商学院教授生成式AI基础，并指导准备AI奥林匹克竞赛的学生。笔名为Xuan Xin，他还是抒情回忆录《云层之上：从山泉到硅谷AI边缘》和音乐专辑《让我们训练模型》（2024）的作者，该专辑将深度学习和AI概念渲染为音乐。除了技术外，他还是禅宗书法家和志愿数学辅导员。
+

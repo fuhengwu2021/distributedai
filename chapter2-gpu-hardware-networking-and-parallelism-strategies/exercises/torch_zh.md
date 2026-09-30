@@ -1,68 +1,71 @@
 \fancydividerwithicon[center]{hand.png}
 
 
-## 课后实战习题
+## 实战演练
 
 
-### 1. GPU 硬件信息探测器
+### GPU 硬件信息探测器
 
-实现一个全面的 GPU 硬件信息探测函数，自动提取当前环境可用 GPU 的详细硬件指标。
+实现一个完备的 GPU 硬件信息探测函数，收集并格式化输出系统中所有可用 GPU 的关键硬件参数。
 
-__要求：__
+__实战要求：__
 
 - 函数签名：
 ```python
 inspect_gpu_hardware()
 ```
-- 为每张 GPU 返回一个包含如下键的字典：
-  - `name`：GPU 型号名称
-  - `memory_total_gb`：总显存（单位：GB）
-  - `memory_free_gb`：当前可用空闲显存（单位：GB）
-  - `compute_capability`：计算能力字符串（如 "9.0"）
-  - `multiprocessor_count`：流式多处理器（SM）数量
-  - `cuda_version`：CUDA 版本
-- 处理 CUDA 不可用的异常情况（返回空列表）
-- 格式化打印包含所有 GPU 硬件信息的汇总表格
 
-__测试代码：__
+- 为系统中每块 GPU 返回包含以下键的字典列表：
+  - `name`: GPU 型号名称
+  - `memory_total_gb`: 显存总量（单位：GB）
+  - `memory_free_gb`: 空闲显存容量（单位：GB）
+  - `compute_capability`: 计算能力字符串（例如 "9.0"）
+  - `multiprocessor_count`: 流式多处理器（SM）核心数量
+  - `cuda_version`: 当前 CUDA 运行时版本
+- 正确处理系统中无可用 CUDA 设备的情况（返回空列表）
+- 打印格式整齐的汇总表格，展示各项 GPU 硬件指标
+
+__测试验证：__
 ```python
 import torch
 
 gpu_info = inspect_gpu_hardware()
-print(f"检测到 {len(gpu_info)} 张可用 GPU")
+print(f"检测到 {len(gpu_info)} 块 GPU")
 
 for i, info in enumerate(gpu_info):
     print(f"\nGPU {i}:")
     print(f"  型号: {info['name']}")
-    print(f"  显存: 总计 {info['memory_total_gb']:.1f} GB, "
+    print(f"  显存: 总量 {info['memory_total_gb']:.1f} GB, "
           f"空闲 {info['memory_free_gb']:.1f} GB")
     print(f"  计算能力: {info['compute_capability']}")
-    print(f"  SM 处理器数量: {info['multiprocessor_count']}")
+    print(f"  SM 处理器数: {info['multiprocessor_count']}")
 ```
 
-### 2. 训练显存开销计算器
+### 训练显存开销核算器
 
-实现一个根据模型参数量、数值精度以及优化器配置，精确推导训练峰值显存需求的计算函数。
+实现一个显存计算函数，精确预估不同精度与优化器配置下模型训练阶段的静态与动态显存占用。
 
-__要求：__
+__实战要求：__
 
 - 函数签名：
 ```python
 calculate_training_memory(num_params, precision='bf16', optimizer='adam', batch_size=1, seq_length=2048)
 ```
-- 计算以下各部分的显存占用：
-  - 模型参数权重（Weights）
-  - 梯度（Gradients，与参数尺寸一致）
-  - 优化器内部状态（Optimizer States）：
-    - Adam：参数量的 2 倍（一阶矩动量 + 二阶矩方差）
-    - SGD：参数量的 1 倍（仅动量）
-  - 中间激活值（Activations）：估算为 `batch_size × seq_length × hidden_size × num_layers × bytes_per_element`
-- 支持的精度选项：'fp32' (4 字节), 'bf16'/'fp16' (2 字节), 'int8' (1 字节)
-- 返回包含显存分解的字典：`{'parameters': ..., 'gradients': ..., 'optimizer': ..., 'activations': ..., 'total': ...}`（单位均为 GB）
 
-__测试代码：__
+- 分别核算以下显存分量：
+  - 模型参数权重（Parameters）
+  - 梯度张量（Gradients，与参数规模一致）
+  - 优化器状态（Optimizer States）：
+    - Adam: 参数大小的 2 倍（一阶动量与二阶动量）
+    - SGD: 参数大小的 1 倍（仅动量）
+  - 激活值（Activations）：近似按 `batch_size × seq_length × hidden_size × num_layers × bytes_per_element` 估算
+- 支持的精度选项：'fp32'（每元素 4 字节）、'bf16'/'fp16'（每元素 2 字节）、'int8'（每元素 1 字节）
+- 返回细分字典：`{'parameters': ..., 'gradients': ..., 'optimizer': ..., 'activations': ..., 'total': ...}`
+- 所有数值统一折算为 GB
+
+__测试验证：__
 ```python
-# 70B 参数模型在 BF16 精度、Adam 优化器下的显存估算
+# 针对 70B 参数量模型，采用 BF16 精度与 Adam 优化器
 memory = calculate_training_memory(
     num_params=70e9,
     precision='bf16',
@@ -71,69 +74,71 @@ memory = calculate_training_memory(
     seq_length=2048
 )
 
-print("显存需求详细分解 (GB):")
+print("训练显存开销拆解预估 (GB):")
 for key, value in memory.items():
     print(f"  {key}: {value:.2f} GB")
 ```
 
-### 3. GPU 互联拓扑分析器
+### 拓扑探测与互连分析
 
-实现一个自动解析 `nvidia-smi topo -m` 命令输出并推断系统 GPU 互联拓扑结构的函数。
+实现一个解析 `nvidia-smi topo -m` 命令输出的函数，用于识别多卡拓扑结构与互连带宽特性。
 
-__要求：__
+__实战要求：__
 
 - 函数签名：
 ```python
 analyze_gpu_topology()
 ```
-- 使用 `subprocess` 运行 `nvidia-smi topo -m` 并捕获标准输出
-- 解析拓扑矩阵，提取识别：
-  - 通过 NVLink 直连的 GPU 节点对（识别 NV18, NV12, NV4 等标记）
-  - 仅通过 PCIe 连接的 GPU 节点对（识别 PIX, PXB 等标记）
-  - 是否具备全互联 NVLink（All-to-All NVLink，即所有卡间均可通过 NVLink 全速通信）
-- 返回包含如下字段的字典：
-  - `num_gpus`：GPU 总数量
-  - `nvlink_pairs`：具备 NVLink 互联的 GPU 编号对列表
-  - `pcie_only_pairs`：仅通过 PCIe 互联的 GPU 编号对列表
-  - `has_all_to_all_nvlink`：指示是否支持全互联 NVLink 的布尔值
-  - `recommended_parallelism`：基于当前硬件拓扑给出的推荐并行策略
 
-__测试代码：__
+- 利用 `subprocess` 调用 `nvidia-smi topo -m` 并捕获标准输出
+- 解析拓扑矩阵，辨识以下互连类型：
+  - 通过 NVLink 直连的 GPU 间通道（识别 NV18、NV12、NV4 等标记）
+  - 仅通过 PCIe 互连的 GPU 间通道（识别 PIX、PXB 等标记）
+  - 全连接拓扑判定（判断是否任意两块 GPU 间均具备 NVLink 直连通道）
+- 返回包含以下字段的分析字典：
+  - `num_gpus`: GPU 总数
+  - `nvlink_pairs`: 具备 NVLink 直连的 GPU 卡号对列表
+  - `pcie_only_pairs`: 仅能通过 PCIe 互连的 GPU 卡号对列表
+  - `has_all_to_all_nvlink`: 布尔值，指示是否具备全互联 NVLink 网格拓扑
+  - `recommended_parallelism`: 基于拓扑特征推荐的最佳并行策略建议
+
+__测试验证：__
 ```python
 import subprocess
 
 topology = analyze_gpu_topology()
-print(f"GPU 数量: {topology['num_gpus']}")
-print(f"NVLink 直连对: {topology['nvlink_pairs']}")
-print(f"仅 PCIe 连接对: {topology['pcie_only_pairs']}")
-print(f"全互联 NVLink 支持: {topology['has_all_to_all_nvlink']}")
+print(f"GPU 总数: {topology['num_gpus']}")
+print(f"NVLink 直连卡对: {topology['nvlink_pairs']}")
+print(f"仅 PCIe 互连卡对: {topology['pcie_only_pairs']}")
+print(f"是否具备全互联 NVLink: {topology['has_all_to_all_nvlink']}")
 print(f"推荐并行策略: {topology['recommended_parallelism']}")
 ```
 
-### 4. 分布式并行策略智能推荐器
+### 并行策略决策选择器
 
-实现一个根据模型规模、硬件拓扑结构以及任务场景，自动给出最优并行策略推荐的决策函数。
+根据模型参数量、物理硬件拓扑以及训练/推理任务属性，实现一个自动推荐最适并行策略的决策函数。
 
-__要求：__
+__实战要求：__
 
 - 函数签名：
 ```python
 recommend_parallelism_strategy(model_size_gb, num_gpus, topology_info, has_nvlink_all_to_all, training_type='training')
 ```
-- 综合评估：
-  - 模型体积与单卡显存容量的对比
-  - 硬件互联拓扑（NVLink 全互联 vs 仅 PCIe）
-  - 训练场景与推理场景的差异化约束
-- 返回包含如下字段的字典：
-  - `primary_strategy`：推荐的主选并行策略（DDP, FSDP, TP, PP 或 混合并行）
-  - `reasoning`：该选型决策的核心技术依据与权衡分析
-  - `alternative_strategies`：备选可行方案列表
-  - `estimated_gpu_count`：推荐的最少 GPU 数量
-  - `memory_per_gpu_gb`：预估每张 GPU 的显存开销
 
-__测试代码：__
+- 综合权衡考量：
+  - 模型显存需求与单卡物理显存容量对比
+  - 硬件互连拓扑（是否具备高带宽 NVLink 全互联，或是受限的 PCIe 通道）
+  - 任务类型特征（分布式训练阶段的状态同步需求 vs. 在线推理阶段的延迟吞吐平衡）
+- 返回包含以下字段的建议字典：
+  - `primary_strategy`: 核心并行方案（如 DDP、FSDP、TP、PP 或混合并行）
+  - `reasoning`: 方案决策背后的关键工程逻辑与原理分析
+  - `alternative_strategies`: 备选可行方案列表
+  - `estimated_gpu_count`: 满足运行的最低 GPU 卡数预估
+  - `memory_per_gpu_gb`: 单卡预估显存负载
+
+__测试验证：__
 ```python
-# 70B 模型 (BF16 需 140 GB 权重) 在 8 卡全互联 NVLink 集群上的训练推荐
+# 70B 参数量模型（BF16 精度下权重占 140 GB），运行于配备全互联 NVLink 的 8 卡集群
 strategy = recommend_parallelism_strategy(
     model_size_gb=140,
     num_gpus=8,
@@ -142,20 +147,20 @@ strategy = recommend_parallelism_strategy(
     training_type='training'
 )
 
-print(f"推荐策略: {strategy['primary_strategy']}")
-print(f"选型依据: {strategy['reasoning']}")
-print(f"预估所需 GPU 卡数: {strategy['estimated_gpu_count']}")
+print(f"推荐核心策略: {strategy['primary_strategy']}")
+print(f"决策逻辑: {strategy['reasoning']}")
+print(f"最少所需 GPU 卡数: {strategy['estimated_gpu_count']}")
 print(f"单卡预估显存占用: {strategy['memory_per_gpu_gb']:.1f} GB")
 ```
 
 
-## 学习成果自测
+## 预期学习目标
 
-完成本章所有练习后，你应当能够：
+完成本章实战练习后，你将能够：
 
-- 熟练通过 PyTorch 与底层 CUDA API 编程探测 GPU 硬件各项核心属性
-- 准确推导大模型在不同数值精度与优化器下的显存开销组成
-- 熟练解析 `nvidia-smi topo -m` 拓扑矩阵并诊断跨卡通信链路
-- 准确区分 NVLink、NVSwitch、PCIe 以及跨节点 InfiniBand/RoCE 互联差异
-- 根据模型参数规模与集群互联拓扑，科学决策最优分布式并行策略（DDP/FSDP/TP/PP/EP）
-- 深刻理解硬件网络带宽瓶颈对各并行策略扩展效率的制约机理
+- 使用 PyTorch 与底层 CUDA API 编写脚本，自动化探查 GPU 计算规格与显存状态
+- 熟练核算不同精度（FP32/BF16/FP16/INT8）与优化器状态下的训练显存开销
+- 解析并理解 `nvidia-smi` 拓扑矩阵输出，准确识别系统内的互连拓扑瓶颈
+- 区分 NVLink 与 PCIe 互连的带宽特征及其对不同集合通信模式的影响
+- 结合模型规模与物理硬件拓扑，为实际工作负载科学选择数据并行、张量并行与流水线并行策略
+- 深刻理解 GPU 互连物理拓扑如何直接制约分布式并行算法的执行效能

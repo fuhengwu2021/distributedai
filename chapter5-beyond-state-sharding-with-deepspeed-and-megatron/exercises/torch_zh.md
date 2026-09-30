@@ -1,33 +1,32 @@
 \fancydividerwithicon[center]{hand.png}
 
 
-## 课后实战习题
+## 实战演练
 
 
-### 1. DeepSpeed ZeRO 阶段（Stage 1/2/3）基准性能对比
+### 对比 DeepSpeed ZeRO 各阶段特性
 
-编写一个基准测试脚本，量化对比 DeepSpeed ZeRO Stage 1、2、3 在相同模型架构下的显存占用与吞吐开销。
+基于统一模型基准，实现对比 DeepSpeed ZeRO Stage 1、Stage 2 与 Stage 3 的端到端评测流水线。
 
-__要求：__
+__实战要求：__
 
-- 使用 7B 参数模型（若硬件受限可使用等比缩小版）
-- 分别评测：
-  - ZeRO Stage 1（仅优化器状态分片）
-  - ZeRO Stage 2（优化器状态 + 梯度分片）
-  - ZeRO Stage 3（参数 + 梯度 + 优化器状态全分片）
-- 精确测量每种阶段下的：
-  - 单卡峰值 GPU 显存（GB）
-  - 训练吞吐量（Tokens/sec）
-  - 跨卡集合通信时间占比
-- 生成结构化对比表格与显存分解图
+- 选取 7B 参数量模型（或根据当前测试环境显存容量选择合适体量的网络）
+- 配置评测 ZeRO Stage 1（仅分片优化器状态）
+- 配置评测 ZeRO Stage 2（分片优化器状态 + 梯度张量）
+- 配置评测 ZeRO Stage 3（深度分片优化器状态、梯度与模型参数）
+- 针对各阶段度量以下指标：
+  - 每块 GPU 上的峰值物理显存占用
+  - 训练吞吐率（tokens/second）
+  - 网络通信耗时与开销占比
+- 生成直观的显存开销拆解对比表
 
-__测试代码：__
+__测试验证：__
 ```python
 import deepspeed
 import torch
 
 def benchmark_zero_stage(model, stage: int, num_steps: int = 100):
-    """测试指定 ZeRO Stage 下的训练性能。"""
+    """评测特定 ZeRO 阶段的显存占用与吞吐表现。"""
     ds_config = {
         "train_batch_size": 32,
         "zero_optimization": {
@@ -43,44 +42,43 @@ def benchmark_zero_stage(model, stage: int, num_steps: int = 100):
         config=ds_config,
     )
     
-    # 运行基准训练循环
+    # 执行基准压测
     memory, throughput = run_training(model_engine, num_steps)
     return memory, throughput
 
-# 对比各阶段
+# 依次对比 Stage 1, 2, 3
 results = {}
 for stage in [1, 2, 3]:
-    model = create_model()  # 每个阶段新建独立模型
+    model = create_model()  # 为每个阶段重新初始化独立模型副本
     memory, throughput = benchmark_zero_stage(model, stage)
     results[f"ZeRO-{stage}"] = {"memory_gb": memory, "throughput": throughput}
 
-print("ZeRO 阶段   | 显存占用 (GB) | 训练吞吐 (tok/s)")
-print("-" * 50)
+print("优化阶段   | 峰值显存 (GB) | 训练吞吐 (tok/s)")
 for name, metrics in results.items():
-    print(f"{name:10} | {metrics['memory_gb']:13.1f} | {metrics['throughput']:17.1f}")
+    print(f"{name:9} | {metrics['memory_gb']:13.1f} | {metrics['throughput']:12.1f}")
 ```
 
-### 2. 构建 ZeRO-Offload 异构内存卸载系统
+### 实现主机内存卸载（CPU Offloading）
 
-配置并测试 DeepSpeed ZeRO-Offload，利用 CPU 内存突破 GPU 显存限制训练更大参数量的模型。
+配置并评测 DeepSpeed ZeRO-Offload 机制，突破 GPU 物理显存限制训练超大规模模型。
 
-__要求：__
+__实战要求：__
 
-- 配置 ZeRO Stage 3 并启用 CPU 内存卸载
-- 针对优化器状态（Optimizer Offload）开启卸载与 Pin Memory 锁页内存加速
-- 针对模型参数（Param Offload）开启卸载
-- 测量并分析：
-  - 能够成功加载并训练的最大模型参数量
-  - 相比纯 GPU 显存训练的吞吐下降比率
-  - Host CPU 内存实际消耗峰值
-  - PCIe 总线吞吐与利用率
+- 配置启用 CPU Offload 的 ZeRO Stage 3
+- 评测优化器状态卸载至主机内存（Host Memory）
+- 评测模型参数权重卸载至主机内存
+- 度量与分析：
+  - 单卡所能承载的最大可训练参数量上限
+  - 相较纯 GPU 方案的吞吐损耗比率
+  - 主机系统 CPU 内存占用曲线
+  - PCIe 总线带宽饱和率
+- 使用 `pin_memory` 锁页内存以最大化 host-to-device 传输吞吐
 
-__测试代码：__
+__测试验证：__
 ```python
 import deepspeed
-import torch
 
-# ZeRO-3 配合全量 CPU Offload
+# 配置全量 CPU 卸载的 ZeRO-3 引擎
 offload_config = {
     "train_batch_size": 8,
     "zero_optimization": {
@@ -99,33 +97,34 @@ offload_config = {
     "bf16": {"enabled": True},
 }
 
-# 逐步增大模型规模进行压力测试
+# 递增模型参数规模进行边界极限测试
 model_sizes = ["1B", "3B", "7B", "13B"]
 for size in model_sizes:
     try:
         model = create_model(size)
         engine, _, _, _ = deepspeed.initialize(model=model, config=offload_config)
         
+        # 统计显存、内存与吞吐
         gpu_mem = torch.cuda.max_memory_allocated() / 1e9
         cpu_mem = get_cpu_memory_usage()
         throughput = benchmark_throughput(engine, num_steps=10)
         
-        print(f"[{size}] GPU 显存: {gpu_mem:.1f}GB, CPU 内存: {cpu_mem:.1f}GB, 吞吐: {throughput:.1f} tok/s")
+        print(f"{size}: GPU显存={gpu_mem:.1f}GB, CPU内存={cpu_mem:.1f}GB, 吞吐={throughput:.1f} tok/s")
     except RuntimeError as e:
-        print(f"[{size}] 触发 OOM: {e}")
+        print(f"{size}: 触发 OOM 异常 - {e}")
         break
 ```
 
-### 3. 从零手写 Megatron 张量并行（Tensor Parallelism）线性层
+### 实现张量并行（Tensor Parallelism）
 
-实现简化的列并行（ColumnParallelLinear）与行并行（RowParallelLinear）模块，深入理解 Megatron-LM 的算子级矩阵切分机制。
+手动实现一个简化版的列并行与行并行线性层，领悟 Megatron-LM 张量切分的核心设计。
 
-__要求：__
+__实战要求：__
 
-- 类签名：
+- 类签名定义：
 ```python
 class ColumnParallelLinear(nn.Module):
-    """沿输出特征维度（按列）进行切分的并行线性层。"""
+    """沿输出特征维度按列切分的并行线性层。"""
     def __init__(self, in_features: int, out_features: int, world_size: int, rank: int):
         pass
     
@@ -133,52 +132,57 @@ class ColumnParallelLinear(nn.Module):
         pass
 
 class RowParallelLinear(nn.Module):
-    """沿输入特征维度（按行）进行切分的并行线性层。"""
+    """沿输入特征维度按行切分的并行线性层。"""
     def __init__(self, in_features: int, out_features: int, world_size: int, rank: int):
         pass
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         pass
 ```
-- 列并行：将输出维度等分到各卡，前向无通信，输出部分特征切片
-- 行并行：将输入维度等分到各卡，前向通过 `dist.all_reduce()` 汇总各卡局部点积求和
-- 验证组装出的双层 MLP 模块与标准全量 `nn.Linear` 算子的数学输出等价性
 
-__测试代码：__
+- 列并行（Column Parallel）：将权重矩阵按输出特征维度 $out\_features$ 均分给各 rank
+- 行并行（Row Parallel）：将权重矩阵按输入特征维度 $in\_features$ 均分给各 rank
+- 在行并行线性层的输出端执行 AllReduce，将各卡局部结果累加聚合
+- 验证张量并行级联结构与标准单卡 Linear 层前向输出的数值精确等价性
+
+__测试验证：__
 ```python
 import torch
-import torch.nn as nn
 import torch.distributed as dist
 
+# 实例化张量并行层
 world_size = dist.get_world_size()
 rank = dist.get_rank()
 
 col_linear = ColumnParallelLinear(1024, 4096, world_size, rank).cuda()
 row_linear = RowParallelLinear(4096, 1024, world_size, rank).cuda()
 
-# 前向传播测试
+# 执行前向传播测试
 x = torch.randn(32, 1024).cuda()
-y = col_linear(x)  # 局部形状: (32, 4096 // world_size)
-z = row_linear(y)  # AllReduce 之后形状重构为: (32, 1024)
+y = col_linear(x)  # 张量形状: (32, 4096 // world_size)
+z = row_linear(y)  # 经过内部 AllReduce 后恢复形状: (32, 1024)
 
-print(f"Rank {rank}: 输入={x.shape}, 列并行后={y.shape}, 行并行 AllReduce 后={z.shape}")
+print(f"Rank {rank}: 输入={x.shape}, 列切分后={y.shape}, 行切分求和后={z.shape}")
+
+# 校验正确性（收集各卡输出并与单卡标准 Linear 进行数值绝对误差对比）
 ```
 
-### 4. 实现 1F1B 调度流水线并行（Pipeline Parallelism）
+### 实现流水线并行（Pipeline Parallelism）
 
-编写一个带 Micro-batch 管道编排与 1F1B（One Forward One Backward）交错调度的流水线并行引擎。
+构建一个基于微批次（Micro-batching）与 1F1B 调度算法的简易流水线并行训练系统。
 
-__要求：__
+__实战要求：__
 
-- 将深度神经网络划分为 $N$ 个流水线 Stage，分配至不同 GPU 设备
-- 实现 1F1B 稳态交错调度（前向与反向严格交替执行）
-- 处理 Micro-batch 梯度的累加与反向传播依赖
-- 量化度量流水线气泡（Pipeline Bubble）在不同 Micro-batch 数量下的开销占比
+- 将多层模型切分为 $N$ 个顺序流水线阶段（Pipeline Stages）
+- 实现经典的 1F1B（One Forward, One Backward）稳态调度逻辑
+- 处理微批次累加与梯度反向传播
+- 精确测量流水线气泡（Pipeline Bubble）时间开销占比
+- 与纯数据并行方案对比扩展效率
 
-__测试代码：__
+__测试验证：__
 ```python
 class PipelineStage(nn.Module):
-    """单个流水线阶段。"""
+    """封装单个流水线计算阶段。"""
     def __init__(self, layers: nn.ModuleList, stage_id: int):
         super().__init__()
         self.layers = layers
@@ -195,73 +199,75 @@ class PipelineParallel:
         self.num_microbatches = num_microbatches
     
     def split_model(self, model, num_stages) -> list:
-        """切分模型为各 Stage。"""
+        """将深度模型均匀切分为流水线阶段。"""
         pass
     
     def forward_backward(self, batch):
-        """执行 1F1B 交错调度。"""
+        """执行 1F1B 稳态交替调度执行。"""
         pass
 
-# 测试 4 Stage 流水线
+# 评测流水线并行
 model = create_transformer(num_layers=24)
 pp = PipelineParallel(model, num_stages=4, num_microbatches=8)
 
 batch = torch.randn(64, 512, 1024).cuda()
 loss = pp.forward_backward(batch)
-print(f"流水线单步训练 Loss: {loss.item():.4f}")
+print(f"流水线计算 Loss: {loss.item():.4f}")
 ```
 
-### 5. 配置 3D 混合并行（DP × TP × PP）进程组拓扑
+### 配置 3D 混合并行架构
 
-编写一个在集群多 GPU 上构建 3D 混合并行笛卡尔网格的进程组初始化与分配脚本。
+构建融合数据并行（DP）、张量并行（TP）与流水线并行（PP）的 3D 混合并行拓扑通信环境。
 
-__要求：__
+__实战要求：__
 
-- 支持配置 3D 并行维度：`DP × TP × PP = WORLD_SIZE`
-- 例如在 8 卡集群上配置：`DP=2, TP=2, PP=2`
-- 计算并分配每个 Rank 在 3D 网格中的坐标 `(dp_rank, tp_rank, pp_rank)`
-- 正确创建正交的 DP 集合通信组、TP 集合通信组与 PP 点对点通信组
-- 打印并验证各通信组的成员拓扑完整性
+- 配置满足 $\text{DP} \times \text{TP} \times \text{PP} = \text{World Size}$ 的通信正交网格
+- 以 8 卡环境为例，配置 $\text{DP}=2, \text{TP}=2, \text{PP}=2$ 拓扑
+- 正确初始化并绑定各正交维度的独立通信进程组（Process Groups）
+- 量化多维混合并行的实际扩展效率，对标单维度扩展方案
+- 绘制并分析各通信维度（DP 梯度同步、TP 激活规约、PP 点对点传递）在物理链路上的分布特点
 
-__测试代码：__
+__测试验证：__
 ```python
 import torch.distributed as dist
 
 def setup_3d_parallelism(world_size: int, dp: int, tp: int, pp: int):
-    """构建 3D 混合并行正交进程组网格。"""
-    assert dp * tp * pp == world_size, "DP × TP × PP 乘积必须等于 world_size"
+    """初始化 3D 混合并行所需的各正交进程组。"""
+    assert dp * tp * pp == world_size, "DP × TP × PP 乘积必须严格等于 world_size"
     
     rank = dist.get_rank()
     
-    # 计算当前 Rank 在 3D 网格中的坐标
+    # 计算当前 rank 在 3D 网格中的坐标位置
     dp_rank = rank // (tp * pp)
     tp_rank = (rank // pp) % tp
     pp_rank = rank % pp
     
-    # 构建正交进程组
-    # ...
+    # 构建进程组：
+    # 数据并行组：相同 TP 与 PP 坐标的 rank 组成组
+    # 张量并行组：相同 DP 与 PP 坐标的 rank 组成组
+    # 流水线并行组：相同 DP 与 TP 坐标的 rank 组成组
+    
     return dp_rank, tp_rank, pp_rank, dp_group, tp_group, pp_group
 
-# 在 8 卡环境下测试 3D 拓扑
+# 以 8 卡集群为例测试: DP=2, TP=2, PP=2
 dp_rank, tp_rank, pp_rank, dp_group, tp_group, pp_group = setup_3d_parallelism(
     world_size=8, dp=2, tp=2, pp=2
 )
 
-print(f"Rank {dist.get_rank()}: 3D 坐标 -> (DP={dp_rank}, TP={tp_rank}, PP={pp_rank})")
-print(f"DP 进程组规模: {dist.get_world_size(dp_group)}")
-print(f"TP 进程组规模: {dist.get_world_size(tp_group)}")
-print(f"PP 进程组规模: {dist.get_world_size(pp_group)}")
+print(f"Rank {dist.get_rank()}: DP坐标={dp_rank}, TP坐标={tp_rank}, PP坐标={pp_rank}")
+print(f"DP 组大小: {dist.get_world_size(dp_group)}")
+print(f"TP 组大小: {dist.get_world_size(tp_group)}")
+print(f"PP 组大小: {dist.get_world_size(pp_group)}")
 ```
 
 
-## 学习成果自测
+## 预期学习目标
 
-完成本章所有练习后，你应当能够：
+完成本章实战练习后，你将能够：
 
-- 深刻理解 DeepSpeed ZeRO 1/2/3 的状态分片切分阶梯与显存节省机理
-- 熟练配置 ZeRO-Offload 与 ZeRO-Infinity 异构分层存储系统
-- 掌握 Megatron 张量并行（TP）与序列并行（SP）的算子级矩阵切分与 AllReduce 融合
-- 深刻理解流水线并行（PP）的 1F1B 与虚拟交错（Interleaved/VPP）调度算法
-- 理解超长上下文场景下 Ring Attention 与 DeepSpeed-Ulysses 的通信差异
-- 掌握稀疏大模型专家并行（MoE EP）的 All-to-All 路由与负载均衡
-- 熟练编排现代千亿/万亿参数大模型所需的 3D/4D 混合并行拓扑体系
+- 熟练评测并为生产集群选择最优的 DeepSpeed ZeRO 阶段（Stage 1/2/3）
+- 掌握 CPU Offloading 显存卸载技术，利用廉价内存训练远超物理显存规模的模型
+- 深刻理解 Megatron-LM 张量并行的代数原理，亲手实现高效的行列张量切分算子
+- 实现流水线并行架构，深刻领会 1F1B 调度算法在降低显存峰值与缩减气泡上的精妙设计
+- 熟练搭建 3D 混合并行（DP + TP + PP）通信进程组网格，应对万卡级超大模型分布式训练
+- 全面掌握各并行维度对网络拓扑（跨节点以太网/InfiniBand vs. 节点内 NVLink）的带宽敏感度并做针对性拓扑编排

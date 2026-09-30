@@ -1,196 +1,383 @@
-# 第 10 章：分布式基准测试与系统性能调优 {-}
+# 第10章：分布式基准测试与性能优化 {-}
 
-*精准度量与深度优化分布式 AI 系统的算力极限、通信瓶颈与吞吐延迟*
+*测量和优化分布式 AI 系统的性能*
 
-> 如果你无法度量它，你就无法改进它。  
-> —— 彼得·德鲁克（Peter Drucker，现代管理学之父）
+> 无法测量就无法改进。
+- Peter Drucker，管理顾问和作家
 
-**核心代码速查**
+**Code Summary**
 
-- `torch.profiler`：PyTorch 官方内置的深度性能分析器，追踪 CPU/CUDA 算子耗时与显存波动
-- `torch.utils.benchmark`：PyTorch 官方高精度微基准测试工具，提供自动热身与精确计时
-- `nvidia-ml-py`：NVIDIA NVML Python 绑定库，实时采集 GPU 显存、核心利用率与功率温度
-- `psutil`：底层系统与操作系统进程监控库，排查 CPU 瓶颈与主机内存泄漏
-- `mlperf_logging`：MLPerf 官方合规性指标打点库，输出国际标准化 AI 训练/推理基准日志
-- `tensorboard`：深度可视化训练指标、CUDA 执行时间线（Timeline）与内存分片剖析
-- `wandb`：Weights & Biases 实验追踪云平台，记录多机多卡训练超参数与性能曲线
-- `py-spy`：无需重启代码即可实时采样的低开销 Python 进程火焰图剖析器
-- `nsys`：NVIDIA Nsight Systems，系统级（CUDA/NVLink/NCCL/OS）全栈底层性能追踪工具
-- `ncu`：NVIDIA Nsight Compute，芯片 Kernel 级指令流、Tensor Core 利用率与显存带宽深度分析器
+- `torch.profiler`：用于性能分析的 PyTorch 性能分析器
+- `torch.utils.benchmark`：PyTorch 基准测试工具
+- `nvidia-ml-py`：用于 GPU 监控的 Python 库
+- `psutil`：用于资源监控的系统和进程工具
+- `mlperf_logging`：用于标准化基准的 MLPerf 日志工具
+- `tensorboard`：用于训练指标可视化的 TensorBoard
+- `wandb`：用于实验跟踪的 Weights & Biases
+- `py-spy`：Python 应用的采样性能分析器
+- `nsys`：用于系统级性能分析的 NVIDIA Nsight Systems
+- `ncu`：用于内核级性能分析的 NVIDIA Nsight Compute
 
 
-## 分布式系统中的性能黑洞
+## 分布式系统的性能差距
 
-在前面的章节中，我们完整构建了现代分布式 AI 系统的每一个模块：从 DDP、FSDP、DeepSpeed、Megatron-LM 到 vLLM、SGLang、SLURM 编排以及云原生推理网关。至此，代码在集群上已经能够**完整跑通（Working）**。
+你已经构建了分布式 AI 系统。DDP 跨你的 8-GPU 集群同步梯度。FSDP 跨节点分片你的 70B 参数模型。vLLM 用连续批处理服务推理请求。第 \ref{chap:production-llm-serving-stack} 章的生产栈将流量路由到正确的模型实例。一切都 *工作*——但它工作得 *好* 吗？
 
-然而在工业生产中，**“能跑通”与“高效运行”之间隔着一道巨大的鸿沟**：
-- 一个耗时两周完成的 70B 模型训练任务，如果平均 GPU 利用率（GPU Utilization）只有 45%，意味着团队为价值上百万元的算力集群买单，却有一大半算力在空转等待；
-- 一个在线部署的推理服务虽然能返回答案，但其 P99 尾部延迟高达 800ms，频繁导致下游业务超时熔断；
-- 在 64 张 GPU 上训练时，扩展效率（Scaling Efficiency）暴跌至 52%，实际有效算力仅仅相当于 33 张卡。
+这是将功能性系统与优化系统分开的问题。一个完成的训练运行与一个高效利用你价值 \$100,000 GPU 的训练运行不同。一个返回响应的推理端点与一个满足你 200ms P99 延迟 SLA 的不同。"工作"和"工作得好"之间的区别可能意味着数天浪费的训练时间、违反的服务协议和不必要的云成本。
 
-本章将系统性揭开这些隐藏在分布式系统深处的“性能黑洞”。我们将全面建立分布式 AI 领域的科学评测方法论：涵盖训练与推理的核心评价指标、PyTorch Profiler 与 Nsight 底层追踪、多卡精度一致性校验、跨机网络通信压测以及阿姆达尔定律扩展瓶颈分析。
+考虑这个场景：你的团队在 8 个节点的 64 块 GPU 上训练一个模型。训练完成，模型在基准上表现良好，每个人都庆祝。但隐藏在日志中的是一个令人不安的模式——GPU 利用率徘徊在 45% 左右，从 8 到 64 块 GPU 的扩缩效率只有 52%。你为 64 块 GPU 付费但得到 33 块的有效计算。在两周的运行（每 GPU 336 小时）中，那个机群闲置的 48% 大约是 31 个 GPU 等效的浪费时间——按典型云费率每 GPU 小时 \$4–5 计算约 \$50,000。
 
----
+本章教你找到并修复这些隐藏的低效。我们将涵盖完整的基准测试生命周期：分布式系统真正重要的指标、揭示时间去向的性能分析工具、确保优化不降低模型质量的准确性评估、通信瓶颈的网络诊断，以及理解系统限制的扩缩分析。到最后，你将有系统识别性能瓶颈、做数据驱动优化决策，以及验证你的分布式系统以峰值效率运行的技能。
 
-## 科学基准测试的方法论基石
 
-分布式测试绝非“在 Python 循环外加一个 `time.time()`”那么简单。由于 GPU 异步执行、动态 JIT 编译以及网络通信抖动，不严谨的测试往往会得出完全错误的结论。
+## 为什么基准测试重要
 
-### 1. 为什么 P95 / P99 分位数比平均值（Average）重要百倍？
+基准测试单 GPU 训练循环非常直观：只需为前向传播、反向传播和优化器更新计时即可。测量结果易于复现，方法论清晰明了，且性能瓶颈一目了然。然而，一旦进入分布式系统，问题便发生了质的变化。
 
->NOTES: **平均值的谎言与长尾延迟陷阱**
->
-> 假设系统 A 所有请求耗时均稳定在 100ms；系统 B 平均耗时 80ms，但有 5% 的长尾请求耗时超过 500ms。  
-> 尽管系统 B 的“平均值”看起来更优，但在真实业务中，这 5% 的慢请求会严重阻塞并发流水线、导致用户流失或触发网关超时。在 SLA 约束下，**P95 与 P99 延迟分位数才是衡量系统稳定性的唯一金标准**。
+当你将模型从 1 张 GPU 扩展到 8 张 GPU 时，绝非简单地并发运行 8 份相同的工作负载。这 8 张卡必须在每次反向传播结束时同步全局梯度、协调显存分配以避免显存碎片，并通过具有不同带宽和延迟的网络拓扑进行通信。每一个跨设备协调点都会引入单卡训练中根本不存在的系统开销。梯度同步中看似微不足道的 10% 延迟抖动，在长达两周的训练集群运转中，累积起来就相当于浪费了数以天计的高昂 GPU 算力。
+
+更严峻的挑战在于，分布式系统的真实性能往往取决于那些常规计时工具难以捕获的深层物理因素：底层网络互连拓扑直接决定 AllReduce 的吞吐上限，显存碎片的累积制约着最大安全 Batch Size，而主机数据加载流水线的瓶颈则可能直接导致算力利用率雪崩。如果缺乏系统化、严密的基准测试框架，任何所谓的“性能调优”都无异于盲人摸象。
+
+__缺乏充分基准测试的典型代价往往表现为以下几种灾难性场景：__
+
+- **技术选型误判：** 某团队在选型评测中采用固定长度的测试 Prompt 对比 vLLM 与 SGLang，测试结果显示 vLLM 略胜一筹。然而在生产实际中，真实业务请求的上下文长度差异极其悬殊（短文本仅 50 tokens，长文本超过 5,000 tokens）；SGLang 基于前缀缓存的 RadixAttention 机制为这一高异质性负载带来了 40% 以上的吞吐量提升。最初简化的基准测试方法论彻底脱离了生产真实场景，从而导致了错误的选型结论。
+
+- **硬件资源过度供给：** 在缺乏精确横向扩展效率评测的情况下，算力容量规划只能依赖拍脑门式的保守估计。团队往往“为了保险起见”采购并堆砌了双倍的硬件配额，不仅没有换来线性性能提升，反而让基础设施成本翻倍。
+
+- **核心瓶颈隐匿未察：** 某训练作业在 64 张 GPU 的集群上连续运转两周，事后深度分析才发现 GPU 平均算力利用率（MFU）仅有 45%——真正的瓶颈深埋在宿主机 CPU 的数据读取与反序列化环节，而非 GPU 矩阵计算。仅仅更换一块 \$50 的高速 NVMe SSD 本就足以挽回价值 \$10,000 的闲置 GPU 机时损失。
+
+- **生产 SLA 严重穿透：** 某推理服务在测试阶段使用平均 100 tokens 的合成请求顺利通过了压力测试；然而一旦上线承接真实用户流量，长文档解析等边缘长尾请求触发了高延迟代码路径，导致 P99 延迟飙升至 500ms 以上，直接突破了承诺 SLA 指标的 2.5 倍之多。
+
+本章旨在系统建立一套科学、严谨且可复现的分布式性能度量体系。我们将从分布式系统的核心黄金指标切入，逐步演进至系统级的 Profiler 深度剖析、优化过程中的精度一致性检验、底层网络拓扑诊断，以及最终的横向扩展效率极限分析。
+
+
+## 基准测试基础
+
+在深入特定工具之前，让我们建立适用于所有分布式 AI 基准测试的基础概念——无论训练还是推理。
+
+### 理解百分位延迟
+
+对于任何性能测量，百分位延迟比平均值更重要。P50（中位数）代表典型行为，P95 常常是 SLA 目标，P99 捕获影响用户体验的最坏情况性能。一个平均延迟 80ms 但 P99 500ms 的系统造成沮丧的用户——那些慢请求很重要。
+
+>NOTES: **为什么 P99 比平均值更重要**
+
+平均延迟可能有误导性。考虑两个系统：系统 A 有 100ms 平均延迟，所有请求在 90-110ms 之间。系统 B 有 80ms 平均延迟，但 5% 的请求需要 500ms。系统 B 有更好的平均延迟但更差的用户体验——那 5% 的慢请求造成沮丧的用户和潜在的超时。始终在平均值旁报告 P95 和 P99。
+
 >NOTEE
 
-### 2. 核心效率度量指标
+### 效率指标
 
-- **扩展效率（Scaling Efficiency）**：
-  $$
-  \text{Scaling Efficiency} = \frac{\text{Throughput}_N}{N \times \text{Throughput}_1}
-  $$
-  如果 8 张 GPU 的吞吐仅为单卡的 6.5 倍，则扩展效率为 $6.5 / 8 = 81.25\%$，意味着近 20% 的硬件投资被进程通信与同步开销吞噬。
-- **显存碎片率（Memory Fragmentation）**：可用显存总量充足，但由于缺乏大块连续地址空间而触发 OOM。
-- **每 Token 成本（Cost per Token）**：结合物理云实例租金与有效吞吐，量化每生成 100 万 Token 的真实美元成本。
+原始性能数字只讲述故事的一部分。一个每秒处理 10,000 个样本的系统听起来令人印象深刻——直到你了解它需要 64 块 GPU 才能实现那个吞吐量。效率指标弥合这个差距。
 
-### 3. 三大铁律：消除测量污染
+__扩缩效率__ 回答一个根本问题：当你加倍硬件时，你加倍性能吗？如果 8 块 GPU 只提供 6.5 倍吞吐量而非 8 倍，你的扩缩效率是 81.25%——意味着你额外硬件投资的近 20% 损失于协调成本。
 
-1. **显式热身（Warmup）**：GPU 首次执行算子会触发 CUDA Context 初始化、JIT 编译与内存池分配。测试前必须先执行 10–50 次热身迭代；
-2. **GPU 异步屏障同步（Synchronization）**：CUDA 算子是异步发射到流（Stream）中的。计时开始与结束前**必须调用 `torch.cuda.synchronize()`** 强制等待物理计算完毕；
-3. **统计学多轮采样**：至少运行 100 轮以上，剔除极值并输出均值、标准差与各分位数。
+__内存效率__ 测量你多有效地利用 GPU 内存。内存碎片化可能让你有 20GB "空闲"却无法分配一个 10GB 张量，因为那个空闲空间散布在非连续区域。
 
----
+__每 token/样本成本__ 将技术指标翻译成商业现实。这个指标将性能测量与实际基础设施成本——云实例定价、电力消耗、制冷需求——结合，回答最终重要的问题：每单位有用工作花费多少？
 
-## 分布式训练基准测试与性能剖析
+### 基准测试方法论
 
-分布式训练不仅包含前向计算（Forward）与反向传播（Backward），还深度交织着跨机梯度同步（AllReduce/Reduce-Scatter）与数据加载（DataLoader I/O）。
+严格的方法论将有意义的基准与噪声分开。三个关键实践适用于训练和推理两者：
 
-![分布式训练单步迭代耗时分解与随 GPU 卡数扩充的变化趋势](img/training_breakdown_zh.png)
+__测量前预热。__ CUDA 操作是延迟编译的——第一次执行触发 JIT 编译、内存分配和缓存填充。运行足够的预热迭代使计时稳定：标准 eager PyTorch 大约 5–10 次，或当 `torch.compile` 或 CUDA 图在早期步骤花在捕获和编译上时 20–50 次。只在预热后启动计时器，在你记录开始时间之前完成 `torch.cuda.synchronize()`。
 
-如上图所示，随着 GPU 数量由 1 卡增加至 16 卡：虽然单步绝对时间从 155ms 降至 33ms，但**通信同步耗时占比从 0% 激增至 55%**！超过一半的时间被跨机网络等待消耗，这就是扩展效率下降的根本原因。
+__用统计测量多次迭代。__ 单次测量几乎什么都不告诉你。性能因热节流、后台进程、内存碎片化和网络拥塞而变化。运行至少 100 次迭代并报告均值、标准差和百分位数。
 
-### 1. PyTorch Profiler 实战
+__隔离你测量的东西。__ 预加载你的数据，在启动计时器之前调用 `torch.cuda.synchronize()`，在停止之前再次调用它。同步确保所有 GPU 操作已完成，而非只是排队。
 
-通过 `torch.profiler.profile` 细粒度捕获 Host CPU 与 Device GPU 的每一个算子：
+见 `code/benchmark_warmup.py` 获取演示适当预热、同步和统计报告的完整实现。
 
-```python
-import torch
-from torch.profiler import profile, record_function, ProfilerActivity
 
-with profile(
-    activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
-    record_shapes=True,
-    profile_memory=True,
-    with_stack=True,
-) as prof:
-    for step in range(5):
-        with record_function("forward_pass"):
-            out = model(inputs)
-        with record_function("backward_pass"):
-            loss.backward()
-        with record_function("optimizer_step"):
-            optimizer.step()
+## 训练基准测试
 
-# 导出 Chrome Tracing 轨迹并在 chrome://tracing 或 Perfetto 中可视化
-if dist.get_rank() == 0:
-    prof.export_chrome_trace("trace.json")
-    print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=10))
-```
+训练一个分布式模型涉及一个复杂的流水线：数据加载、前向传播、反向传播、梯度同步和优化器更新。每个组件贡献于整体训练时间，瓶颈可以隐藏在它们中的任何一个中。有效的训练基准测试需要分别测量每个阶段以识别优化努力应聚焦的地方。
 
-### 2. NVIDIA Nsight Systems 系统级底层分析
+### 关键训练指标
 
-当需要深入诊断 NCCL 环路通信、CUDA Kernel 启动开销与操作系统调度时，使用 `nsys`：
+__每秒样本数__ 是你的主要训练吞吐量指标——所有 GPU 每秒处理的训练样本数量。这直接决定训练需要多长时间：如果你每秒处理 1,000 个样本且每 epoch 有 100 万个样本，每个 epoch 需要约 17 分钟。
+
+__GPU 利用率__ 测量 GPU 主动计算而非等待的时间百分比。低利用率（低于 80%）常常表示其他地方的瓶颈——数据加载太慢、通信阻塞计算，或 CPU 预处理造成停顿。
+
+__通信开销__ 量化分布式训练的隐藏税。每次梯度同步消耗本可以花在计算上的时间。在优化良好的系统中，通信与反向传播计算重叠，隐藏大部分这个成本。在配置差的系统中，GPU 闲置等待 AllReduce 操作完成。
+
+![按阶段和 GPU 数量的训练迭代时间分解](img/training_breakdown_zh.png)
+
+上图展示了分布式训练中的一个常见模式。在左边，绝对迭代时间随我们添加 GPU 而下降——从单块 GPU 上的 155ms 到 16 块 GPU 上的 33ms。但右面板揭示隐藏成本：通信开销从 0%（单块 GPU 没有东西要同步）增长到 16 块 GPU 上的 55%。在那个点，每次迭代的一半以上花在梯度同步而非实际计算上。这就是为什么扩缩效率下降——你为 16 块 GPU 付费但通信开销意味着你没有得到 16 倍的吞吐量。理解这个分解是优化的第一步：如果通信占主导，你可能受益于梯度压缩、更大的批大小以摊销同步成本，或将通信与计算重叠。
+
+### PyTorch 性能分析器
+
+PyTorch 的内建性能分析器是你理解训练性能的第一个工具。它捕获 CPU 和 CUDA 操作、内存分配，并可以导出 trace 用于可视化。
+
+__基本用法：__
+
+PyTorch 性能分析器捕获 CPU 和 CUDA 操作两者，给你时间花在哪里的完整画面。关键是用 `record_function` 标记你的代码区域，使你可以按阶段识别瓶颈。关键配置选项包括：
+
+- **`activities`：** 指定 `CPU` 和 `CUDA` 以捕获主机和设备操作
+- **`record_shapes`：** 记录张量形状，对理解内存模式有用
+- **`profile_memory`：** 跟踪内存分配和释放
+- **`with_stack`：** 捕获 Python 调用栈用于更深入的调试
+
+输出表显示按总 CUDA 时间排序的操作。查找消耗不成比例时间的操作——这些是你的优化目标。导出的 `trace.json` 可以在 `chrome://tracing` 中查看用于详细的时间线分析。
+
+__带调度的高级性能分析：__
+
+对于多迭代分析，使用自动处理预热的性能分析调度。调度参数控制性能分析生命周期：`wait` 跳过冷启动迭代，`warmup` 运行迭代而不记录，`active` 剖析指定数量的迭代，`repeat` 多次循环这个模式。`tensorboard_trace_handler` 自动保存 trace 用于 TensorBoard 可视化。
+
+见 `code/pytorch_profiler.py` 获取基本和调度性能分析两者的完整实现。
+
+### NVIDIA Nsight Systems
+
+对于更深入的分析——特别是 CUDA 内核和 NCCL 通信——NVIDIA Nsight Systems 提供 PyTorch 性能分析器无法匹敌的系统级性能分析。
+
+__命令行用法：__
 ```bash
-nsys profile --trace=cuda,nvtx,osrt --output=profile.nsys-rep python train.py
+# Profile training script
+nsys profile --trace=cuda,nvtx,osrt \
+    --output=training_profile.nsys-rep \
+    python train.py
+
+# Generate report
+nsys stats --report gputrace training_profile.nsys-rep
 ```
 
-### 3. 多卡扩展效率与网络拓扑诊断
+Nsight 捕获 GPU 内核执行时间、内存传输时间（H2D、D2H）、CUDA API 调用、同步点和 NCCL 通信操作。这个细节级别对诊断像内核启动开销或次优内存访问模式这样的微妙性能问题至关重要。
 
-![多卡扩展效率评估：理想线性加速 vs 实际性能曲线](img/scaling_efficiency_zh.png)
+>NOTES: **何时用 Nsight vs PyTorch 性能分析器**
 
-![跨节点网络带宽层级与 Ring AllReduce 通信拓扑](img/network_topology_zh.png)
+从 PyTorch 性能分析器开始进行高层分析——它更容易使用并与 TensorBoard 集成。当你需要理解 CUDA 内核行为、NCCL 通信模式或系统级交互时转到 Nsight Systems。在剖析自定义 CUDA 内核或调试不出现在 PyTorch 视图中的性能问题时，Nsight 也是必不可少的。
 
-- **机内核间通信（NVLink）**：单向带宽高达 450–900 GB/s；
-- **跨机跨节点通信（InfiniBand / RoCE）**：单向带宽约为 25–50 GB/s（200–400 Gbps）；
-- **标准以太网（Ethernet）**：仅约 1.25–12.5 GB/s（10–100 Gbps）。
+>NOTEE
 
-若跨机网络带宽不足，集合通信将瞬间成为全集群最大的木桶短板。
+### 自定义训练基准
 
->IMPORS: **多节点集群性能优化排查 SOP**
->
-> 1. **排查通信 vs 计算比例**：使用 PyTorch Profiler 确认 `nccl:all_reduce` 耗时是否超过 30%；
-> 2. **优化梯度分桶（Bucket Size）**：合理调整 DDP 的 `bucket_cap_mb`（通常设置为 25MB–50MB），让上一层梯度的 AllReduce 与下一层的反向求导最大化重叠（Overlap）；
-> 3. **排查 DataLoader 瓶颈**：确认 Host 端 CPU 预处理与磁盘读取速度，设置 `num_workers = 2~4 * GPU数` 并开启 `pin_memory=True`；
-> 4. **精度一致性双重校验**：在优化性能的同时，定期对比分布式训练与单卡 Baseline 的测试集 Loss 与收敛精度，严防精度静默劣化。
+对于跨配置的系统基准测试，一个自定义基准类比临时性能分析提供更多控制。这个类分别测量每个训练阶段——数据加载、前向传播、反向传播和优化器步骤——使你能准确定位时间花在哪里。
+
+**为什么分开的阶段计时重要：** 如果你的反向传播比前向传播长 3 倍，你可能有低效的梯度计算或内存碎片化。如果数据加载占主导，你需要更多 DataLoader worker 或更快的存储。没有阶段级分解，你在盲目优化。
+
+**解释结果：** 返回的 `stats` 字典包含每个阶段的均值、标准差和百分位数。如果 `data_loading` 超过总时间的 10%，增加 DataLoader worker。如果 `backward` 超过 `forward` 的 2 倍，检查梯度检查点机会或内存碎片化。高方差（均值和 P99 之间的大差距）表示系统不稳定——调查热节流或竞争进程。
+
+见 `code/training_benchmark.py` 获取完整的 `TrainingBenchmark` 类实现。
+
+### 测量扩缩效率
+
+扩缩效率量化你的系统多好地利用额外资源。完美线性扩缩（100% 效率）意味着加倍 GPU 加倍吞吐量——但通信开销使这在实践中不可能。测量扩缩效率帮助你决定何时添加更多 GPU 是成本高效的，何时你已经遇到收益递减。
+
+![扩缩效率：理想 vs 实际吞吐量和效率百分比](img/scaling_efficiency_zh.png)
+
+__解释扩缩效率：__
+
+- **>90%：** 优秀的扩缩——你的系统优化良好
+- **70-90%：** 良好的扩缩——调优良好的分布式训练的典型
+- **50-70%：** 中等扩缩——通信开销显著，调查网络
+- **<50%：** 差的扩缩——存在主要瓶颈，很可能是通信或数据加载
+
+理解你的扩缩效率有助于容量规划。如果你在 8 块 GPU 有 81% 效率，你可以预测 16 块 GPU 将提供大约 13 倍吞吐量（而非 16 倍），帮助你做明智的硬件决策。
+
+见 `code/scaling_efficiency.py` 获取计算和基准测试扩缩效率的函数。
+
+### 验证分布式训练准确性
+
+性能基准测试测量速度，但准确性基准测试测量正确性——两者都重要。分布式训练的一个关键问题：你的分布式设置产生与单 GPU 训练相同的模型质量吗？
+
+这不是理论关注。梯度同步中的 bug、不同的有效批大小或数值精度问题可能导致分布式训练收敛到更差的解。损失曲线可能看起来相似，但下游任务准确性可能低 8%。没有系统的准确性比较，你永远不会知道。
+
+验证方法很直接：用相同的超参数在单 GPU 和分布式设置两者上训练相同的模型，然后在保留测试集上比较准确性。使用统计显著性检验——p=0.3 的 0.5% 准确性下降可能是噪声，但 p=0.001 的 0.5% 下降表示需要调查的真实问题。
+
+见 `code/accuracy_benchmark.py` 获取比较集中式 vs 分布式训练准确性和测试统计显著性的函数。
+
+### 网络和通信性能分析
+
+在分布式训练中，网络常常是瓶颈。节点之间单个慢链路可以限制整个系统的性能。理解通信模式和诊断网络问题对高效扩缩至关重要。
+
+![Ring AllReduce 模式和多节点带宽层次结构](img/network_topology_zh.png)
+
+带宽层次结构极其重要：同一节点上 GPU 之间的 NVLink 提供约 600 GB/s，节点之间的 InfiniBand 提供约 200 GB/s，而以太网只提供约 12.5 GB/s（100 Gbps）。跨越这些边界的通信模式付出显著的延迟惩罚。
+
+在深入 NCCL 特定性能分析之前，用标准网络工具建立基线连接。`iftop` 显示每连接的实时流量，`nload` 显示带宽图，`iperf3` 测量节点之间的原始 TCP 带宽。如果 iperf3 显示 100 Gbps 但你的训练只实现 20 Gbps 有效带宽，瓶颈在你的通信模式，而非网络硬件。
+
+AllReduce 是分布式训练中主导的通信操作——它跨所有 GPU 同步梯度。将 AllReduce 带宽与训练分开测试有助于将网络问题与计算问题隔离。小消息有高开销（延迟受限），而大消息接近峰值带宽（带宽受限）。如果你的大消息带宽明显低于硬件规格，检查拓扑问题或 NCCL 配置问题。
+
+见 `code/network_diagnostics.py` 获取 AllReduce 带宽测试和通信开销分析函数。
+
+### 扩缩瓶颈分析
+
+一旦你知道你的扩缩效率差，下一步是识别 *为什么*。Amdahl 定律提供理论极限：即使有无限的处理器，加速也受你工作负载串行部分的限制。用 10% 串行工作，即使无限 GPU 也只能提供 10 倍加速。
+
+常见的瓶颈模式包括：
+
+- **数据加载不扩缩：** 你的 DataLoader 跟不上多块 GPU。增加 `num_workers` 或使用更快的存储。
+- **高通信开销：** 网络是瓶颈。考虑梯度压缩、更大的批大小或更好的互连。
+- **低 GPU 利用率：** GPU 在等待某些东西——通常是数据或同步。
+
+一旦识别，应用适当的修复。DDP 使用梯度分桶将反向计算与梯度同步重叠——从 25MB 桶开始并基于性能分析调整。对于数据加载，将 `num_workers` 设为每块 GPU CPU 核心的 2-4 倍并带 `pin_memory=True`。如果通信开销高，梯度累积通过在多个微批次上累积来减少同步频率。
+
+见 `code/scaling_bottlenecks.py` 获取 Amdahl 定律计算、瓶颈分析函数和优化策略实现。
+
+>IMPORS: **优化多节点训练集群**
+
+要改善扩缩效率（如从 52% 到 80%），遵循一个系统的诊断过程：（1）剖析通信 vs 计算时间，（2）检查数据加载吞吐量，（3）测量 GPU 利用率，（4）测试节点之间的网络带宽。常见修复映射到特定瓶颈：通信瓶颈 → 启用梯度压缩并优化桶大小；数据加载瓶颈 → 增加 `num_workers` 并使用 `pin_memory=True`；计算瓶颈 → 检查串行化执行的 CPU-GPU 同步点。
+
 >IMPORE
 
----
 
-## 大模型在线推理基准测试（LLM Serving Benchmarks）
+## 推理基准测试
 
-与训练不同，大模型自回归推理具有显著的阶段非对称性（Compute-bound Prefill vs Memory-bound Decode）与用户主观交互感知要求。
+推理基准测试呈现与训练不同的挑战。请求模式可变，缓存效应重要，尾延迟需求严格。一个慢 10% 的训练作业令人烦恼；一个违反 P99 SLA 的推理端点失去客户。
 
-![大语言模型推理核心性能指标全景关系图](img/inference_metrics_overview_zh.png)
+### 关键推理指标
 
-### 1. 推理核心度量全景
+LLM 推理有它自己的指标词汇，捕获自回归生成的独特特征。理解这些指标及其关系对有效的基准测试至关重要。
 
-![每秒生成 Token 吞吐量（TPS）时间线分布](img/tps_timeline_zh.png)
+![LLM 推理性能指标概述](img/inference_metrics_overview_zh.png)
 
-- **首 Token 生成时间（TTFT, Time to First Token）**：从发起请求到客户端收到第一个文字的耗时，包含分词、全量 Prompt 预填充（Prefill）与首字生成；
-  ![TTFT 首字延迟全链路时序拆解](img/ttft_pipeline_zh.png)
+__每秒 token 数（TPS）__ 测量生成吞吐量。每系统的总 TPS 考虑所有并发请求——随着并发增加，总 TPS 增加直到 GPU 计算饱和，然后可能因内存压力而减少。
 
-- **Token 生成间隔时间（ITL / TPOT, Time Per Output Token）**：自回归解码（Decode）阶段生成连续字符的平均间隔，决定了客户端“打字机吐字速度”：
-  $$
-  \text{ITL} = \frac{\text{E2E\_Latency} - \text{TTFT}}{\text{Total\_Output\_Tokens} - 1}
-  $$
-  ![ITL 连续字符输出间隔时间流水线](img/itl_pipeline_zh.png)
+![显示并发请求吞吐量的 TPS 时间线](img/tps_timeline_zh.png)
 
-- **端到端总时延（E2E Latency）**：
-  $$
-  \text{E2E\_Latency} = \text{TTFT} + (\text{Output\_Tokens} - 1) \times \text{ITL}
-  $$
-  ![端到端总延迟 E2E 完整处理时序](img/e2e_latency_pipeline_zh.png)
+__每秒请求数（RPS）__ 捕获包括排队和路由的完整请求生命周期。与 TPS 不同，这个指标反映实际 API 容量。
 
-![推理时延直方图（Histogram）与累积分布函数（CDF）](img/latency_distribution_zh.png){#fig:latency-distribution}
+__端到端请求延迟（e2e_latency）__ 是从提交查询到接收完整响应的总时间，捕获分词、预填充、所有 token 生成和逆分词。
 
-### 2. 专业压测框架：genai-bench
+![端到端请求延迟流水线](img/e2e_latency_pipeline_zh.png)
 
-使用 SGLang 官方维护的工业级压测工具 `genai-bench` 进行真实流量分布压测：
+__首 token 时间（TTFT）__ 测量直到第一个 token 出现需要多长时间。用户感知这为"响应时间"。TTFT 包括分词、预填充阶段（处理整个输入提示）、生成第一个 token 和逆分词。
+
+![从输入到第一个输出 token 的 TTFT 流水线](img/ttft_pipeline_zh.png)
+
+__token 间延迟（ITL）__，也称为每输出 token 时间（TPOT），是连续 token 之间的平均时间。这决定流式响应感知的"打字速度"：
+
+$$
+\text{ITL} = \frac{\text{e2e\_latency} - \text{TTFT}}{\text{Total\_output\_tokens} - 1}
+$$
+
+![显示输出 token 生成的 ITL 流水线](img/itl_pipeline_zh.png)
+
+这些指标之间的关系决定你应该优化什么：
+
+$$
+\text{e2e\_latency} = \text{TTFT} + (\text{output\_tokens} - 1) \times \text{ITL}
+$$
+
+对于短输出（10-20 token），TTFT 占主导——优化预填充和 KV 缓存初始化最重要。对于长输出（数百 token），ITL 占主导——内存带宽和解码效率变得关键。对于流式应用，用户感知 TTFT 为"响应时间"，ITL 为"打字速度"，所以两者都需要注意。
+
+理解延迟分布对设置现实的 SLA 至关重要。图 \ref{fig:latency-distribution} 显示带直方图和 CDF 的典型延迟分布。CDF 使直接读取百分位值容易：P50 在它跨越 50% 处，P95 在 95%，P99 在 99%。
+
+![带百分位标记的延迟分布直方图和 CDF](img/latency_distribution_zh.png){#fig:latency-distribution}
+
+>NOTES: **性能 vs 准确性基准测试**
+
+本节涵盖用像 [genai-bench](https://github.com/sgl-project/genai-bench) 这样的工具进行的 **性能基准测试**，它测量工程指标（吞吐量、延迟、扩缩）。这与像 [用于文本到视觉评估的 GenAI-Bench](https://linzhiqiu.github.io/papers/genai_bench/) 这样测量模型输出质量的 **准确性基准测试** 工具不同。我们在下一节涵盖准确性基准测试。
+
+>NOTEE
+
+### 基准测试工具：genai-bench
+
+推理基准测试最简单的方法——在循环中发送相同的请求——错过了真实世界流量的复杂性。生产用户发送从 10 token 到 10,000 token 的提示。负载从带单个请求的安静期波动到数百并发用户的突发。一个只在恒定并发下测试固定长度提示的基准，对你的系统在最重要时如何行为几乎不揭示什么。
+
+genai-bench[^genai-bench] 通过支持镜像生产工作负载的可配置流量模式解决这个差距。它不发送相同的请求，而是生成提示长度和输出长度的现实分布，允许你压力测试部署中实际发生的场景。
+
+[^genai-bench]: genai-bench：来自 SGLang 项目的 LLM 推理基准，带可配置的输入/输出长度分布。\url{https://github.com/sgl-project/genai-bench}
+
+该工具使用流量场景来定义请求分布。`D(100,100)` 发送恰好 100 个输入和 100 个输出 token 的确定性请求——对受控比较有用。`D(512,512)` 测试更长的上下文。对于现实的基准测试，你会想测试一个场景矩阵：低并发带短上下文建立无批处理效应的基线延迟；高并发带短上下文揭示你的系统多好地批处理请求；任何并发带长上下文暴露内存压力和 KV 缓存行为。当延迟随上下文长度增长非线性增加时，你找到了一个内存带宽瓶颈。
+
+安装很直接：
 
 ```bash
 pip install genai-bench
-
-# 压测指定并发下的 Prompt 与 Output 长度分布
-genai-bench \
-  --model meta-llama/Llama-3.2-1B-Instruct \
-  --base-url http://localhost:8000/v1 \
-  --dataset-name sharegpt \
-  --concurrency 16 \
-  --num-prompts 500
 ```
 
----
+见 `code/genai_bench_example.py` 获取以编程方式运行 genai-bench 的完整示例，包括单个基准、测试矩阵和结果分析。
 
-## 性能与精度的双轮驱动验证
+### 自定义推理基准
 
-**脱离精度的性能优化毫无价值**。在执行以下深度优化时，必须同步运行标准化精度评测集（MMLU, HumanEval, HELM）：
-1. **模型权重量化（FP8 / INT8 / INT4）**：在享受 2–3 倍吞吐提升与显存减半的同时，严格监控下游任务准确率波动；
-2. **长文本前缀缓存（Radix Caching / KV Eviction）**：验证 KV Cache 动态裁剪与驱逐策略是否破坏长文档检索的召回准确率；
-3. **推测解码（Speculative Decoding）**：验证小草稿模型与大验证模型的协同输出是否与原始大模型贪婪解码严格等价。
+对于 genai-bench 不适合的场景——自定义模型、非标准 API 或你应用特定的指标——构建一个自定义基准提供你需要的控制。关键是在遵循相同严格方法论的同时测量对你的用例重要的东西：预热、多次迭代、适当同步和统计报告。
 
----
+自定义基准对 CI/CD 集成特别有价值。你可以定义在延迟回归时使构建失败的性能门，或随时间跟踪指标以在影响用户之前捕获逐步退化。
 
-## 本章小结
+### 冷启动 vs 热性能
 
-本章为分布式 AI 研发与运维人员构建了完整的量化调优方法论：
-- 确立了以 P95/P99 尾部延迟、扩展效率与 GPU 利用率为核心的度量体系；
-- 掌握了基于 PyTorch Profiler 与 Nsight Systems 诊断 CPU 阻塞、通信等待与显存碎片的技能；
-- 深入推导了 LLM 推理的 TTFT、ITL/TPOT、E2E 与 TPS 之间的数学关系；
-- 掌握了运用 `genai-bench` 模拟真实世界高并发长短文本流量的方法；
-- 建立了“性能基准压测”与“精度一致性验证”并行的严密工程防线。
+加载模型后的第一个请求与后续请求行为非常不同。CUDA 内核必须被 JIT 编译、内存必须被分配、缓存必须被填充。冷启动延迟对小模型（1–3B）常常是热解码的 3–5 倍，对内核编译和缓存填充占主导的中型 LLM 大约 16 倍，对从磁盘加载需要几分钟的 70B+ 检查点 50 倍或更多。
 
-在掌握了分布式训练、推理、集群运维以及性能调优的全部核心工程体系之后，分布式 AI 的未来又将走向何方？在全书的最后一章中，我们将展望 **前沿趋势与下一代分布式系统设计**，探索 MoE 稀疏扩展、端云异构协同以及具身智能分布式架构的无限可能。
+这对自动扩缩极其重要。如果冷启动需要 30 秒但热请求在 100 毫秒内完成，激进的缩容策略造成一个陷阱：你通过终止空闲实例省钱，但当流量返回时，用户在新实例预热时经历 30 秒延迟。解决方案是对冷和热性能两者基准测试，然后用那个数据配置自动扩缩器的最小实例。保持足够的热实例运行以处理基线流量而不触发冷启动。
+
+### 推理和多步模型
+
+传统基准测量单个请求-响应周期，但推理模型——思维链系统、工具增强 LLM、多步智能体——需要不同的方法。单个用户交互可能涉及多个模型调用、外部 API 请求、数据库查询和检索操作。只测量模型推理时间错过了大部分画面。
+
+有效的推理系统基准测试需要将延迟分解成它的组件。每步延迟（每个推理步骤的 TTFT 和 ITL）识别哪些步骤慢。端到端会话延迟捕获总的用户感知延迟。最重要的是，将本地生成时间与外部调用分开揭示优化努力应聚焦的地方。
+
+在智能体工作流中，一个令人惊讶的模式常常出现：总延迟的 60% 或更多来自外部调用——工具调用、API 请求、数据库查询——而非模型推理。当用户实际在等待慢的 API 响应时，优化模型提供最小的好处。基准数据告诉你是否优化模型、并行化工具调用或缓存外部结果。
+
+见 `code/inference_benchmark.py` 获取自定义推理基准测试、冷启动测量和推理会话分析的完整实现。
+
+### 验证推理准确性
+
+如果输出错误，速度毫无意义。推理优化——量化、不同的服务引擎、批处理策略——可以以没有系统评估就不明显的方式微妙地降低输出质量。
+
+考虑量化：INT8 量化可能将吞吐量提高 2 倍，但如果数学问题的准确性下降 15%，你做了一个坏交易。不同的服务引擎可以因采样或数值精度的实现差异为相同的提示产生不同的输出。一个可能正确而另一个有 bug。没有准确性基准测试，这些回归未被检测就到达生产。
+
+标准方法使用建立的基准和指标。对于文本生成，BLEU 和 ROUGE 测量与参考文本的 n-gram 重叠，而 BERTScore 捕获语义相似度。对于任务特定评估，使用分类准确性、F1 分数、精确匹配（对 QA）或 Pass@k（对代码生成）。像 GLUE/SuperGLUE、MMLU、HumanEval 和 HELM 这样的标准基准跨模型和配置提供一致的评估。
+
+当将量化模型与它的全精度基线比较，或比较来自不同服务引擎的输出时，统计显著性很重要。p=0.3 的 0.5% 准确性下降可能是噪声。p=0.001 的 0.5% 下降表示需要注意的真实回归。
+
+见 `code/accuracy_benchmark.py` 获取评估量化影响和测试统计显著性的函数。
+
+>IMPORS: **比较推理引擎**
+
+在推理引擎（vLLM、SGLang、TensorRT-LLM）之间选择时，先定义你的指标：吞吐量、延迟百分位数（P50/P95/P99）和内存使用。用生产请求模式创建一个现实的工作负载，用 genai-bench 运行基准以保持一致性，然后分析权衡。更高的吞吐量常常带来更高的内存使用；更低的延迟可能牺牲批处理效率。"最佳"引擎取决于你的具体约束。
+
+>IMPORE
+
+
+## 小结
+
+本章为你配备了系统基准测试和优化分布式 AI 系统的工具和技术。关键要点：
+
+1. **方法论重要：** 适当的预热、多次运行和方差分析将有意义的基准与噪声分开。
+
+2. **合适的工具：** 训练用 PyTorch Profiler 和 Nsight；推理用 genai-bench；准确性用 GLUE、MMLU 和 HumanEval。
+
+3. **双重基准测试：** 性能（速度、吞吐量）和准确性（质量、正确性）都必须测量——降低准确性的优化不是优化。
+
+4. **网络常常是瓶颈：** 通信开销随规模增长。剖析它、理解它、优化它。
+
+5. **扩缩有限制：** Amdahl 定律设置理论界限。测量你的扩缩效率以理解你处于何处。
+
+6. **可复现性使进步成为可能：** 记录一切。版本控制基准脚本。固定随机种子。
+
+__你获得的技能：__
+
+- 用适当的预热和测量设计可复现的基准实验
+- 用 PyTorch Profiler 和 Nsight Systems 剖析训练工作负载
+- 用带现实流量模式的 genai-bench 基准测试推理系统
+- 用标准基准评估模型准确性
+- 用通信性能分析诊断网络瓶颈
+- 计算和解释扩缩效率
+
+有效的基准测试是性能优化的基础。没有准确的测量，优化努力是盲目的猜测。本章的技术提供做关于你分布式 AI 系统的数据驱动决策所需的可见性。
+
+贯穿本书，我们涵盖了分布式 AI 的当前状态：训练用 DDP 和 FSDP、推理用 vLLM 和 SGLang、作业调度用 Slurm，以及生产服务栈。但该领域正在快速演进。最后一章探索新兴趋势和未来方向：MoE 扩缩、混合边缘-云架构、高级并行策略和成本优化技术。理解该领域走向何方将帮助你为分布式 AI 创新的下一波定位自己。
+
+
+## 有用的链接
+
+__性能基准测试工具__
+
+- genai-bench：\url{https://github.com/sgl-project/genai-bench}
+- PyTorch Profiler：\url{https://pytorch.org/tutorials/recipes/recipes/profiler_recipe.html}
+- NVIDIA Nsight Systems：\url{https://developer.nvidia.com/nsight-systems}
+- NVIDIA GenAI-Perf：\url{https://docs.nvidia.com/deeplearning/triton-inference-server/user-guide/docs/perf_analyzer/genai-perf/README.html}
+- NVIDIA NIM Benchmarking：\url{https://docs.nvidia.com/nim/benchmarking/llm/latest/index.html}
+- IBM FMWork：\url{https://github.com/IBM/fmwork}
+
+__准确性基准测试__
+
+- GLUE Benchmark：\url{https://gluebenchmark.com/}
+- MMLU Benchmark：\url{https://github.com/hendrycks/test}
+- HumanEval（代码生成）：\url{https://github.com/openai/human-eval}
+- HELM（整体评估）：\url{https://crfm.stanford.edu/helm/}
+- Hugging Face Evaluate：\url{https://huggingface.co/docs/evaluate/}
+- GenAI-Bench（文本到视觉）：\url{https://linzhiqiu.github.io/papers/genai_bench/}
 
 <!-- include: exercises/torch_zh.md if include_math -->
 <!-- include: exercises/torch_zh.md if include_torch -->

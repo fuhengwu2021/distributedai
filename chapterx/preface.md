@@ -45,48 +45,17 @@ ISBN 978-1-8073017-1-2
 
 www.packt.com
 
+\vspace{1.5cm}
 
-# Dedication {-}
+*To my parents, Chuntao He and Zongyuan Wu.*
 
->CENTERS: up=1cm
-
-__To my parents, Chuntao He and Zongyuan Wu.__
-
-*- Fuheng Wu*
-
->CENTERE
-
-\newpage
+*— Fuheng Wu*
 
 # Contributors
 
 ## About the author
 
-**Henry (Fuheng) Wu** is a Principal Machine Learning Tech Lead at Oracle's Generative AI organization, where he specializes in distributed training, large-scale inference, and GPU systems. He has delivered core components of Oracle's Vision and Document Understanding AI services and co-authored a Microsoft and Oracle blog on high-performance deep learning.
-
-Henry has contributed to open-source projects including SGLang, genai-bench, pyLLaMA, chatLLaMA, and Oracle's HiQ observability system. His work spans PyTorch Distributed, DeepSpeed, Kubernetes GPU clusters, and production LLM serving—always with a focus on practical, scalable systems that run in real enterprise environments.
-
-## About the reviewers
-
-Packt's review program pairs authors with industry practitioners who read the manuscript for technical accuracy and clarity. The following reviewers provided detailed feedback on early drafts of this book:
-
-**Liu Yong** — Ph.D, NUS
-
-**Huaizheng Zhang** — Staff Research Scientist, ByteDance
-
-**Junwei Zhang** — GenAI | Engineer | Moderator | 18K+ followers | x{Uber, DoorDash}
-
-**Junnan Li** — Research Director @Salesforce; Time-Series, CUA, and Multimodal AI (BLIP)
-
-**Jerry Liu** — Co-founder/CEO @ LlamaIndex
-
-**Henry Mao** — Co-founder @ smithery.ai | Prev. co-founder of Jenni.ai (exited)
-
-**Doris Xin** — CEO & Co-Founder @ Disarray | UC Berkeley CS PhD | Ex-LinkedIn, Google, Databricks
-
-**You Yang** — NUS Professor
-
-**Juncong Jack Wu** — USA AI Olympiad Nationals Bronze, 2026; Canada AI Olympiad National Qualifier Distinguished Honor Roll, National Team Selection Top 18; USACO Silver
+Fuheng Wu is a Principal ML Tech Lead at Oracle Generative AI, specializing in distributed training, inference, and GPU systems for enterprise AI workloads. He delivered core components of Oracle’s large-scale vision and document-AI models, and co-authored a Microsoft-Oracle blog on deep learning. An alumnus of the Singapore-MIT Alliance, where he studied under Gilbert Strang, he has worked at NetEase and Uber and contributed to open-source AI projects including SGLang, genai-bench, pyLLaMA, chatLLaMA, and HiQ. He is the author of *Mathematics for AI and Machine Learning*. Writing as Xuan Xin, he is also the author of the memoir *Above the Clouds*. Beyond technology, he is also a Zen calligrapher and volunteer math tutor.
 
 # Preface
 
@@ -126,7 +95,11 @@ This book is for ML engineers, AI researchers, and DevOps engineers who need to 
 
 You will need a machine with at least one NVIDIA GPU to run most examples; multi-GPU and multi-node setups are used in later chapters on distributed training and inference. Linux is the primary environment throughout, and all code examples use Python with PyTorch. Familiarity with the command line, virtual environments, and basic deep learning concepts (models, optimizers, loss functions) will help you move faster.
 
-We recommend cloning the example code repository and working through each chapter's exercises in order—the early chapters establish hardware and parallelism concepts that later chapters build on. When you do not have local GPU access, cloud notebooks (such as Kaggle) with multiple GPUs can substitute for some exercises, as described in Chapter 1. For cluster-focused chapters, a SLURM environment or a local Kubernetes cluster with GPU nodes is ideal but not strictly required to understand the launch patterns and configuration.
+We recommend cloning the example code repository and working through each chapter's exercises in order—the early chapters establish hardware and parallelism concepts that later chapters build on. When you do not have local GPU access, cloud notebooks (such as Kaggle) with multiple GPUs can substitute for some exercises, as described in Chapter 1.
+
+For readers who lack dedicated cluster hardware but want hands-on experience with true multi-node distributed training, a companion guide is available: **Distributed AI Systems: A Practical Guide to GPU Compute and Experimental Environments** ([https://diary.wu-99.com/20260913.html](https://diary.wu-99.com/20260913.html)). It walks through spinning up affordable on-demand cloud GPU instances for just a few dollars, establishing inter-node SSH connectivity and environment variables, configuring NCCL rendezvous across physically isolated machines, and launching multi-node PyTorch DDP runs.
+
+For cluster-focused chapters, a SLURM environment or a local Kubernetes cluster with GPU nodes is ideal but not strictly required to understand the launch patterns and configuration.
 
 ## Download the example code files
 
@@ -174,17 +147,19 @@ Your review is important to us and the tech community and will help us make sure
 
 # Foreword
 
-We are living through one of the most transformative epochs in the history of technology. The rapid evolution of Artificial Intelligence—moving from niche statistical models to gargantuan large language models and multi-modal systems spanning billions or even trillions of parameters—has fundamentally shifted our relationship with computing. Yet, as the mathematical formulation of these models remains elegantly bound to deep learning fundamentals, the engineering reality of executing them has exploded in complexity. Today, the bottleneck to AI progress is no longer just algorithmic creativity; it is fundamentally a system engineering challenge.  
+I have known Fuheng Wu for many years. We have both worked at Bloomberg and Uber, and we have stayed in the same field ever since—as I went on to Meta, Anyscale, and NVIDIA, we kept trading notes on distributed AI. At Uber, we exchanged technical ideas constantly: I was working on OpenSearch while he was building distributed AI systems with Petastorm and training models with Horovod on Michelangelo. I have seen that production-first instinct up close—the debugging sessions, the cluster failures, the pressure to ship under real constraints. When he told me he was writing this book, I had no doubt it would be grounded in that experience, not textbook abstraction. That distinction has never mattered more, because AI has entered an era where progress increasingly depends not only on better models, but on the systems capable of training and serving them.
 
-Building a neural network on a single GPU has become a commoditized task, abstracted away by modern software libraries. However, taking that same network and distributing its training across thousands of specialized chips, or orchestrating low-latency, high-throughput inference for millions of concurrent users, is an entirely different beast. It requires a profound, multi-disciplinary mastery over physical hardware, high-speed networking topologies, memory management tricks, complex software orchestration, and algorithmic nuances. It is a domain where a single misplaced communication bottleneck can degrade hardware utilization from pristine efficiency to a crawl, rendering millions of dollars of compute infrastructure idle.  
+That shift is happening in one of the most transformative epochs in the history of technology. The rapid evolution of artificial intelligence—moving from niche statistical models to gargantuan large language models and multimodal systems spanning billions or even trillions of parameters—has fundamentally shifted our relationship with computing. Yet, as the mathematical formulation of these models remains elegantly bound to deep learning fundamentals, the engineering reality of executing them has exploded in complexity. Today, the bottleneck to AI progress is no longer just algorithmic creativity; it is fundamentally a system engineering challenge.  
 
-For too long, knowledge in the distributed AI space has been siloed. Engineers looking to master this domain have had to piece together disparate academic papers, fragmented blog posts, tribal knowledge from elite tech companies, and chaotic open-source repository documentation. There has been a glaring gap between theoretical high-level explanations of parallelism and the actual code required to deploy stable, fault-tolerant workloads on a Kubernetes cluster.  
+Building a neural network on a single GPU has become a commoditized task, abstracted away by modern software libraries. However, taking that same network and distributing its training across thousands of specialized chips, or orchestrating low-latency, high-throughput inference for millions of concurrent users, is an entirely different beast. It requires a profound, multidisciplinary mastery over physical hardware, high-speed networking topologies, memory management tricks, complex software orchestration, and algorithmic nuances. It is a domain where a single misplaced communication bottleneck can degrade hardware utilization from pristine efficiency to a crawl, rendering millions of dollars of compute infrastructure idle.  
 
-*Distributed AI Systems: A practical guide to building scalable training, inference, and serving systems for production AI* is the comprehensive blueprint the industry has desperately needed.  
+For too long, knowledge in the distributed AI space has been siloed. Engineers looking to master this domain have had to piece together disparate academic papers, fragmented blog posts, tribal knowledge from elite tech companies, and chaotic open-source repository documentation. There has been a glaring gap between theoretical high-level explanations of parallelism and the actual code required to run stable, fault-tolerant workloads—from launching multi-node training on HPC clusters to serving models reliably in production.  
 
-Fuheng Wu has done something remarkable with this text. He has demystified the black box of infrastructure engineering for AI. Rather than treating training, inference, and cluster management as isolated domains, this book treats them as an integrated lifecycle. It systematically walks the reader through the complete operational pipeline—from understanding the silicon and high-speed interconnects that form the physical bedrock, to mastering PyTorch DDP, FSDP, and DeepSpeed ZeRO optimization strategies for multi-node scaling.  
+*Distributed AI Systems: A practical guide to building scalable training, inference, and serving systems for production AI* is the comprehensive blueprint the industry has desperately needed—and the book I wish Fuheng had written years ago.  
 
-Crucially, the book recognizes that training is only half the battle. In a production-first world, serving these models efficiently is where the economic and engineering viability of AI is won or lost. By diving deep into distributed inference fundamentals, vLLM, and SGLang, Fuheng equips engineers with the tools to tame memory fragmentation and unlock massive throughput. Finally, by grounding these concepts in cloud-native orchestration with Kubernetes and establishing robust observability frameworks, the book ensures that your systems don't just work in theory—they remain resilient and maintainable under production workloads.  
+Fuheng Wu has done something remarkable with this text. He has demystified the black box of infrastructure engineering for AI. Rather than treating training, inference, and cluster management as isolated domains, this book treats them as an integrated lifecycle. It systematically walks the reader through the complete operational pipeline—from understanding the silicon and high-speed interconnects that form the physical bedrock, to mastering PyTorch DDP, FSDP, DeepSpeed ZeRO optimization, and Megatron-style tensor, pipeline, and expert parallelism for multi-node scaling.
+
+Crucially, the book recognizes that training is only half the battle. In real-world AI deployments, serving these models efficiently is where the economic and engineering viability of AI is won or lost. By diving deep into distributed inference fundamentals, vLLM, and SGLang, Fuheng equips engineers with the tools to tame memory fragmentation and unlock massive throughput. The book also covers running multi-node training on HPC clusters with SLURM and assembling a production serving stack with Kubernetes, GPU scheduling, and observability—so your systems don't just work in theory, they remain resilient and maintainable under real workloads.  
 
 Whether you are a machine learning engineer seeking to scale your models beyond the limits of a single accelerator, a platform engineer tasked with building a modern AI cluster, or an architect designing the next generation of enterprise AI infrastructure, this book will serve as your definitive guide. Fuheng’s hands-on, code-first approach translates intimidating infrastructure challenges into predictable, repeatable engineering methodologies.  
 
@@ -192,7 +167,7 @@ As you read these chapters, I encourage you to not just absorb the code, but to 
 
 Gang Zhao
 
-Staff Engineer at Anyscale, Meta, Uber
+Staff Engineer at NVIDIA, Anyscale, Meta, Uber
 
 May 2026 
 
