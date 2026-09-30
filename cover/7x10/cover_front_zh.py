@@ -44,11 +44,11 @@ def generate_book_front_cover_zh():
     # 1. Clean top text area (0 <= y <= 475, safely above 3D sphere starting at y=485)
     draw.rectangle([0, 0, w, 475], fill=bg_color)
     
-    # 2. Clean bottom-left foreword area (x: 40 to 480, y: 1100 to 1250)
-    draw.rectangle([40, 1100, 480, 1250], fill=bg_color)
+    # 2. Clean bottom-left foreword area safely above orange line (at y=1243..1246)
+    draw.rectangle([40, 1100, 500, 1235], fill=bg_color)
     
-    # 3. Clean bottom-left author area (x: 40 to 500, y: 1260 to 1380)
-    draw.rectangle([40, 1260, 500, 1380], fill=bg_color)
+    # 3. Clean bottom-left author area safely below orange line
+    draw.rectangle([40, 1252, 500, 1380], fill=bg_color)
     
     bold_fonts = [
         "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
@@ -85,7 +85,7 @@ def generate_book_front_cover_zh():
     draw.text((left_margin, 1192), "英伟达高级工程师 (Staff Engineer, Nvidia)", font=font_foreword_title, fill="#374151")
 
     # Author Name (below orange line)
-    draw.text((left_margin, 1285), "巫富珩 (Fuheng Wu)", font=font_author_zh, fill="#000000")
+    draw.text((left_margin, 1285), "玄心 著", font=font_author_zh, fill="#000000")
 
     final_cover_rgb = base_img.convert("RGB")
     

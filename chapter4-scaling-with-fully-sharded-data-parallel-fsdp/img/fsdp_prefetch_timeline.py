@@ -1,12 +1,16 @@
+#!/usr/bin/env python3
 """
 FSDP prefetching timeline: shows how communication overlaps with computation.
 Compares no prefetching (sequential) vs prefetching (overlapped).
 """
 import os
+import sys
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 
-from math4ai import save_figure
+# Ensure shared directory is in sys.path
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'shared'))
+from figstyle import localized_figure
 
 COLORS = {
     "compute": "#f1c40f",
@@ -14,6 +18,26 @@ COLORS = {
     "idle": "#ecf0f1",
     "text": "#2c3e50",
 }
+
+LABELS = {
+    "en": {
+        "title_no_prefetch": "Without Prefetching",
+        "title_with_prefetch": "With Prefetching",
+        "ag_label": "AG{sub}",
+        "layer_label": "L{sub}",
+        "time_label": "time",
+    },
+    "zh": {
+        "title_no_prefetch": "未开启通信预取 (串行)",
+        "title_with_prefetch": "开启通信预取 (重叠)",
+        "ag_label": "AG{sub}",
+        "layer_label": "L{sub}",
+        "time_label": "时间",
+    },
+}
+
+SUBSCRIPTS = ["₀", "₁", "₂"]
+
 
 def draw_block(ax, x, y, w, h, color, label="", fontsize=11):
     rect = patches.FancyBboxPatch(
@@ -26,74 +50,78 @@ def draw_block(ax, x, y, w, h, color, label="", fontsize=11):
         ax.text(x + w/2, y + h/2, label, ha="center", va="center", 
                 fontsize=fontsize, fontweight="bold", color="white")
 
-def panel_no_prefetch(ax):
+
+def panel_no_prefetch(ax, text: dict):
     ax.set_xlim(-0.5, 12)
     ax.set_ylim(-0.5, 2.5)
     ax.axis("off")
-    ax.set_title("Without Prefetching", fontsize=16, fontweight="bold", pad=10)
-    
+    ax.set_title(text["title_no_prefetch"], fontsize=16, fontweight="bold", pad=10)
+
     block_h = 0.8
     y = 1.0
-    
+
     # Layer 0: AG -> Compute
-    draw_block(ax, 0, y, 1.2, block_h, COLORS["allgather"], "AG₀", 10)
-    draw_block(ax, 1.3, y, 2.0, block_h, COLORS["compute"], "L₀", 12)
-    
+    draw_block(ax, 0, y, 1.2, block_h, COLORS["allgather"], text["ag_label"].format(sub="₀"), 10)
+    draw_block(ax, 1.3, y, 2.0, block_h, COLORS["compute"], text["layer_label"].format(sub="₀"), 12)
+
     # Layer 1: AG -> Compute (sequential, starts after L0)
-    draw_block(ax, 3.4, y, 1.2, block_h, COLORS["allgather"], "AG₁", 10)
-    draw_block(ax, 4.7, y, 2.0, block_h, COLORS["compute"], "L₁", 12)
-    
+    draw_block(ax, 3.4, y, 1.2, block_h, COLORS["allgather"], text["ag_label"].format(sub="₁"), 10)
+    draw_block(ax, 4.7, y, 2.0, block_h, COLORS["compute"], text["layer_label"].format(sub="₁"), 12)
+
     # Layer 2: AG -> Compute
-    draw_block(ax, 6.8, y, 1.2, block_h, COLORS["allgather"], "AG₂", 10)
-    draw_block(ax, 8.1, y, 2.0, block_h, COLORS["compute"], "L₂", 12)
-    
+    draw_block(ax, 6.8, y, 1.2, block_h, COLORS["allgather"], text["ag_label"].format(sub="₂"), 10)
+    draw_block(ax, 8.1, y, 2.0, block_h, COLORS["compute"], text["layer_label"].format(sub="₂"), 12)
+
     # Time arrow
     ax.annotate("", xy=(11, 0.3), xytext=(0, 0.3),
                 arrowprops=dict(arrowstyle="->", color=COLORS["text"], lw=1.5))
-    ax.text(5.5, 0.0, "time", ha="center", fontsize=11, color=COLORS["text"])
+    ax.text(5.5, 0.0, text["time_label"], ha="center", fontsize=11, color=COLORS["text"])
 
-def panel_with_prefetch(ax):
+
+def panel_with_prefetch(ax, text: dict):
     ax.set_xlim(-0.5, 12)
     ax.set_ylim(-0.5, 2.5)
     ax.axis("off")
-    ax.set_title("With Prefetching", fontsize=16, fontweight="bold", pad=10)
-    
+    ax.set_title(text["title_with_prefetch"], fontsize=16, fontweight="bold", pad=10)
+
     block_h = 0.8
     y_compute = 1.2
     y_comm = 0.3
-    
+
     # Layer 0: AG then Compute
-    draw_block(ax, 0, y_compute, 1.0, block_h, COLORS["allgather"], "AG₀", 10)
-    draw_block(ax, 1.1, y_compute, 2.0, block_h, COLORS["compute"], "L₀", 12)
-    
+    draw_block(ax, 0, y_compute, 1.0, block_h, COLORS["allgather"], text["ag_label"].format(sub="₀"), 10)
+    draw_block(ax, 1.1, y_compute, 2.0, block_h, COLORS["compute"], text["layer_label"].format(sub="₀"), 12)
+
     # AG₁ overlaps with L₀ compute
-    draw_block(ax, 1.1, y_comm, 1.0, block_h, COLORS["allgather"], "AG₁", 10)
-    
+    draw_block(ax, 1.1, y_comm, 1.0, block_h, COLORS["allgather"], text["ag_label"].format(sub="₁"), 10)
+
     # Layer 1: Compute (AG already done)
-    draw_block(ax, 3.2, y_compute, 2.0, block_h, COLORS["compute"], "L₁", 12)
-    
+    draw_block(ax, 3.2, y_compute, 2.0, block_h, COLORS["compute"], text["layer_label"].format(sub="₁"), 12)
+
     # AG₂ overlaps with L₁ compute
-    draw_block(ax, 3.2, y_comm, 1.0, block_h, COLORS["allgather"], "AG₂", 10)
-    
+    draw_block(ax, 3.2, y_comm, 1.0, block_h, COLORS["allgather"], text["ag_label"].format(sub="₂"), 10)
+
     # Layer 2: Compute (AG already done)
-    draw_block(ax, 5.3, y_compute, 2.0, block_h, COLORS["compute"], "L₂", 12)
-    
+    draw_block(ax, 5.3, y_compute, 2.0, block_h, COLORS["compute"], text["layer_label"].format(sub="₂"), 12)
+
     # Time arrow
     ax.annotate("", xy=(8, -0.3), xytext=(0, -0.3),
                 arrowprops=dict(arrowstyle="->", color=COLORS["text"], lw=1.5))
-    ax.text(4, -0.6, "time", ha="center", fontsize=11, color=COLORS["text"])
-    
+    ax.text(4, -0.6, text["time_label"], ha="center", fontsize=11, color=COLORS["text"])
+
     # Overlap annotation
     ax.annotate("", xy=(2.0, 1.1), xytext=(2.0, 1.1 - 0.15),
                 arrowprops=dict(arrowstyle="-", color="#27ae60", lw=2, ls="--"))
 
-def main():
+
+def draw(text: dict) -> plt.Figure:
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 4))
-    panel_no_prefetch(ax1)
-    panel_with_prefetch(ax2)
-    
+    panel_no_prefetch(ax1, text)
+    panel_with_prefetch(ax2, text)
+
     plt.tight_layout(pad=1.0)
-    save_figure(__file__)
+    return fig
+
 
 if __name__ == "__main__":
-    main()
+    localized_figure(draw, "fsdp_prefetch_timeline", LABELS, __file__, pad_inches=0.08)

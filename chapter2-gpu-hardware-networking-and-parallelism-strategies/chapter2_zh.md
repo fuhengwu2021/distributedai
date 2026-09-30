@@ -26,7 +26,7 @@
 
 算力，即系统的计算吞吐能力，衡量的是一个计算系统每秒钟能够执行的运算次数。在 AI 负载中，我们最关心的核心指标是**每秒浮点运算次数（FLOPS，Floating-Point Operations Per Second）**。算力的量级呈指数级跃升：单张现代 GPU（如 NVIDIA H200）在 FP16/BF16 精度下能提供约 1,000 TFLOPS（TeraFLOPS，$10^{12}$ 次运算/秒）的密集算力；一个由 1,000 张此类 GPU 组成的集群，理论总算力约为 1,000 PFLOPS（PetaFLOPS，$10^{15}$ 次运算/秒），即 1 EFLOPS（ExaFLOPS，$10^{18}$ 次运算/秒）：$1000 \text{ GPUs} \times 1000 \text{ TFLOPS} = 10^{6} \text{ TFLOPS} = 1000 \text{ PFLOPS} = 1 \text{ EFLOPS}$。
 
-![GPU 显存容量 vs 模型显存需求增长趋势对比](img/computational_growth_gap.png){#fig:computational-growth-gap .wrap width=60% align=top-right lines=15}
+![GPU 显存容量 vs 模型显存需求增长趋势对比](img/computational_growth_gap_zh.png){#fig:computational-growth-gap .wrap width=60% align=top-right lines=15}
 
 但必须强调的是：单纯的峰值 FLOPS 数值并不能代表实际性能。峰值吞吐量严重依赖于**数值计算精度**——传统科学计算（HPC）依赖高精度的 FP64，深度学习基准测试常以 FP32 为基线，现代大模型训练主流采用 FP16/BF16，而推理与量化部署则进一步下探到 FP8 乃至 FP4（见第~\ref{chap:introduction-to-modern-distributed-ai} 章精度对比表）。当厂商宣称“该集群算力达 500 PFLOPS”时，务必先追问是在何种精度下的标称值：HPC 集群通常引用 FP64 数据，而 AI 集群则通常指 FP16/BF16。同样的硬件在不同数值精度下的标称算力可能会相差数倍乃至数十倍。
 
@@ -48,7 +48,7 @@ AI 领域对算力增长的渴求是极为惊人的。近年来大语言模型�
 - **扩展算力（Scale Compute）**：通过多节点并行计算承载超大 Batch Size，大幅缩短训练迭代周期。
 - **扩展存储（Scale Storage）**：高效并行吞吐无法存放在单机上的数 TB 至 PB 级海量训练数据集。
 
-![现代 AI 集群物理与网络架构示意图](img/ai_cluster_demo.png){#fig:ai-cluster .block width=100% align=top-right}
+![现代 AI 集群物理与网络架构示意图](img/ai_cluster_demo_zh.png){#fig:ai-cluster .block width=100% align=top-right}
 
 如 @fig:ai-cluster 所示，典型的现代 AI 集群由多个计算节点组成，每个节点通常包含 2 颗高性能 CPU 和 8 张 GPU。在**节点内部（Intra-node）**，8 张 GPU 通过 NVSwitch 芯片实现全互联拓扑，提供极高带宽的 NVLink 互联（Ampere/Hopper 架构单卡聚合双向带宽达 300–900 GB/s，Blackwell B200 进一步跃升至 1.8 TB/s）。在**节点之间（Inter-node）**，GPU 通过 InfiniBand 高速网卡（如 HDR 200 Gb/s 或 NDR 400 Gb/s）实现跨机直连，在整套集群上支持大规模分布式训练与推理。
 
@@ -166,7 +166,7 @@ CPU 基于经典的**冯·诺依曼体系架构**设计。与专注于高并发�
 
 ### CPU 与 GPU 的交互机制
 
-![CPU 与 GPU 的协同交互机制](img/cpu_gpu_interaction.png){#fig:cpu-gpu-interaction .block width=60% align=top-right}
+![CPU 与 GPU 的协同交互机制](img/cpu_gpu_interaction_zh.png){#fig:cpu-gpu-interaction .block width=60% align=top-right}
 
 如 @fig:cpu-gpu-interaction 所示，典型的执行流程包括：
 1. **CPU 异步发射指令**：CPU 上的 Python 进程调用 PyTorch API，生成底层 CUDA 指令并通过 PCIe 总线推入 GPU 的命令队列（CUDA Stream）。
@@ -210,7 +210,7 @@ GPU 内部同样存在层次分明的显存金字塔结构：
 - **L2 缓存（L2 Cache）**：全局共享的片上大容量缓存（Hopper 拥有 50 MB，Blackwell 达到数十 MB）。
 - **全局显存（Device VRAM / HBM）**：容量最大（80–192 GB），通过宽位宽的 HBM 堆叠颗粒提供数 TB/s 的读取带宽。平时触发的 Out of Memory (OOM) 均指此处的 HBM 耗尽。
 
-![GPU 显存层次体系结构](img/gpu_mem.png){#fig:gpu-memory-hierarchy .block width=60% align=top-right lines=8}
+![GPU 显存层次体系结构](img/gpu_mem_zh.png){#fig:gpu-memory-hierarchy .block width=60% align=top-right lines=8}
 
 如 @fig:gpu-memory-hierarchy 所示，显存设计遵循基本物理规律：越靠近计算核心的存储级别，带宽越高、延迟越低，但物理容量越小；反之容量越大的级别，访问延迟越高。
 
@@ -394,7 +394,7 @@ NVIDIA GPU 采用 **SIMT（单指令多线程，Single Instruction, Multiple Thr
 
 ### 训练策略选型决策树
 
-![分布式训练策略决策树](img/training_tree.png){#fig:training-strategy-tree}
+![分布式训练策略决策树](img/training_tree_zh.png){#fig:training-strategy-tree}
 
 如 @fig:training-strategy-tree 所示，训练选型的标准决策路径如下：
 
@@ -413,7 +413,7 @@ NVIDIA GPU 采用 **SIMT（单指令多线程，Single Instruction, Multiple Thr
 
 ### 推理策略选型决策树
 
-![分布式推理策略决策树](img/inference_tree.png){#fig:inference-strategy-tree}
+![分布式推理策略决策树](img/inference_tree_zh.png){#fig:inference-strategy-tree}
 
 如 @fig:inference-strategy-tree 所示，推理优化侧重于延迟与 KV 缓存管理：
 

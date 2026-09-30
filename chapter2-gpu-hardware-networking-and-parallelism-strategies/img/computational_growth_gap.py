@@ -11,25 +11,34 @@ plus GPT-2, GPT-J, BLOOM, and LLaMA 3 where the table has no open-weight entry).
 Blue solid (bottom): mainstream single-GPU HBM.
 """
 
-import numpy as np
-import matplotlib.pyplot as plt
 import os
 import sys
+import numpy as np
+import matplotlib.pyplot as plt
 
-sys.path.insert(
-    0,
-    os.path.join(
-        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-        "shared",
-    ),
-)
-from math4ai import configure_math_fonts, save_figure
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'shared'))
+from figstyle import localized_figure
 
-configure_math_fonts()
+LABELS = {
+    "en": {
+        "gpu_label": "Mainstream Single-GPU HBM (A100/H100/H200/B200)",
+        "open_weight_label": "Open-Weight Representative (BF16)",
+        "frontier_label": "Frontier Estimate incl. Undisclosed (~, BF16)",
+        "gap_label": "Memory Gap (requires distributed training)",
+        "xlabel": "Year",
+        "ylabel": "Memory (GB)",
+    },
+    "zh": {
+        "gpu_label": "主流单 GPU 显存 (A100/H100/H200/B200)",
+        "open_weight_label": "代表性开源模型权重 (BF16)",
+        "frontier_label": "前沿模型预估（含未公开参数量 ~, BF16）",
+        "gap_label": "显存缺口（需分布式训练技术）",
+        "xlabel": "年份",
+        "ylabel": "显存容量 (GB)",
+    }
+}
 
 # Mainstream single-GPU HBM (GB) at year-end deployment reality
-# 2020: A100 40GB (May 2020); 80GB announced Nov 2020, widely deployed from 2021
-# 2022–2023: H100 80GB; H200 141GB mainstream from 2024; B200 192GB from 2025
 gpu_years = np.array([2020, 2021, 2022, 2023, 2024, 2025, 2026])
 gpu_memory = np.array([40, 80, 80, 80, 141, 192, 192])  # 2026: B200 still mainstream
 
@@ -57,52 +66,6 @@ frontier_memory = np.array([
     20000.0,  # Claude Mythos 5 ~10T
 ])
 
-fig, ax = plt.subplots(figsize=(8, 5))
-
-ax.plot(
-    gpu_years,
-    gpu_memory,
-    "b-o",
-    linewidth=2.5,
-    markersize=8,
-    label="Mainstream Single-GPU HBM (A100/H100/H200/B200)",
-    zorder=2,
-)
-ax.plot(
-    model_years,
-    open_weight_memory,
-    color="gold",
-    linestyle="--",
-    marker="s",
-    linewidth=2.5,
-    markersize=8,
-    label="Open-Weight Representative (BF16)",
-    zorder=3,
-)
-ax.plot(
-    model_years,
-    frontier_memory,
-    "r-^",
-    linewidth=2.5,
-    markersize=8,
-    label="Frontier Estimate incl. Undisclosed (~, BF16)",
-    zorder=4,
-)
-
-gpu_interp = np.interp(model_years, gpu_years, gpu_memory)
-gap_memory = np.maximum(open_weight_memory, frontier_memory)
-gap_mask = gap_memory > gpu_interp
-ax.fill_between(
-    model_years,
-    gpu_interp,
-    gap_memory,
-    where=gap_mask,
-    alpha=0.25,
-    color="red",
-    label="Memory Gap (requires distributed training)",
-    zorder=1,
-)
-
 open_weight_annotations = [
     (2020, 3, "GPT-2\n(1.5B)", (2020.35, 8), "left"),
     (2021, 12, "GPT-J\n(6B)", (2021.35, 20), "left"),
@@ -112,6 +75,7 @@ open_weight_annotations = [
     (2025, 1342, "DeepSeek-V3\n(671B)", (2025.1, 2200), "left"),
     (2026, 3200, "DeepSeek-V4-Pro\n(1.6T)", (2025.05, 600), "left"),
 ]
+
 frontier_annotations = [
     (2020, 350, "GPT-3\n(175B)", (2020.04, 550), "left"),
     (2021, 1060, "MT-NLG\n(530B)", (2021.0, 1700), "left"),
@@ -121,43 +85,96 @@ frontier_annotations = [
     (2025, 4000, "GPT-5\n(~2T)", (2024.55, 14500), "left"),
     (2026, 20000, "Claude Mythos 5\n(~10T)", (2025.65, 18000), "right"),
 ]
-for x, y, label, (tx, ty), ha in open_weight_annotations:
-    ax.annotate(
-        label,
-        xy=(x, y),
-        xytext=(tx, ty),
-        arrowprops=dict(arrowstyle="->", lw=1.5, color="gray"),
-        fontsize=8,
-        ha=ha,
-        color="black",
+
+
+def draw(text: dict) -> plt.Figure:
+    fig, ax = plt.subplots(figsize=(8, 5))
+
+    ax.plot(
+        gpu_years,
+        gpu_memory,
+        "b-o",
+        linewidth=2.5,
+        markersize=8,
+        label=text["gpu_label"],
+        zorder=2,
     )
-for x, y, label, (tx, ty), ha in frontier_annotations:
-    ax.annotate(
-        label,
-        xy=(x, y),
-        xytext=(tx, ty),
-        arrowprops=dict(arrowstyle="->", lw=1.5, color="gray"),
-        fontsize=8,
-        ha=ha,
-        color="black",
+    ax.plot(
+        model_years,
+        open_weight_memory,
+        color="gold",
+        linestyle="--",
+        marker="s",
+        linewidth=2.5,
+        markersize=8,
+        label=text["open_weight_label"],
+        zorder=3,
+    )
+    ax.plot(
+        model_years,
+        frontier_memory,
+        "r-^",
+        linewidth=2.5,
+        markersize=8,
+        label=text["frontier_label"],
+        zorder=4,
     )
 
-ax.set_xlabel("Year", fontsize=12)
-ax.set_ylabel("Memory (GB)", fontsize=12)
-ax.grid(True, alpha=0.3, linestyle="--", zorder=0)
-handles, labels = ax.get_legend_handles_labels()
-order = [2, 1, 0, 3]  # frontier, open-weight, GPU, gap
-ax.legend(
-    [handles[i] for i in order],
-    [labels[i] for i in order],
-    loc="upper left",
-    fontsize=9,
-    framealpha=0.9,
-)
-ax.tick_params(labelsize=11)
-ax.set_yscale("log")
-ax.set_xlim(2019.5, 2026.1)
-ax.set_ylim(bottom=2, top=41000)
+    gpu_interp = np.interp(model_years, gpu_years, gpu_memory)
+    gap_memory = np.maximum(open_weight_memory, frontier_memory)
+    gap_mask = gap_memory > gpu_interp
+    ax.fill_between(
+        model_years,
+        gpu_interp,
+        gap_memory,
+        where=gap_mask,
+        alpha=0.25,
+        color="red",
+        label=text["gap_label"],
+        zorder=1,
+    )
 
-plt.tight_layout()
-save_figure(__file__)
+    for x, y, label, (tx, ty), ha in open_weight_annotations:
+        ax.annotate(
+            label,
+            xy=(x, y),
+            xytext=(tx, ty),
+            arrowprops=dict(arrowstyle="->", lw=1.5, color="gray"),
+            fontsize=8,
+            ha=ha,
+            color="black",
+        )
+    for x, y, label, (tx, ty), ha in frontier_annotations:
+        ax.annotate(
+            label,
+            xy=(x, y),
+            xytext=(tx, ty),
+            arrowprops=dict(arrowstyle="->", lw=1.5, color="gray"),
+            fontsize=8,
+            ha=ha,
+            color="black",
+        )
+
+    ax.set_xlabel(text["xlabel"], fontsize=12)
+    ax.set_ylabel(text["ylabel"], fontsize=12)
+    ax.grid(True, alpha=0.3, linestyle="--", zorder=0)
+    handles, labels_list = ax.get_legend_handles_labels()
+    order = [2, 1, 0, 3]  # frontier, open-weight, GPU, gap
+    ax.legend(
+        [handles[i] for i in order],
+        [labels_list[i] for i in order],
+        loc="upper left",
+        fontsize=9,
+        framealpha=0.9,
+    )
+    ax.tick_params(labelsize=11)
+    ax.set_yscale("log")
+    ax.set_xlim(2019.5, 2026.1)
+    ax.set_ylim(bottom=2, top=41000)
+
+    plt.tight_layout()
+    return fig
+
+
+if __name__ == '__main__':
+    localized_figure(draw, "computational_growth_gap", LABELS, __file__, use_math_fonts=True)

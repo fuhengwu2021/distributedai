@@ -28,7 +28,7 @@
 3. **流式低延迟响应（Streaming）**：用户期望以数十毫秒的首 Token 延迟（TTFT）即时看到打字机式的连续输出；
 4. **服务治理与容灾**：需要具备模型多版本灰度（Canary Deployment）、A/B 测试、令牌桶限流（Rate Limiting）、过载反压（Backpressure）以及跨机故障秒级自愈。
 
-![生产级大模型服务化系统标准分层架构](img/serving_architecture.png){#fig:serving-architecture .block width=80% align=center}
+![生产级大模型服务化系统标准分层架构](img/serving_architecture_zh.png){#fig:serving-architecture .block width=80% align=center}
 
 如 @fig:serving-architecture 所示，一个现代化的工业级大模型服务栈由以下核心中枢协同构成：
 
@@ -57,7 +57,7 @@
 
 ### 3. 金丝雀灰度发布（Canary Deployment）与自动化熔断回滚
 
-![金丝雀灰度发布流量渐进切分与自动化回滚机制](img/canary_deployment.png){#fig:canary-deployment .block width=80% align=center}
+![金丝雀灰度发布流量渐进切分与自动化回滚机制](img/canary_deployment_zh.png){#fig:canary-deployment .block width=80% align=center}
 
 如 @fig:canary-deployment 所示，当上线新模型权重或升级推理引擎版本时：
 1. **梯度流量切分**：按照 $10\% \rightarrow 25\% \rightarrow 50\% \rightarrow 100\%$ 的比例逐步将生产流量导入 Canary 金丝雀实例；
@@ -93,7 +93,7 @@
 
 Kubernetes（K8s）已成为全球云原生大模型推理服务的事实标准底座。它提供了声明式配置、故障自动重启自愈、服务发现与弹性伸缩能力。
 
-![Kubernetes 云原生大模型服务化体系核心组件映射](img/k8s.png){#fig:k8s-architecture .block width=90% align=center}
+![Kubernetes 云原生大模型服务化体系核心组件映射](img/k8s_zh.png){#fig:k8s-architecture .block width=90% align=center}
 
 如 @fig:k8s-architecture 所示，Kubernetes 原生抽象完美契合大模型服务治理：
 - **Ingress / Gateway API**：承载全局流量入口与跨模型路由；
@@ -104,7 +104,7 @@ Kubernetes（K8s）已成为全球云原生大模型推理服务的事实标准�
 
 使用 k3d（Docker 内运行的轻量级 Kubernetes）构建开发测试沙箱：
 
-![k3d 本地轻量化 GPU Kubernetes 集群架构](img/k3d_architecture.png){#fig:k3d-architecture .block width=90% align=center}
+![k3d 本地轻量化 GPU Kubernetes 集群架构](img/k3d_architecture_zh.png){#fig:k3d-architecture .block width=90% align=center}
 
 ```bash
 cd code/k3d
@@ -119,7 +119,7 @@ cd code/k3d
 
 ### 2. 多模型路由实战（Multi-Model Routing）
 
-![API Gateway 多模型反向代理与动态分发架构](img/multi_model_routing.png){#fig:multi-model-routing width=80%}
+![API Gateway 多模型反向代理与动态分发架构](img/multi_model_routing_zh.png){#fig:multi-model-routing width=80%}
 
 如 @fig:multi-model-routing 所示，客户端向统一网关发送不同 `model` 的请求，网关根据路由表分发到独立的 Kubernetes Service：
 
@@ -149,7 +149,7 @@ curl http://localhost:8080/v1/chat/completions \
 
 ### 3. 多引擎路由实战（Multi-Engine Routing：vLLM vs SGLang）
 
-![多引擎统一路由架构：支持客户端自由指定推理后端](img/multi_engine_routing.png){#fig:multi-engine-routing width=80%}
+![多引擎统一路由架构：支持客户端自由指定推理后端](img/multi_engine_routing_zh.png){#fig:multi-engine-routing width=80%}
 
 如 @fig:multi-engine-routing 所示，网关允许在请求中附加 `inference_server: "vllm"` 或 `"sglang"`，实现同模型在不同底层推理引擎间的无缝对比与平滑迁移。
 
@@ -163,7 +163,7 @@ curl http://localhost:8080/v1/chat/completions \
 
 ### llm-d 核心技术突破
 
-![llm-d 云原生生产级推理服务架构全景图](img/llmd_architecture.png){#fig:llmd-architecture width=80%}
+![llm-d 云原生生产级推理服务架构全景图](img/llmd_architecture_zh.png){#fig:llmd-architecture width=80%}
 
 如 @fig:llmd-architecture 所示，llm-d 集成了当今最先进的大模型工程实践：
 
@@ -174,7 +174,7 @@ curl http://localhost:8080/v1/chat/completions \
 
 [^igw]: Kubernetes Gateway API Inference Extension: https://github.com/kubernetes-sigs/gateway-api-inference-extension
 
-![llm-d 多模型自动服务发现与智能分发架构](img/llmd_multi_model.png){#fig:llmd-multi-model width=80%}
+![llm-d 多模型自动服务发现与智能分发架构](img/llmd_multi_model_zh.png){#fig:llmd-multi-model width=80%}
 
 ### 手工 k3d 架构 vs llm-d 生产级框架全方位对比
 

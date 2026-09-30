@@ -1,12 +1,37 @@
-import matplotlib.pyplot as plt
-import matplotlib.patches as patches
+#!/usr/bin/env python3
+"""
+Visualize the Broadcast operation in distributed training.
+Shows how data from the root rank is distributed to all ranks.
+"""
+
 import os
 import sys
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'shared'))
-from math4ai import save_figure
+# Ensure shared directory is in sys.path
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'shared'))
+from figstyle import localized_figure
 
-def draw_broadcast_diagram():
+LABELS = {
+    "en": {
+        "rank": "rank {i}",
+        "root": "(root)",
+        "in": "in",
+        "out": "out",
+        "formula": "out[i] = in[i]",
+    },
+    "zh": {
+        "rank": "Rank {i}",
+        "root": "(根节点)",
+        "in": "输入",
+        "out": "输出",
+        "formula": "out[i] = in[i]",
+    }
+}
+
+
+def draw(text: dict) -> plt.Figure:
     # Create figure and axes
     fig, ax = plt.subplots(figsize=(12, 4))
     
@@ -28,7 +53,7 @@ def draw_broadcast_diagram():
         
         # If it's the root, add "(root)" label
         if is_root:
-            ax.text(x_center, rank_labels_y - 0.3, "(root)", 
+            ax.text(x_center, rank_labels_y - 0.3, text["root"], 
                     ha='center', va='top', fontsize=11, color='black')
 
         # Draw the data box if text is provided
@@ -46,8 +71,8 @@ def draw_broadcast_diagram():
     # Ranks 0 to 3
     for i in range(4):
         is_root = (i == 2)
-        box_text = "in" if is_root else None
-        draw_lane(i, f"rank {i}", box_text, is_root)
+        box_text = text["in"] if is_root else None
+        draw_lane(i, text["rank"].format(i=i), box_text, is_root)
     
     # Closing dashed line for the left group
     ax.plot([3.5, 3.5], [0, 4], color='black', linestyle='--', linewidth=1)
@@ -70,16 +95,14 @@ def draw_broadcast_diagram():
     offset = 5.5  # Shift the right group over
     
     for i in range(4):
-        draw_lane(offset + i, f"rank {i}", "out")
+        draw_lane(offset + i, text["rank"].format(i=i), text["out"])
         
     # Closing dashed line for the right group
     ax.plot([offset + 3.5, offset + 3.5], [0, 4], color='black', linestyle='--', linewidth=1)
 
     # --- Mathematical Label ---
-    # "out[i] = in[i]" placed below the right group
-    # We position it roughly centered under the right group
     center_right_group = offset + 1.5
-    ax.text(center_right_group, 0.2, "out[i] = in[i]", 
+    ax.text(center_right_group, 0.2, text["formula"], 
             ha='center', va='center', fontsize=16, fontfamily='sans-serif')
 
     # --- Final Layout Adjustments ---
@@ -88,8 +111,8 @@ def draw_broadcast_diagram():
     ax.axis('off')  # Turn off the actual plot axes (ticks, spines)
     
     plt.tight_layout()
-    save_figure(__file__)
+    return fig
+
 
 if __name__ == "__main__":
-    draw_broadcast_diagram()
-    
+    localized_figure(draw, "broadcast", LABELS, __file__)

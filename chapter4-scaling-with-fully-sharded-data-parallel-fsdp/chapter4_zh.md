@@ -53,7 +53,7 @@
 $$\text{每卡显存占用} = \frac{84\text{ GB}}{8} = \mathbf{10.5\text{ GB}}$$
 显存占用瞬间从无法容纳的 84 GB 骤降至 10.5 GB，为前向激活值腾出了充裕的计算空间。
 
-![单卡显存占用对比：DDP vs FSDP（以 7B 参数模型为例）](img/ddp_fsdp_mem.png){#fig:ddp-fsdp-mem .block width=100% align=center}
+![单卡显存占用对比：DDP vs FSDP（以 7B 参数模型为例）](img/ddp_fsdp_mem_zh.png){#fig:ddp-fsdp-mem .block width=100% align=center}
 
 如 @fig:ddp-fsdp-mem 所示，DDP 在每张卡上均保留全量 84 GB 状态导致单卡直接 OOM；而 FSDP 使显存随卡数呈 $84 / N$ 线性下降，在 8 卡下仅需 10.5 GB/卡。
 
@@ -73,7 +73,7 @@ FSDP 的精妙之处在于巧妙利用了神经网络**前向与反向逐层按�
 1. **前向传播（All-Gather）**：当计算流推进到第 $L$ 层时，FSDP 触发 **All-Gather** 操作，瞬间从其余各卡拉取参数分片，在本地临时拼出该层的完整权重并执行前向计算；**该层前向计算一结束，立即释放临时拼装的完整权重，显存重新回落到分片状态**。
 2. **反向传播（Reduce-Scatter）**：反向传播推进到第 $L$ 层时，再次触发 All-Gather 临时重构权重以计算梯度；梯度计算完毕后，FSDP 触发 **Reduce-Scatter** 操作——在跨卡累加梯度的同时，直接将归约后的平均梯度分散写回各卡对应的分片中，本地仅保留 $1/N$ 的梯度分片。
 
-![FSDP 核心通信流：前向 All-Gather 与反向 Reduce-Scatter](img/fsdp_allgather_reducescatter.png){#fig:fsdp-allgather-reducescatter .block width=100% align=center}
+![FSDP 核心通信流：前向 All-Gather 与反向 Reduce-Scatter](img/fsdp_allgather_reducescatter_zh.png){#fig:fsdp-allgather-reducescatter .block width=100% align=center}
 
 如 @fig:fsdp-allgather-reducescatter 所示，左侧前向过程中每卡原本仅持有 $1/N$ 分片，经 All-Gather 临时拼出全量权重；右侧反向过程中本地计算出全量梯度，经 Reduce-Scatter 规约后每卡仅保留 $1/N$ 的梯度分片。
 
@@ -88,7 +88,7 @@ PyTorch 最初在 2021 年发布的初代 FSDP（FSDP1）借鉴了 FairScale 的
 - **原生完美兼容 `torch.compile`**，允许编译器透视单个算子并进行深度的通信与计算融合优化；
 - **原生无缝集成分布式检查点（DCP）**，保存与加载分片 Checkpoint 无需经过低效的单卡 All-Gather 聚合。
 
-![FSDP1 与 FSDP2 参数布局对比](img/fsdp1_vs_fsdp2_layout.png){#fig:fsdp1-vs-fsdp2-layout .block width=100% align=center}
+![FSDP1 与 FSDP2 参数布局对比](img/fsdp1_vs_fsdp2_layout_zh.png){#fig:fsdp1-vs-fsdp2-layout .block width=100% align=center}
 
 如 @fig:fsdp1-vs-fsdp2-layout 所示，FSDP1（左）将 W1、W2、W3 强制拉平拼接为单个连续张量再分片；FSDP2（右）对每个参数张量独立在第 0 维分片，保持了清晰独立的参数实体。
 
@@ -134,7 +134,7 @@ fully_shard(
   fully_shard(model, mesh=mesh_2d)
   ```
 
-![DeviceMesh 拓扑结构：1D FSDP 与 2D HSDP 对比](img/device_mesh.png){#fig:device-mesh .block width=100% align=center}
+![DeviceMesh 拓扑结构：1D FSDP 与 2D HSDP 对比](img/device_mesh_zh.png){#fig:device-mesh .block width=100% align=center}
 
 如 @fig:device-mesh 所示，1D 网格下全局 4 张 GPU 构成统一分片组；而在 2D HSDP 网格下，节点 N0 和 N1 内部通过高速 NVLink 执行参数 All-Gather 分片（绿色箭头），跨机之间仅传递梯度副本更新（红色箭头），大幅降低了跨节点低速网络的流量压力。
 
@@ -144,7 +144,7 @@ fully_shard(
 - **`True`（默认值，ZeRO-3 等价）**：每层前向计算完毕后立即释放拼装出的全量参数，显存占用最低，但反向传播时必须再次触发 All-Gather；
 - **`False`（ZeRO-2 等价）**：前向计算完毕后保留全量参数在显存中不释放。反向传播直接复用，完全省去了反向阶段的 All-Gather 通信，通信开销减半，但峰值显存占用更高。
 
-![reshard_after_forward 为 True 与 False 时的通信时序对比](img/reshard_after_forward.png){#fig:reshard-after-forward .block width=100% align=center}
+![reshard_after_forward 为 True 与 False 时的通信时序对比](img/reshard_after_forward_zh.png){#fig:reshard-after-forward .block width=100% align=center}
 
 如 @fig:reshard-after-forward 所示，`reshard_after_forward=True` 时前向后立即释放参数（free），反向需再次 All-Gather；为 `False` 时前向后驻留参数（keep），反向直接计算。
 
@@ -163,7 +163,7 @@ for layer in model.transformer.layers:
 fully_shard(model, mesh=mesh, mp_policy=mp_policy)
 ```
 
-![分层分片（Hierarchical Sharding）与扁平切分架构对比](img/fsdp_hierarchical_sharding.png){#fig:fsdp-hierarchical-sharding .block width=100% align=center}
+![分层分片（Hierarchical Sharding）与扁平切分架构对比](img/fsdp_hierarchical_sharding_zh.png){#fig:fsdp-hierarchical-sharding .block width=100% align=center}
 
 如 @fig:fsdp-hierarchical-sharding 所示，分层切分（左）将每个 Block 作为独立通信单元，任何时刻显存中仅存在单个 Block 的完整参数；而扁平切分（右）被迫一次性重构全局参数。
 
@@ -256,7 +256,7 @@ def load_checkpoint_dcp(model, optimizer, checkpoint_dir, epoch):
 
 FSDP 支持**前向与反向通信预取**：在当前计算流执行第 $L$ 层算子的同时，利用后台独立的 CUDA 通信 Stream 提前向网络发起第 $L+1$ 层的 All-Gather 参数拉取请求。当第 $L$ 层计算结束时，第 $L+1$ 层的参数已经就绪，实现了通信延迟的完全隐藏。
 
-![FSDP 开启与未开启通信预取的时序流对比](img/fsdp_prefetch_timeline.png){#fig:fsdp-prefetch-timeline .block width=100% align=center}
+![FSDP 开启与未开启通信预取的时序流对比](img/fsdp_prefetch_timeline_zh.png){#fig:fsdp-prefetch-timeline .block width=100% align=center}
 
 如 @fig:fsdp-prefetch-timeline 所示，未开启预取时（上），每层计算前必须串行等待 All-Gather 完成；开启预取后（下），$L_1$ 的 All-Gather 在 $L_0$ 计算期间并发执行，消除等待空隙。
 

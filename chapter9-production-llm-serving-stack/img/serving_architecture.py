@@ -10,35 +10,60 @@ Shows the high-level architecture of a production LLM serving system:
 - Monitoring & Observability at the bottom
 """
 
-import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
-from matplotlib.patches import FancyBboxPatch
 import os
 import sys
+import matplotlib.pyplot as plt
+from matplotlib.patches import FancyBboxPatch
 
-# Add shared directory to path for math4ai imports
+# Add shared directory to path for figstyle imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'shared'))
-from math4ai import configure_math_fonts, save_figure
+from figstyle import localized_figure
 
-# Configure matplotlib for math expressions
-configure_math_fonts()
+LABELS = {
+    "en": {
+        "clients": "Clients",
+        "gw_title": "API Gateway",
+        "gw_sub": "Routing, Auth, Rate Limiting",
+        "tok_title": "Tokenizer",
+        "tok_sub": "Service",
+        "runner_title": "Model Runner",
+        "runner_sub": "(vLLM/SGLang)",
+        "gpu_label": "[GPU]",
+        "monitor_title": "Monitoring & Observability",
+        "monitor_sub": "Prometheus, OpenTelemetry, Logging",
+        "desc_routing": "Request\nRouting",
+        "desc_engines": "Inference\nEngines",
+        "desc_metrics": "Metrics &\nTracing",
+        "legend_client": "Client Layer",
+        "legend_gateway": "Gateway Layer",
+        "legend_service": "Service Layer",
+        "legend_model": "Inference Layer",
+        "flow_label": "Request\nFlow",
+    },
+    "zh": {
+        "clients": "客户端应用",
+        "gw_title": "API 网关",
+        "gw_sub": "路由分发、鉴权认证、请求限流",
+        "tok_title": "Tokenizer",
+        "tok_sub": "独立分词服务",
+        "runner_title": "模型执行引擎",
+        "runner_sub": "(vLLM/SGLang)",
+        "gpu_label": "[GPU]",
+        "monitor_title": "监控报警与全栈可观测性",
+        "monitor_sub": "Prometheus、OpenTelemetry、全链路日志",
+        "desc_routing": "请求分发\n与治理",
+        "desc_engines": "分布式\n推理引擎",
+        "desc_metrics": "指标度量\n与链路追踪",
+        "legend_client": "客户端接入层",
+        "legend_gateway": "网关治理层",
+        "legend_service": "基础服务层",
+        "legend_model": "后端推理层",
+        "flow_label": "请求调用\n数据流",
+    }
+}
 
-fig, ax = plt.subplots(figsize=(10, 8))
-ax.set_xlim(1, 10)
-ax.set_ylim(2, 9)
-ax.set_aspect('equal')
-ax.axis('off')
 
-# Colors
-client_color = '#E3F2FD'      # Light blue
-gateway_color = '#FFF3E0'     # Light orange
-service_color = '#E8F5E9'     # Light green
-model_color = '#F3E5F5'       # Light purple
-monitoring_color = '#FFFDE7'  # Light yellow
-border_color = '#424242'      # Dark gray
-
-def draw_box(ax, x, y, width, height, label, sublabel=None, color='white', optional=False):
+def draw_box(ax, x, y, width, height, label, sublabel=None, color='white', optional=False, border_color='#424242'):
     """Draw a rounded box with label. If optional=True, use dotted border."""
     linestyle = '--' if optional else '-'
     box = FancyBboxPatch(
@@ -57,83 +82,103 @@ def draw_box(ax, x, y, width, height, label, sublabel=None, color='white', optio
     else:
         ax.text(x, y, label, ha='center', va='center', fontsize=13, fontweight='bold')
 
+
 def draw_arrow(ax, start, end, color='#666666'):
     """Draw an arrow between two points"""
     ax.annotate('', xy=end, xytext=start,
                 arrowprops=dict(arrowstyle='->', color=color, lw=1.5,
                                connectionstyle='arc3,rad=0'))
 
-# Clients (top)
-draw_box(ax, 5, 8.5, 2.5, 0.7, 'Clients', color=client_color)
 
-# Arrow from clients to gateway
-draw_arrow(ax, (5, 8.1), (5, 7.4))
+def draw(text: dict) -> plt.Figure:
+    fig, ax = plt.subplots(figsize=(10, 8))
+    ax.set_xlim(1, 10)
+    ax.set_ylim(2, 9)
+    ax.set_aspect('equal')
+    ax.axis('off')
 
-# API Gateway
-draw_box(ax, 5, 7, 3.5, 0.7, 'API Gateway', 'Routing, Auth, Rate Limiting', color=gateway_color)
+    # Colors
+    client_color = '#E3F2FD'      # Light blue
+    gateway_color = '#FFF3E0'     # Light orange
+    service_color = '#E8F5E9'     # Light green
+    model_color = '#F3E5F5'       # Light purple
+    monitoring_color = '#FFFDE7'  # Light yellow
+    border_color = '#424242'      # Dark gray
 
-# Arrows from gateway to services
-draw_arrow(ax, (3.5, 6.6), (2.5, 5.9))
-draw_arrow(ax, (5, 6.6), (5, 5.9))
-draw_arrow(ax, (6.5, 6.6), (7.5, 5.9))
+    # Clients (top)
+    draw_box(ax, 5, 8.5, 2.5, 0.7, text["clients"], color=client_color, border_color=border_color)
 
-# Tokenizer Service (optional - dotted border)
-draw_box(ax, 2.5, 5.5, 2.2, 0.7, 'Tokenizer', 'Service', color=service_color, optional=True)
+    # Arrow from clients to gateway
+    draw_arrow(ax, (5, 8.1), (5, 7.4))
 
-# Model Runners
-draw_box(ax, 5, 5.5, 2.2, 0.7, 'Model Runner', '(vLLM/SGLang)', color=model_color)
-draw_box(ax, 7.5, 5.5, 2.2, 0.7, 'Model Runner', '(vLLM/SGLang)', color=model_color)
+    # API Gateway
+    draw_box(ax, 5, 7, 3.5, 0.7, text["gw_title"], text["gw_sub"], color=gateway_color, border_color=border_color)
 
-# GPU indicators under model runners
-ax.text(5, 4.95, '[GPU]', ha='center', va='center', fontsize=13, color='black')
-ax.text(7.5, 4.95, '[GPU]', ha='center', va='center', fontsize=13, color='black')
+    # Arrows from gateway to services
+    draw_arrow(ax, (3.5, 6.6), (2.5, 5.9))
+    draw_arrow(ax, (5, 6.6), (5, 5.9))
+    draw_arrow(ax, (6.5, 6.6), (7.5, 5.9))
 
-# Arrows to monitoring (dashed lines from all services)
-for x in [2.5, 5, 7.5]:
-    ax.plot([x, x], [5.1, 4.2], '--', color='#999999', lw=1)
-    
-# Horizontal line connecting to monitoring
-ax.plot([2.5, 7.5], [4.2, 4.2], '--', color='#999999', lw=1)
-ax.plot([5, 5], [4.2, 3.6], '--', color='#999999', lw=1)
+    # Tokenizer Service (optional - dotted border)
+    draw_box(ax, 2.5, 5.5, 2.2, 0.7, text["tok_title"], text["tok_sub"], color=service_color, optional=True, border_color=border_color)
 
-# Monitoring & Observability (optional/integrated - dotted border)
-draw_box(ax, 5, 3.2, 3.5, 0.7, 'Monitoring & Observability', 'Prometheus, OpenTelemetry, Logging', color=monitoring_color, optional=True)
+    # Model Runners
+    draw_box(ax, 5, 5.5, 2.2, 0.7, text["runner_title"], text["runner_sub"], color=model_color, border_color=border_color)
+    draw_box(ax, 7.5, 5.5, 2.2, 0.7, text["runner_title"], text["runner_sub"], color=model_color, border_color=border_color)
 
-# Add component descriptions on the side
-descriptions = [
-    (2.5, 7, "Request\nRouting"),
-    (9.5, 5.5, "Inference\nEngines"),
-    (2.5, 3.2, "Metrics &\nTracing"),
-]
+    # GPU indicators under model runners
+    ax.text(5, 4.95, text["gpu_label"], ha='center', va='center', fontsize=13, color='black')
+    ax.text(7.5, 4.95, text["gpu_label"], ha='center', va='center', fontsize=13, color='black')
 
-for x, y, text in descriptions:
-    ax.text(x, y, text, ha='center', va='center', fontsize=13, color='black', style='italic')
+    # Arrows to monitoring (dashed lines from all services)
+    for x in [2.5, 5, 7.5]:
+        ax.plot([x, x], [5.1, 4.2], '--', color='#999999', lw=1)
+        
+    # Horizontal line connecting to monitoring
+    ax.plot([2.5, 7.5], [4.2, 4.2], '--', color='#999999', lw=1)
+    ax.plot([5, 5], [4.2, 3.6], '--', color='#999999', lw=1)
 
-# Add a legend box
-legend_y = 2.25
-legend_items = [
-    (1.5, legend_y, client_color, 'Client Layer'),
-    (3.5, legend_y, gateway_color, 'Gateway Layer'),
-    (5.5, legend_y, service_color, 'Service Layer'),
-    (7.5, legend_y, model_color, 'Inference Layer'),
-]
+    # Monitoring & Observability (optional/integrated - dotted border)
+    draw_box(ax, 5, 3.2, 3.5, 0.7, text["monitor_title"], text["monitor_sub"], color=monitoring_color, optional=True, border_color=border_color)
 
-for x, y, color, label in legend_items:
-    box = FancyBboxPatch(
-        (x - 0.3, y - 0.15), 0.3, 0.3,
-        boxstyle="round,pad=0.01,rounding_size=0.05",
-        facecolor=color,
-        edgecolor=border_color,
-        linewidth=1
-    )
-    ax.add_patch(box)
-    ax.text(x + 0.3, y, label, ha='left', va='center', fontsize=13)
+    # Add component descriptions on the side
+    descriptions = [
+        (2.5, 7, text["desc_routing"]),
+        (9.5, 5.5, text["desc_engines"]),
+        (2.5, 3.2, text["desc_metrics"]),
+    ]
 
-# Data flow annotation
-ax.annotate('', xy=(9, 7), xytext=(9, 5.5),
-            arrowprops=dict(arrowstyle='<->', color='#666666', lw=1.5))
-ax.text(9.3, 6.25, 'Request\nFlow', ha='left', va='center', fontsize=13, color='black')
+    for x, y, desc in descriptions:
+        ax.text(x, y, desc, ha='center', va='center', fontsize=13, color='black', style='italic')
 
-# Tight layout and save
-plt.tight_layout(pad=0.1)
-save_figure(__file__)
+    # Add a legend box
+    legend_y = 2.25
+    legend_items = [
+        (1.5, legend_y, client_color, text["legend_client"]),
+        (3.5, legend_y, gateway_color, text["legend_gateway"]),
+        (5.5, legend_y, service_color, text["legend_service"]),
+        (7.5, legend_y, model_color, text["legend_model"]),
+    ]
+
+    for x, y, color, label in legend_items:
+        box = FancyBboxPatch(
+            (x - 0.3, y - 0.15), 0.3, 0.3,
+            boxstyle="round,pad=0.01,rounding_size=0.05",
+            facecolor=color,
+            edgecolor=border_color,
+            linewidth=1
+        )
+        ax.add_patch(box)
+        ax.text(x + 0.3, y, label, ha='left', va='center', fontsize=13)
+
+    # Data flow annotation
+    ax.annotate('', xy=(9, 7), xytext=(9, 5.5),
+                arrowprops=dict(arrowstyle='<->', color='#666666', lw=1.5))
+    ax.text(9.3, 6.25, text["flow_label"], ha='left', va='center', fontsize=13, color='black')
+
+    plt.tight_layout(pad=0.1)
+    return fig
+
+
+if __name__ == '__main__':
+    localized_figure(draw, "serving_architecture", LABELS, __file__, pad_inches=0, use_math_fonts=True)

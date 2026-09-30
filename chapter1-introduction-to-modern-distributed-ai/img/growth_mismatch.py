@@ -1,15 +1,17 @@
+#!/usr/bin/env python3
 """
 Visualize the mismatch between exponential model growth and linear GPU growth.
 Two subplots: (1) Model parameters over time (exponential), (2) GPU memory over time (linear).
 """
 
-import matplotlib.pyplot as plt
-import numpy as np
 import os
 import sys
+import matplotlib.pyplot as plt
+import numpy as np
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'shared'))
-from math4ai import save_figure
+# Ensure shared directory is in sys.path
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'shared'))
+from figstyle import localized_figure
 
 # Model data: [Year, Parameters (in billions), Model Name]
 model_data = [
@@ -39,8 +41,25 @@ gpu_data = [
     [2025, 192, 'B200'],
 ]
 
+LABELS = {
+    "en": {
+        "x_label": "Year",
+        "y_label_models": "Model Parameters (log scale)",
+        "trend_exponential": "Exponential trend",
+        "y_label_gpu": "GPU Memory (GB)",
+        "trend_linear": "Linear trend",
+    },
+    "zh": {
+        "x_label": "年份",
+        "y_label_models": "模型参数量（对数尺度）",
+        "trend_exponential": "指数增长趋势",
+        "y_label_gpu": "GPU 显存容量 (GB)",
+        "trend_linear": "线性增长趋势",
+    }
+}
 
-def create_growth_mismatch_plot():
+
+def draw(text: dict) -> plt.Figure:
     """Create a two-subplot figure showing exponential vs linear growth."""
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
 
@@ -68,10 +87,10 @@ def create_growth_mismatch_plot():
     x_fit = np.linspace(2020, 2026, 100)
     y_fit = np.exp(coeffs[1] + coeffs[0] * x_fit)
     ax1.plot(x_fit, y_fit, '--', color='#d62728', alpha=0.5, linewidth=1.5,
-             label='Exponential trend')
+             label=text["trend_exponential"])
 
-    ax1.set_xlabel('Year', fontsize=11, fontweight='bold')
-    ax1.set_ylabel('Model Parameters (log scale)', fontsize=11, fontweight='bold')
+    ax1.set_xlabel(text["x_label"], fontsize=11, fontweight='bold')
+    ax1.set_ylabel(text["y_label_models"], fontsize=11, fontweight='bold')
     ax1.set_yscale('log')
     ax1.grid(True, alpha=0.3, linestyle='--')
     ax1.legend(loc='upper left', fontsize=8)
@@ -110,18 +129,18 @@ def create_growth_mismatch_plot():
     coeffs_gpu = np.polyfit(years_gpu, memory_gb, 1)
     y_fit_gpu = np.maximum(np.polyval(coeffs_gpu, x_fit_gpu), 0)
     ax2.plot(x_fit_gpu, y_fit_gpu, '--', color='#2ca02c', alpha=0.5, linewidth=1.5,
-             label='Linear trend')
+             label=text["trend_linear"])
 
-    ax2.set_xlabel('Year', fontsize=11, fontweight='bold')
-    ax2.set_ylabel('GPU Memory (GB)', fontsize=11, fontweight='bold')
+    ax2.set_xlabel(text["x_label"], fontsize=11, fontweight='bold')
+    ax2.set_ylabel(text["y_label_gpu"], fontsize=11, fontweight='bold')
     ax2.grid(True, alpha=0.3, linestyle='--')
     ax2.legend(loc='upper left', fontsize=8)
     ax2.set_xlim(2015.5, 2026.2)
     ax2.set_ylim(0, 220)
 
     plt.tight_layout()
-    save_figure(__file__)
+    return fig
 
 
 if __name__ == '__main__':
-    create_growth_mismatch_plot()
+    localized_figure(draw, "growth_mismatch", LABELS, __file__)

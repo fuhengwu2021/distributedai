@@ -40,7 +40,7 @@
 
 ## SLURM 核心架构与守护进程全景
 
-![SLURM 核心架构：slurmctld、slurmd 与 slurmdbd 交互机制](img/slurm_architecture.png){#fig:slurm-architecture .block width=95% align=center}
+![SLURM 核心架构：slurmctld、slurmd 与 slurmdbd 交互机制](img/slurm_architecture_zh.png){#fig:slurm-architecture .block width=95% align=center}
 
 如 @fig:slurm-architecture 所示，SLURM 架构由三大核心守护进程组成：
 
@@ -56,7 +56,7 @@
 
 在将任务提交至真实生产集群前，在单台多卡机器上通过运行多个 `slurmd` 实例模拟多节点跨机集群，是开发调试分布式脚本极具性价比的方式。
 
-![单台多卡物理机模拟多节点虚拟集群架构](img/virtual_node_setup.png){#fig:virtual-node-setup .block width=90% align=center}
+![单台多卡物理机模拟多节点虚拟集群架构](img/virtual_node_setup_zh.png){#fig:virtual-node-setup .block width=90% align=center}
 
 如 @fig:virtual-node-setup 所示，我们在单台 8 卡物理机上启动两个独立的 `slurmd` 进程（分别监听 17016 和 17017 端口）：
 - 虚拟节点 **node6**：绑定物理 GPU 6；
@@ -131,7 +131,7 @@ scontrol show job <ID>   # 查看指定作业的详细运行节点与资源分�
 scancel <ID>             # 终止取消指定作业
 ```
 
-![SLURM 作业生命周期状态流转图](img/job_lifecycle.png){#fig:job-lifecycle .block width=90% align=center}
+![SLURM 作业生命周期状态流转图](img/job_lifecycle_zh.png){#fig:job-lifecycle .block width=90% align=center}
 
 如 @fig:job-lifecycle 所示，作业从提交后处于 **PENDING** 排队状态，资源满足后转为 **RUNNING** 运行状态，正常退出转为 **COMPLETED**，遭遇异常或超时则转为 **FAILED / TIMEOUT**。
 
@@ -139,7 +139,7 @@ scancel <ID>             # 终止取消指定作业
 
 ## SLURM 环境变量与 PyTorch 分布式完美映射
 
-![SLURM 环境变量向 PyTorch 分布式环境的无缝映射](img/slurm_env_vars_mapping.png){#fig:slurm-env-vars .block width=85% align=center}
+![SLURM 环境变量向 PyTorch 分布式环境的无缝映射](img/slurm_env_vars_mapping_zh.png){#fig:slurm-env-vars .block width=85% align=center}
 
 如 @fig:slurm-env-vars 所示，SLURM 注入的环境变量可 1:1 映射为 PyTorch 标准通信变量：
 
@@ -155,7 +155,7 @@ scancel <ID>             # 终止取消指定作业
 
 ## 四大主流分布式框架的 SLURM 启动实战 {#sec:slurm-frameworks}
 
-![SLURM 多机多卡分布式训练整体调度与拓扑拉起流程](img/multi_node_training.png){#fig:multi-node-training .block width=90% align=center}
+![SLURM 多机多卡分布式训练整体调度与拓扑拉起流程](img/multi_node_training_zh.png){#fig:multi-node-training .block width=90% align=center}
 
 ### 1. PyTorch 原生 DDP 作业配置 {#sec:slurm-ddp-example}
 

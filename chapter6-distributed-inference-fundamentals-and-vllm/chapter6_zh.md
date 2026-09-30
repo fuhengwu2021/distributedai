@@ -38,7 +38,7 @@
 
 ### vLLM 核心分层架构
 
-![vLLM 调度器-执行器-工作进程（Scheduler-Executor-Worker）分层架构](img/vllm_architecture.png){#fig:vllm-arch .block width=70% align=center}
+![vLLM 调度器-执行器-工作进程（Scheduler-Executor-Worker）分层架构](img/vllm_architecture_zh.png){#fig:vllm-arch .block width=70% align=center}
 
 如 @fig:vllm-arch 所示，vLLM 内部遵循清晰的 **Scheduler-Executor-Worker** 架构模式：
 
@@ -151,7 +151,7 @@ $$\text{Attention}(Q, K, V) = \text{softmax}\left(\frac{Q K^T}{\sqrt{d_k}} + \te
 
 在传统推理系统中，系统为每个请求预先分配一块**连续的物理显存**以存放 KV Cache。由于用户最终会生成多少 Token 事先不可知，系统通常按照模型支持的最大长度（如 2048 或 4096）进行预分配。
 
-![传统连续分配导致的严重内部显存碎片与已完成请求的显存闲置](img/kv_cache_fragmentation.png){#fig:kv-cache-fragmentation .block width=85% align=center}
+![传统连续分配导致的严重内部显存碎片与已完成请求的显存闲置](img/kv_cache_fragmentation_zh.png){#fig:kv-cache-fragmentation .block width=85% align=center}
 
 如 @fig:kv-cache-fragmentation 所示，这引发了三重灾难性的显存浪费：
 1. **内部碎片（Internal Fragmentation）**：预分配了 2048 个 Token 显存，实际用户仅生成 50 个 Token 即结束，剩余显存被完全锁定闲置；
@@ -162,7 +162,7 @@ $$\text{Attention}(Q, K, V) = \text{softmax}\left(\frac{Q K^T}{\sqrt{d_k}} + \te
 
 PagedAttention 从操作系统虚拟内存技术中汲取灵感：**将 KV Cache 切分为固定大小的物理块（Physical Blocks，默认每个 Block 容纳 16 个 Token）**。
 
-![PagedAttention 逻辑 Block Table 与离散物理块映射机制](img/paged_attention_blocks.png){#fig:paged-attention-blocks .block width=90% align=center}
+![PagedAttention 逻辑 Block Table 与离散物理块映射机制](img/paged_attention_blocks_zh.png){#fig:paged-attention-blocks .block width=90% align=center}
 
 如 @fig:paged-attention-blocks 所示：
 - **动态按需分配**：请求到达时仅分配 1 个 Block，当生成满 16 个 Token 时再动态从空闲池中申请下一个 Block；
@@ -172,7 +172,7 @@ PagedAttention 从操作系统虚拟内存技术中汲取灵感：**将 KV Cache
 
 ### 零 Padding 浪费（Zero Padding FLOPs）
 
-![传统 Padding 批处理 vs PagedAttention 按块精准计算对比](img/padding_vs_paged.png){#fig:padding-vs-paged .block width=100% align=center}
+![传统 Padding 批处理 vs PagedAttention 按块精准计算对比](img/padding_vs_paged_zh.png){#fig:padding-vs-paged .block width=100% align=center}
 
 如 @fig:padding-vs-paged 所示，由于 PagedAttention 的自研 CUDA Attention Kernel 是直接基于 Block Table 遍历有效物理块，**根本不需要在显存中构造包含 Padding 的对齐张量**。不存在的 Token 在物理上根本没有分配 Block，Attention 算子直接跳过，**彻底消除了 100% 的 Padding 无效算力消耗**。
 
@@ -221,7 +221,7 @@ vLLM 实现了 **持续批处理（Continuous Batching / 迭代级调度）**：
 
 - **机制**：沿网络层深度将模型纵向拆分到不同机架节点，适用于无法通过 NVLink 组建大 TP 域的跨机超大模型（如 405B/671B）。
 
-![流水线气泡（Pipeline Bubble）与虚拟引擎请求组调度优化](img/pipeline_bubble.png){#fig:pipeline-bubble .block width=85% align=center}
+![流水线气泡（Pipeline Bubble）与虚拟引擎请求组调度优化](img/pipeline_bubble_zh.png){#fig:pipeline-bubble .block width=85% align=center}
 
 - **分块预填充（Chunked Prefill）消除气泡** {#sec:chunked-prefill}：
   长文本 Prefill（耗时数秒）与快速 Decode（耗时数毫秒）交织时会导致流水线严重停顿。vLLM 引入 **Chunked Prefill** 将长 Prompt 拆分为小分块（如 512 tokens/块）分批推进，使计算流平滑交错：

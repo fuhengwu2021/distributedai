@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Diagram of an MPI Reduce operation.
 Visualizes data aggregation from multiple ranks (0-3) into a single root rank (2)
@@ -10,17 +11,29 @@ import matplotlib.patches as patches
 import os
 import sys
 
-# Add shared directory to path for math4ai imports
-# (Assumes this script is located in chapterX-topic/img/)
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'shared'))
-from math4ai import configure_math_fonts, save_figure
+# Add shared directory to path for figstyle imports
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'shared'))
+from figstyle import localized_figure
 
-# Configure matplotlib for math expressions
-configure_math_fonts()
+LABELS = {
+    "en": {
+        "rank": "rank {i}",
+        "root": "(root)",
+        "in": "in{i}",
+        "out": "out",
+        "formula": r'$\mathrm{out}[i] = \sum(\mathrm{inX}[i])$',
+    },
+    "zh": {
+        "rank": "Rank {i}",
+        "root": "(根节点)",
+        "in": "输入{i}",
+        "out": "输出",
+        "formula": r'$\mathrm{out}[i] = \sum(\mathrm{inX}[i])$',
+    }
+}
 
-def draw_reduce_diagram():
-    # Create figure
-    # Using a wider aspect ratio to accommodate the left->right flow
+
+def draw(text: dict) -> plt.Figure:
     fig, ax = plt.subplots(figsize=(12, 4))
     
     # --- Configuration ---
@@ -44,17 +57,16 @@ def draw_reduce_diagram():
                 color='black', linestyle='--', linewidth=1, zorder=0)
         
         # 2. Rank Label
-        ax.text(x_center, rank_label_y, f"rank {rank_idx}", 
+        ax.text(x_center, rank_label_y, text["rank"].format(i=rank_idx), 
                 ha='center', va='bottom', fontsize=14, color='black')
         
         # 3. Root Label (if applicable)
         if is_root:
-            ax.text(x_center, rank_label_y - 0.25, "(root)", 
+            ax.text(x_center, rank_label_y - 0.25, text["root"], 
                     ha='center', va='top', fontsize=12, color='black')
             
         # 4. Data Box (if text provided)
         if box_text:
-            # If color is provided, fill it. If not (white), just black edge.
             face_c = box_color if box_color else 'white'
             edge_c = 'black'
             
@@ -65,24 +77,21 @@ def draw_reduce_diagram():
             )
             ax.add_patch(rect)
             
-            # Text inside the box
-            # We use distinct coloring logic: white text for dark boxes, black for light
             text_color = 'white' if box_color and rank_idx < 2 else 'black'
             ax.text(x_center, box_y_bottom + box_height/2, box_text, 
                     ha='center', va='center', fontsize=16, color=text_color)
 
-        return x_center # Return center for potential use
+        return x_center
 
     # --- LEFT GROUP (Input State) ---
     start_x_left = 0
     for i in range(4):
-        draw_lane(start_x_left, i, f"in{i}", colors[i])
+        draw_lane(start_x_left, i, text["in"].format(i=i), colors[i])
 
     # Closing dashed line for left group
     ax.plot([4, 4], [0, 4], color='black', linestyle='--', linewidth=1)
 
     # --- ARROW (Transformation) ---
-    # Centered between the two groups (approx x=4 to x=5.5)
     arrow = patches.FancyArrowPatch(
         (4.2, 1.8), (5.2, 1.8),
         mutation_scale=30, 
@@ -94,9 +103,8 @@ def draw_reduce_diagram():
     # --- RIGHT GROUP (Output State) ---
     start_x_right = 5.5
     for i in range(4):
-        # Only rank 2 gets a box in the output (Reduce operation)
         if i == 2:
-            draw_lane(start_x_right, i, "out", box_color=None, is_root=True)
+            draw_lane(start_x_right, i, text["out"], box_color=None, is_root=True)
         else:
             draw_lane(start_x_right, i, box_text=None)
 
@@ -104,19 +112,18 @@ def draw_reduce_diagram():
     ax.plot([start_x_right + 4, start_x_right + 4], [0, 4], color='black', linestyle='--', linewidth=1)
 
     # --- Mathematical Annotation ---
-    # Positioned under the right group
-    # We use LaTeX formatting as per guidelines
-    label_x = start_x_right + 2.0 # Center of right group
-    ax.text(label_x, 0.2, r'$\mathrm{out}[i] = \sum(\mathrm{inX}[i])$', 
+    label_x = start_x_right + 2.0
+    ax.text(label_x, 0.2, text["formula"], 
             ha='center', va='center', fontsize=18)
 
     # --- Final Layout & Styling ---
     ax.set_xlim(-0.2, start_x_right + 4.2)
     ax.set_ylim(0, 4.0)
-    ax.axis('off')  # Turn off axes/ticks for diagrammatic look
+    ax.axis('off')
     
     plt.tight_layout()
-    save_figure(__file__)
+    return fig
+
 
 if __name__ == "__main__":
-    draw_reduce_diagram()
+    localized_figure(draw, "reduce", LABELS, __file__)

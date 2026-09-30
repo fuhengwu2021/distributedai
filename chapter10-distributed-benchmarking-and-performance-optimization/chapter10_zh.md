@@ -66,7 +66,7 @@
 
 分布式训练不仅包含前向计算（Forward）与反向传播（Backward），还深度交织着跨机梯度同步（AllReduce/Reduce-Scatter）与数据加载（DataLoader I/O）。
 
-![分布式训练单步迭代耗时分解与随 GPU 卡数扩充的变化趋势](img/training_breakdown.png)
+![分布式训练单步迭代耗时分解与随 GPU 卡数扩充的变化趋势](img/training_breakdown_zh.png)
 
 如上图所示，随着 GPU 数量由 1 卡增加至 16 卡：虽然单步绝对时间从 155ms 降至 33ms，但**通信同步耗时占比从 0% 激增至 55%**！超过一半的时间被跨机网络等待消耗，这就是扩展效率下降的根本原因。
 
@@ -107,9 +107,9 @@ nsys profile --trace=cuda,nvtx,osrt --output=profile.nsys-rep python train.py
 
 ### 3. 多卡扩展效率与网络拓扑诊断
 
-![多卡扩展效率评估：理想线性加速 vs 实际性能曲线](img/scaling_efficiency.png)
+![多卡扩展效率评估：理想线性加速 vs 实际性能曲线](img/scaling_efficiency_zh.png)
 
-![跨节点网络带宽层级与 Ring AllReduce 通信拓扑](img/network_topology.png)
+![跨节点网络带宽层级与 Ring AllReduce 通信拓扑](img/network_topology_zh.png)
 
 - **机内核间通信（NVLink）**：单向带宽高达 450–900 GB/s；
 - **跨机跨节点通信（InfiniBand / RoCE）**：单向带宽约为 25–50 GB/s（200–400 Gbps）；
@@ -131,28 +131,28 @@ nsys profile --trace=cuda,nvtx,osrt --output=profile.nsys-rep python train.py
 
 与训练不同，大模型自回归推理具有显著的阶段非对称性（Compute-bound Prefill vs Memory-bound Decode）与用户主观交互感知要求。
 
-![大语言模型推理核心性能指标全景关系图](img/inference_metrics_overview.png)
+![大语言模型推理核心性能指标全景关系图](img/inference_metrics_overview_zh.png)
 
 ### 1. 推理核心度量全景
 
-![每秒生成 Token 吞吐量（TPS）时间线分布](img/tps_timeline.png)
+![每秒生成 Token 吞吐量（TPS）时间线分布](img/tps_timeline_zh.png)
 
 - **首 Token 生成时间（TTFT, Time to First Token）**：从发起请求到客户端收到第一个文字的耗时，包含分词、全量 Prompt 预填充（Prefill）与首字生成；
-  ![TTFT 首字延迟全链路时序拆解](img/ttft_pipeline.png)
+  ![TTFT 首字延迟全链路时序拆解](img/ttft_pipeline_zh.png)
 
 - **Token 生成间隔时间（ITL / TPOT, Time Per Output Token）**：自回归解码（Decode）阶段生成连续字符的平均间隔，决定了客户端“打字机吐字速度”：
   $$
   \text{ITL} = \frac{\text{E2E\_Latency} - \text{TTFT}}{\text{Total\_Output\_Tokens} - 1}
   $$
-  ![ITL 连续字符输出间隔时间流水线](img/itl_pipeline.png)
+  ![ITL 连续字符输出间隔时间流水线](img/itl_pipeline_zh.png)
 
 - **端到端总时延（E2E Latency）**：
   $$
   \text{E2E\_Latency} = \text{TTFT} + (\text{Output\_Tokens} - 1) \times \text{ITL}
   $$
-  ![端到端总延迟 E2E 完整处理时序](img/e2e_latency_pipeline.png)
+  ![端到端总延迟 E2E 完整处理时序](img/e2e_latency_pipeline_zh.png)
 
-![推理时延直方图（Histogram）与累积分布函数（CDF）](img/latency_distribution.png){#fig:latency-distribution}
+![推理时延直方图（Histogram）与累积分布函数（CDF）](img/latency_distribution_zh.png){#fig:latency-distribution}
 
 ### 2. 专业压测框架：genai-bench
 

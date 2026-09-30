@@ -7,30 +7,50 @@ once and reused by all three requests.
 """
 import matplotlib
 matplotlib.use('Agg')
-import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
-from matplotlib.patches import FancyBboxPatch, FancyArrowPatch, ConnectionPatch
 import os
 import sys
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+from matplotlib.patches import FancyBboxPatch
 
-# Add shared directory to path for math4ai imports
+# Add shared directory to path for figstyle
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'shared'))
-from math4ai import configure_math_fonts, save_figure
+from figstyle import localized_figure
 
-configure_math_fonts()
-
-fig, ax = plt.subplots(figsize=(10, 6))
-ax.set_xlim(0.7, 11.1)
-ax.set_ylim(0, 6.7)
-ax.set_aspect('equal')
-ax.axis('off')
+LABELS = {
+    "en": {
+        "root": "Root",
+        "prefix": '"You are helpful. "',
+        "req1_suffix": '"What is Python?"',
+        "req2_suffix": '"Explain ML."',
+        "req3_suffix": '"Write code."',
+        "req1": "Request 1",
+        "req2": "Request 2",
+        "req3": "Request 3",
+        "legend_shared": "Shared prefix (computed once)",
+        "legend_unique": "Unique suffix (computed per request)",
+    },
+    "zh": {
+        "root": "根节点 (Root)",
+        "prefix": '"You are helpful. "',
+        "req1_suffix": '"What is Python?"',
+        "req2_suffix": '"Explain ML."',
+        "req3_suffix": '"Write code."',
+        "req1": "请求 1",
+        "req2": "请求 2",
+        "req3": "请求 3",
+        "legend_shared": "共享前缀（仅计算一次）",
+        "legend_unique": "独立后缀（每个请求单独计算）",
+    }
+}
 
 # Colors
 root_color = '#E3F2FD'
 shared_color = '#C8E6C9'
 unique_color = '#FFF9C4'
 arrow_color = '#666666'
+
 
 def draw_node(ax, x, y, width, height, label, facecolor='white', edgecolor='black', fontsize=10):
     box = FancyBboxPatch((x - width/2, y - height/2), width, height, 
@@ -39,44 +59,57 @@ def draw_node(ax, x, y, width, height, label, facecolor='white', edgecolor='blac
     ax.add_patch(box)
     ax.text(x, y, label, ha='center', va='center', fontsize=fontsize, wrap=True)
 
+
 def draw_edge(ax, start, end):
     ax.annotate('', xy=end, xytext=start,
                 arrowprops=dict(arrowstyle='->', color=arrow_color, lw=1.5,
                                connectionstyle='arc3,rad=0'))
 
-# Root node
-draw_node(ax, 6, 6, 1.5, 0.7, 'Root', facecolor=root_color, edgecolor='#1976D2', fontsize=14)
 
-# Shared prefix node
-draw_node(ax, 6, 4.2, 3.8, 0.9, '"You are helpful. "', facecolor=shared_color, edgecolor='#388E3C', fontsize=14)
+def draw(text: dict) -> plt.Figure:
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.set_xlim(0.7, 11.1)
+    ax.set_ylim(0, 6.7)
+    ax.set_aspect('equal')
+    ax.axis('off')
 
-# Edge from root to shared prefix
-draw_edge(ax, (6, 5.65), (6, 4.65))
+    # Root node
+    draw_node(ax, 6, 6, 1.5, 0.7, text['root'], facecolor=root_color, edgecolor='#1976D2', fontsize=14)
 
-# Unique suffix nodes
-draw_node(ax, 2.5, 2, 3.4, 0.8, '"What is Python?"', facecolor=unique_color, edgecolor='#F9A825', fontsize=14)
-draw_node(ax, 6, 2, 2.8, 0.8, '"Explain ML."', facecolor=unique_color, edgecolor='#F9A825', fontsize=14)
-draw_node(ax, 9.5, 2, 2.8, 0.8, '"Write code."', facecolor=unique_color, edgecolor='#F9A825', fontsize=14)
+    # Shared prefix node
+    draw_node(ax, 6, 4.2, 3.8, 0.9, text['prefix'], facecolor=shared_color, edgecolor='#388E3C', fontsize=14)
 
-# Edges from shared prefix to unique suffixes
-draw_edge(ax, (4.7, 3.75), (2.5, 2.4))
-draw_edge(ax, (6, 3.75), (6, 2.4))
-draw_edge(ax, (7.3, 3.75), (9.5, 2.4))
+    # Edge from root to shared prefix
+    draw_edge(ax, (6, 5.65), (6, 4.65))
 
-# Request labels
-ax.text(2.5, 1.2, 'Request 1', ha='center', va='center', fontsize=14, color='#666666', style='italic')
-ax.text(6, 1.2, 'Request 2', ha='center', va='center', fontsize=14, color='#666666', style='italic')
-ax.text(9.5, 1.2, 'Request 3', ha='center', va='center', fontsize=14, color='#666666', style='italic')
+    # Unique suffix nodes
+    draw_node(ax, 2.5, 2, 3.4, 0.8, text['req1_suffix'], facecolor=unique_color, edgecolor='#F9A825', fontsize=14)
+    draw_node(ax, 6, 2, 2.8, 0.8, text['req2_suffix'], facecolor=unique_color, edgecolor='#F9A825', fontsize=14)
+    draw_node(ax, 9.5, 2, 2.8, 0.8, text['req3_suffix'], facecolor=unique_color, edgecolor='#F9A825', fontsize=14)
 
-# Legend
-legend_y = 0.4
-ax.add_patch(FancyBboxPatch((1.5, legend_y - 0.2), 0.4, 0.4, boxstyle="round,pad=0.02,rounding_size=0.1",
-                            facecolor=shared_color, edgecolor='#388E3C', linewidth=1))
-ax.text(2.1, legend_y, 'Shared prefix (computed once)', ha='left', va='center', fontsize=14)
+    # Edges from shared prefix to unique suffixes
+    draw_edge(ax, (4.7, 3.75), (2.5, 2.4))
+    draw_edge(ax, (6, 3.75), (6, 2.4))
+    draw_edge(ax, (7.3, 3.75), (9.5, 2.4))
 
-ax.add_patch(FancyBboxPatch((6.5, legend_y - 0.2), 0.4, 0.4, boxstyle="round,pad=0.02,rounding_size=0.1",
-                            facecolor=unique_color, edgecolor='#F9A825', linewidth=1))
-ax.text(7.1, legend_y, 'Unique suffix (computed per request)', ha='left', va='center', fontsize=14)
+    # Request labels
+    ax.text(2.5, 1.2, text['req1'], ha='center', va='center', fontsize=14, color='#666666', style='italic')
+    ax.text(6, 1.2, text['req2'], ha='center', va='center', fontsize=14, color='#666666', style='italic')
+    ax.text(9.5, 1.2, text['req3'], ha='center', va='center', fontsize=14, color='#666666', style='italic')
 
-plt.tight_layout(pad=0.1)
-save_figure(__file__)
+    # Legend
+    legend_y = 0.4
+    ax.add_patch(FancyBboxPatch((1.5, legend_y - 0.2), 0.4, 0.4, boxstyle="round,pad=0.02,rounding_size=0.1",
+                                facecolor=shared_color, edgecolor='#388E3C', linewidth=1))
+    ax.text(2.1, legend_y, text['legend_shared'], ha='left', va='center', fontsize=14)
+
+    ax.add_patch(FancyBboxPatch((6.5, legend_y - 0.2), 0.4, 0.4, boxstyle="round,pad=0.02,rounding_size=0.1",
+                                facecolor=unique_color, edgecolor='#F9A825', linewidth=1))
+    ax.text(7.1, legend_y, text['legend_unique'], ha='left', va='center', fontsize=14)
+
+    plt.tight_layout(pad=0.1)
+    return fig
+
+
+if __name__ == '__main__':
+    localized_figure(draw, "radix_tree", LABELS, __file__, use_math_fonts=True)

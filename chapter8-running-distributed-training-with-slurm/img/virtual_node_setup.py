@@ -3,116 +3,149 @@ Virtual node setup: Multiple slurmd daemons on a single physical machine
 simulating a multi-node cluster, with GPU mapping.
 """
 
+import os
+import sys
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
-from math4ai import save_figure
 
-fig, ax = plt.subplots(figsize=(12, 5.5))
-ax.set_axis_off()
-ax.set_xlim(0, 10)
-ax.set_ylim(0, 5.4)
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'shared'))
+from figstyle import localized_figure
 
-# Colors
-physical_color = "#f5f5f5"
-virtual_color = "#e8f4f8"
-gpu_active_color = "#99bcff"
-gpu_inactive_color = "#e0e0e0"
-daemon_color = "#c3e6cb"
+LABELS = {
+    "en": {
+        "physical_machine": "Physical Machine (8 GPUs)",
+        "gpu": "GPU {i}",
+        "vnode6": "Virtual Node: node6",
+        "vnode7": "Virtual Node: node7",
+        "slurmd": "slurmd",
+        "port6": "Port: 17016",
+        "port7": "Port: 17017",
+        "gres": "Gres=gpu:1",
+        "arrow_gpu6": "→ GPU 6",
+        "arrow_gpu7": "→ GPU 7",
+        "note": "gres.conf mapping: NodeName=node6 → /dev/nvidia6, NodeName=node7 → /dev/nvidia7",
+    },
+    "zh": {
+        "physical_machine": "物理宿主机 (8 GPUs)",
+        "gpu": "GPU {i}",
+        "vnode6": "虚拟节点: node6",
+        "vnode7": "虚拟节点: node7",
+        "slurmd": "slurmd",
+        "port6": "端口: 17016",
+        "port7": "端口: 17017",
+        "gres": "Gres=gpu:1",
+        "arrow_gpu6": "→ GPU 6",
+        "arrow_gpu7": "→ GPU 7",
+        "note": "gres.conf mapping: NodeName=node6 → /dev/nvidia6, NodeName=node7 → /dev/nvidia7",
+    }
+}
 
-# Title
-#ax.text(5.0, 5.7, "Virtual Multi-Node Cluster on Single Physical Machine", 
-        #ha="center", va="center", fontsize=13, fontweight="bold")
 
-# Physical machine box (large outer box)
-physical_box = mpatches.FancyBboxPatch((0.3, 0.53), 9.4, 4.1, boxstyle="round,pad=0.1",
-                                        facecolor=physical_color, edgecolor="black", linewidth=2)
-ax.add_patch(physical_box)
-ax.text(5.0, 5.05, "Physical Machine (8 GPUs)", ha="center", va="center", 
-        fontsize=13, fontweight="bold")
+def draw(text: dict) -> plt.Figure:
+    fig, ax = plt.subplots(figsize=(12, 5.5))
+    ax.set_axis_off()
+    ax.set_xlim(0, 10)
+    ax.set_ylim(0, 5.4)
 
-# GPU row at bottom - balanced layout: GPU 0, 1, ..., 5, 6, 7
-gpu_y = 0.6
-gpu_width = 1.2
-gpu_spacing = 1.4  # Wider spacing for balanced layout
+    # Colors
+    physical_color = "#f5f5f5"
+    virtual_color = "#e8f4f8"
+    gpu_active_color = "#99bcff"
+    gpu_inactive_color = "#e0e0e0"
+    daemon_color = "#c3e6cb"
 
-# Define positions: 6 elements (GPU 0, 1, "...", 5, 6, 7) evenly distributed
-# Total width needed: 6 * gpu_width + 5 * gap = ~9.0 (within 0.5 to 9.5)
-gpu_items = [0, 1, "...", 5, 6, 7]
-start_x = 0.7
-for idx, item in enumerate(gpu_items):
-    x = start_x + idx * gpu_spacing
-    
-    if item == "...":
-        ax.text(x + gpu_width/2, gpu_y + 0.4, "...", ha="center", va="center", 
-                fontsize=16, fontweight="bold", color="#666666")
-        continue
-    
-    i = item  # GPU index
-    # GPUs 6 and 7 are active (used by virtual nodes)
-    if i in [6, 7]:
-        color = gpu_active_color
-        edge_width = 2
-    else:
-        color = gpu_inactive_color
-        edge_width = 1
-    
-    gpu_box = mpatches.FancyBboxPatch((x, gpu_y), gpu_width, 0.8, boxstyle="round,pad=0.03",
-                                       facecolor=color, edgecolor="black", linewidth=edge_width)
-    ax.add_patch(gpu_box)
-    ax.text(x + gpu_width/2, gpu_y + 0.4, f"GPU {i}", ha="center", va="center", fontsize=13)
-    ax.text(x + gpu_width/2, gpu_y + 0.15, f"/dev/nvidia{i}", ha="center", va="center", 
-            fontsize=13, family="monospace", color="#666666")
+    # Physical machine box (large outer box)
+    physical_box = mpatches.FancyBboxPatch((0.3, 0.53), 9.4, 4.1, boxstyle="round,pad=0.1",
+                                            facecolor=physical_color, edgecolor="black", linewidth=2)
+    ax.add_patch(physical_box)
+    ax.text(5.0, 5.05, text["physical_machine"], ha="center", va="center", 
+            fontsize=13, fontweight="bold")
 
-# Virtual Node 0 (node6)
-vnode0_box = mpatches.FancyBboxPatch((0.8, 2.0), 3.8, 2.5, boxstyle="round,pad=0.08",
-                                      facecolor=virtual_color, edgecolor="#007bff", linewidth=1.5)
-ax.add_patch(vnode0_box)
-ax.text(2.7, 4.2, "Virtual Node: node6", ha="center", va="center", 
-        fontsize=13, fontweight="bold", color="#007bff")
+    # GPU row at bottom - balanced layout: GPU 0, 1, ..., 5, 6, 7
+    gpu_y = 0.6
+    gpu_width = 1.2
+    gpu_spacing = 1.4  # Wider spacing for balanced layout
 
-# slurmd daemon for node6
-daemon0_box = mpatches.FancyBboxPatch((1.2, 2.8), 1.6, 1.0, boxstyle="round,pad=0.05",
-                                       facecolor=daemon_color, edgecolor="black", linewidth=1)
-ax.add_patch(daemon0_box)
-ax.text(2.0, 3.5, "slurmd", ha="center", va="center", fontsize=13, fontweight="bold", family="monospace")
-ax.text(2.0, 3.1, "Port: 17016", ha="center", va="center", fontsize=13)
+    gpu_items = [0, 1, "...", 5, 6, 7]
+    start_x = 0.7
+    for idx, item in enumerate(gpu_items):
+        x = start_x + idx * gpu_spacing
+        
+        if item == "...":
+            ax.text(x + gpu_width/2, gpu_y + 0.4, "...", ha="center", va="center", 
+                    fontsize=16, fontweight="bold", color="#666666")
+            continue
+        
+        i = item  # GPU index
+        # GPUs 6 and 7 are active (used by virtual nodes)
+        if i in [6, 7]:
+            color = gpu_active_color
+            edge_width = 2
+        else:
+            color = gpu_inactive_color
+            edge_width = 1
+        
+        gpu_box = mpatches.FancyBboxPatch((x, gpu_y), gpu_width, 0.8, boxstyle="round,pad=0.03",
+                                           facecolor=color, edgecolor="black", linewidth=edge_width)
+        ax.add_patch(gpu_box)
+        ax.text(x + gpu_width/2, gpu_y + 0.4, text["gpu"].format(i=i), ha="center", va="center", fontsize=13)
+        ax.text(x + gpu_width/2, gpu_y + 0.15, f"/dev/nvidia{i}", ha="center", va="center", 
+                fontsize=13, family="monospace", color="#666666")
 
-# Config info for node6
-ax.text(3.6, 3.4, "Gres=gpu:1", ha="center", va="center", fontsize=13, family="monospace")
-ax.text(3.6, 3.0, "→ GPU 6", ha="center", va="center", fontsize=13, fontweight="bold")
+    # Virtual Node 0 (node6)
+    vnode0_box = mpatches.FancyBboxPatch((0.8, 2.0), 3.8, 2.5, boxstyle="round,pad=0.08",
+                                          facecolor=virtual_color, edgecolor="#007bff", linewidth=1.5)
+    ax.add_patch(vnode0_box)
+    ax.text(2.7, 4.2, text["vnode6"], ha="center", va="center", 
+            fontsize=13, fontweight="bold", color="#007bff")
 
-# Arrow from node6 to GPU 6 (GPU 6 is at index 4: start_x + 4*gpu_spacing = 0.7 + 4*1.4 = 6.3)
-ax.annotate("", xy=(6.75, 1.4), xytext=(3.0, 2.0),
-            arrowprops=dict(arrowstyle="->", color="#007bff", lw=1.5,
-                           connectionstyle="arc3,rad=-0.15"))
+    # slurmd daemon for node6
+    daemon0_box = mpatches.FancyBboxPatch((1.2, 2.8), 1.6, 1.0, boxstyle="round,pad=0.05",
+                                           facecolor=daemon_color, edgecolor="black", linewidth=1)
+    ax.add_patch(daemon0_box)
+    ax.text(2.0, 3.5, text["slurmd"], ha="center", va="center", fontsize=13, fontweight="bold", family="monospace")
+    ax.text(2.0, 3.1, text["port6"], ha="center", va="center", fontsize=13)
 
-# Virtual Node 1 (node7)
-vnode1_box = mpatches.FancyBboxPatch((5.4, 2.0), 3.8, 2.5, boxstyle="round,pad=0.08",
-                                      facecolor=virtual_color, edgecolor="#28a745", linewidth=1.5)
-ax.add_patch(vnode1_box)
-ax.text(7.3, 4.2, "Virtual Node: node7", ha="center", va="center", 
-        fontsize=13, fontweight="bold", color="#28a745")
+    # Config info for node6
+    ax.text(3.6, 3.4, text["gres"], ha="center", va="center", fontsize=13, family="monospace")
+    ax.text(3.6, 3.0, text["arrow_gpu6"], ha="center", va="center", fontsize=13, fontweight="bold")
 
-# slurmd daemon for node7
-daemon1_box = mpatches.FancyBboxPatch((5.8, 2.8), 1.6, 1.0, boxstyle="round,pad=0.05",
-                                       facecolor=daemon_color, edgecolor="black", linewidth=1)
-ax.add_patch(daemon1_box)
-ax.text(6.6, 3.5, "slurmd", ha="center", va="center", fontsize=13, fontweight="bold", family="monospace")
-ax.text(6.6, 3.1, "Port: 17017", ha="center", va="center", fontsize=13)
+    # Arrow from node6 to GPU 6 (GPU 6 is at index 4: start_x + 4*gpu_spacing = 0.7 + 4*1.4 = 6.3)
+    ax.annotate("", xy=(6.75, 1.4), xytext=(3.0, 2.0),
+                arrowprops=dict(arrowstyle="->", color="#007bff", lw=1.5,
+                               connectionstyle="arc3,rad=-0.15"))
 
-# Config info for node7
-ax.text(8.2, 3.4, "Gres=gpu:1", ha="center", va="center", fontsize=13, family="monospace")
-ax.text(8.2, 3.0, "→ GPU 7", ha="center", va="center", fontsize=13, fontweight="bold")
+    # Virtual Node 1 (node7)
+    vnode1_box = mpatches.FancyBboxPatch((5.4, 2.0), 3.8, 2.5, boxstyle="round,pad=0.08",
+                                          facecolor=virtual_color, edgecolor="#28a745", linewidth=1.5)
+    ax.add_patch(vnode1_box)
+    ax.text(7.3, 4.2, text["vnode7"], ha="center", va="center", 
+            fontsize=13, fontweight="bold", color="#28a745")
 
-# Arrow from node7 to GPU 7 (GPU 7 is at index 5: start_x + 5*gpu_spacing = 0.7 + 5*1.4 = 7.7)
-ax.annotate("", xy=(8.15, 1.4), xytext=(7.6, 2.0),
-            arrowprops=dict(arrowstyle="->", color="#28a745", lw=1.5,
-                           connectionstyle="arc3,rad=-0.15"))
+    # slurmd daemon for node7
+    daemon1_box = mpatches.FancyBboxPatch((5.8, 2.8), 1.6, 1.0, boxstyle="round,pad=0.05",
+                                           facecolor=daemon_color, edgecolor="black", linewidth=1)
+    ax.add_patch(daemon1_box)
+    ax.text(6.6, 3.5, text["slurmd"], ha="center", va="center", fontsize=13, fontweight="bold", family="monospace")
+    ax.text(6.6, 3.1, text["port7"], ha="center", va="center", fontsize=13)
 
-# Legend/note at bottom
-ax.text(5.0, 0.15, "gres.conf mapping: NodeName=node6 → /dev/nvidia6, NodeName=node7 → /dev/nvidia7",
-        ha="center", va="center", fontsize=13, family="monospace", 
-        bbox=dict(boxstyle="round,pad=0.3", facecolor="#fff3cd", edgecolor="#ffc107"))
+    # Config info for node7
+    ax.text(8.2, 3.4, text["gres"], ha="center", va="center", fontsize=13, family="monospace")
+    ax.text(8.2, 3.0, text["arrow_gpu7"], ha="center", va="center", fontsize=13, fontweight="bold")
 
-plt.tight_layout()
-save_figure(__file__)
+    # Arrow from node7 to GPU 7 (GPU 7 is at index 5: start_x + 5*gpu_spacing = 0.7 + 5*1.4 = 7.7)
+    ax.annotate("", xy=(8.15, 1.4), xytext=(7.6, 2.0),
+                arrowprops=dict(arrowstyle="->", color="#28a745", lw=1.5,
+                               connectionstyle="arc3,rad=-0.15"))
+
+    # Legend/note at bottom
+    ax.text(5.0, 0.15, text["note"],
+            ha="center", va="center", fontsize=13, family="monospace", 
+            bbox=dict(boxstyle="round,pad=0.3", facecolor="#fff3cd", edgecolor="#ffc107"))
+
+    plt.tight_layout()
+    return fig
+
+
+if __name__ == '__main__':
+    localized_figure(draw, "virtual_node_setup", LABELS, __file__)

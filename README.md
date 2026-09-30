@@ -152,3 +152,19 @@ deepspeed --num_gpus=4 --deepspeed_config chapter5-beyond-state-sharding/code/de
 ## Notes about Stubs and Non-Runnable Snippets
 
 - Some files are intentionally minimal (stubs) to show the pattern in the book. Examples: `amp_ddp_example.py`, `fsdp_checkpointing.py`, and the scheduler script. If you want, I can convert any stub into a fully runnable example (generate synthetic data, full train loop, and tests).
+
+
+
+---
+
+
+
+目前这个repo是我自己的最原始的repo。
+
+distributed-ai-systems 是share给出版社和reviewer的。
+
+Distributed-AI-Systems 是share给读者的。
+
+Distributed-AI-Systems-pr1 是一个PR。
+
+

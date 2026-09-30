@@ -1,10 +1,26 @@
+import os
+import sys
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 
-from math4ai import save_figure
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'shared'))
+from figstyle import localized_figure
+
+LABELS = {
+    "en": {
+        "scheduler": "Scheduler",
+        "executor": "Executor",
+        "worker_labels": ['Worker 0\n(GPU 0)', 'Worker 1\n(GPU 1)', 'Worker N\n(GPU N)'],
+    },
+    "zh": {
+        "scheduler": "调度器 (Scheduler)",
+        "executor": "执行器 (Executor)",
+        "worker_labels": ['工作进程 0\n(GPU 0)', '工作进程 1\n(GPU 1)', '工作进程 N\n(GPU N)'],
+    }
+}
 
 
-def draw_vllm_architecture():
+def draw(text: dict) -> plt.Figure:
     fig, ax = plt.subplots(figsize=(10, 6))
     ax.set_xlim(0, 10)
     ax.set_ylim(0, 8)
@@ -28,7 +44,7 @@ def draw_vllm_architecture():
         linewidth=2, edgecolor='#1976d2', facecolor=scheduler_color
     )
     ax.add_patch(scheduler)
-    ax.text(center_x, scheduler_y + box_height / 2, 'Scheduler',
+    ax.text(center_x, scheduler_y + box_height / 2, text["scheduler"],
             ha='center', va='center', fontsize=14, fontweight='bold')
 
     # Executor box
@@ -39,14 +55,14 @@ def draw_vllm_architecture():
         linewidth=2, edgecolor='#f57c00', facecolor=executor_color
     )
     ax.add_patch(executor)
-    ax.text(center_x, executor_y + box_height / 2, 'Executor',
+    ax.text(center_x, executor_y + box_height / 2, text["executor"],
             ha='center', va='center', fontsize=14, fontweight='bold')
 
     # Worker boxes (3 workers)
     worker_y = 2.0
     worker_width = 2.0
     worker_positions = [2.0, 5.0, 8.0]
-    worker_labels = ['Worker 0\n(GPU 0)', 'Worker 1\n(GPU 1)', 'Worker N\n(GPU N)']
+    worker_labels = text["worker_labels"]
 
     for i, (wx, label) in enumerate(zip(worker_positions, worker_labels)):
         worker = patches.FancyBboxPatch(
@@ -75,9 +91,8 @@ def draw_vllm_architecture():
                                     connectionstyle='arc3,rad=0'))
 
     plt.tight_layout()
-    save_figure(__file__)
+    return fig
 
 
 if __name__ == '__main__':
-    draw_vllm_architecture()
-    print('Saved vllm_architecture.png')
+    localized_figure(draw, "vllm_architecture", LABELS, __file__, dpi=150, pad_inches=0.1)

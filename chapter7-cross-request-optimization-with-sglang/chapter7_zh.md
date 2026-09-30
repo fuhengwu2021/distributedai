@@ -43,13 +43,13 @@
 
 ### 前后端解耦的分层设计
 
-![SGLang 前后端解耦架构：从 API Server 到 GPU Worker 计算流](img/sglang_architecture.png){#fig:sglang-arch .block width=70% align=center}
+![SGLang 前后端解耦架构：从 API Server 到 GPU Worker 计算流](img/sglang_architecture_zh.png){#fig:sglang-arch .block width=70% align=center}
 
 如 @fig:sglang-arch 所示，SGLang 体系由清晰的两个主要层面构成：
 - **前端编程接口（Frontend Language）**：提供类似 Python 嵌入式 DSL 的声明式语法（支持 `@sgl.function`、`fork()`、`join()`、多轮状态分支控制）；
 - **后端高性能运行时（SGLang Runtime, SRT）**：由 Tokenizer、Request Queue、Radix 缓存感知调度器、Fused CUDA Kernel 以及 Detokenizer 组成的极速执行流水线。
 
-![vLLM 模型并行 vs SGLang 路由网关架构对比](img/vllm_vs_sglang.png){#fig:vllm-vs-sglang .block width=85% align=center}
+![vLLM 模型并行 vs SGLang 路由网关架构对比](img/vllm_vs_sglang_zh.png){#fig:vllm-vs-sglang .block width=85% align=center}
 
 如 @fig:vllm-vs-sglang 所示，在多 GPU 集群部署形态上：
 - **vLLM 模型并行模式（左）**：每张 GPU 持有模型切片，各层之间必须频繁执行 AllReduce 同步（适合超大参数量单模型）；
@@ -98,7 +98,7 @@ curl http://localhost:30000/v1/chat/completions \
 
 ### 共享前缀复用的系统价值
 
-![RadixAttention 跨请求公共前缀（System Prompt）零冗余共享机制](img/radix_tree.png){#fig:radix-tree .block width=85% align=center}
+![RadixAttention 跨请求公共前缀（System Prompt）零冗余共享机制](img/radix_tree_zh.png){#fig:radix-tree .block width=85% align=center}
 
 如 @fig:radix-tree 所示，当请求 1、2、3 到达时，它们均以相同的系统提示词（如 `"You are helpful. "`）开头：
 - 传统系统：对该前缀独立执行 3 次完整的 Prefill 矩阵乘法；
@@ -122,7 +122,7 @@ curl http://localhost:30000/v1/chat/completions \
 
 传统推理框架在单步执行中通常采用串行同步模型：CPU 收集请求组装 Batch $\rightarrow$ 提交 GPU 发射 Kernel 计算 $\rightarrow$ CPU 阻塞等待 GPU 返回结果 $\rightarrow$ 处理 Token 后再调度下一步。GPU 有近 30%–50% 的时间处于空转等待状态。
 
-![串行调度 vs SGLang 零开销重叠调度执行时序对比](img/scheduler_comparison.png){#fig:scheduler-comparison .block width=100% align=center}
+![串行调度 vs SGLang 零开销重叠调度执行时序对比](img/scheduler_comparison_zh.png){#fig:scheduler-comparison .block width=100% align=center}
 
 如 @fig:scheduler-comparison 所示，SGLang 提出了**双阶段流水线重叠机制**：
 - 在 GPU 正在满载执行当前 Batch $N$ 的矩阵计算时，CPU 异步并发准备 Batch $N+1$ 的前缀树匹配与显存分配，并异步解析上一步 Batch $N-1$ 的输出结果；
@@ -171,7 +171,7 @@ curl http://localhost:30000/v1/chat/completions \
 
 ### 动因：Prefill 与 Decode 的物理资源错配
 
-![Prefill 算力密集 vs Decode 显存带宽密集资源画像对比](img/pd_disaggregation.png){#fig:pd-disaggregation .block width=95% align=center}
+![Prefill 算力密集 vs Decode 显存带宽密集资源画像对比](img/pd_disaggregation_zh.png){#fig:pd-disaggregation .block width=95% align=center}
 
 如 @fig:pd-disaggregation 所示：
 - **Prefill 阶段**：算力利用率高达 85%，显存带宽利用率仅 40%（计算密集型，对 Tensor Core 算力饥渴）；
@@ -181,7 +181,7 @@ curl http://localhost:30000/v1/chat/completions \
 
 ### 基于 RDMA 的 PD 分离集群架构
 
-![SGLang PD 分离架构：Router 控制面调度与 Mooncake RDMA 数据直传](img/pd_architecture.png){#fig:pd-architecture .block width=100% align=center}
+![SGLang PD 分离架构：Router 控制面调度与 Mooncake RDMA 数据直传](img/pd_architecture_zh.png){#fig:pd-architecture .block width=100% align=center}
 
 如 @fig:pd-architecture 所示，SGLang 实现了完全物理隔离的 PD 分离：
 1. **控制面（Control Plane）**：客户端请求到达统一智能路由网关（Router），网关将请求派发给 **Prefill 算力 Worker**，同时指定承接生成的 **Decode 显存 Worker**；
@@ -192,7 +192,7 @@ curl http://localhost:30000/v1/chat/completions \
 
 ## SGLang Model Gateway（智能路由网关）
 
-![基于 Cache-Aware 智能路由的多节点高并发集群架构](img/router_multi_node.png){#fig:router-multi-node .block width=70% align=center}
+![基于 Cache-Aware 智能路由的多节点高并发集群架构](img/router_multi_node_zh.png){#fig:router-multi-node .block width=70% align=center}
 
 如 @fig:router-multi-node 所示，在多节点分布式集群部署中，SGLang 网关支持多种先进的流量路由策略：
 

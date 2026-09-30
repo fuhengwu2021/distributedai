@@ -1009,6 +1009,7 @@ import torch.distributed as dist
 def train_with_profiling(model, dataloader, optimizer, criterion, num_iterations=10):
     """Train with profiling to analyze DDP performance."""
     rank = dist.get_rank()
+    local_rank = int(os.environ.get("LOCAL_RANK", rank))
     # Create profiler
     with profile(
         activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
@@ -1020,8 +1021,8 @@ def train_with_profiling(model, dataloader, optimizer, criterion, num_iterations
             for i, (data, target) in enumerate(dataloader):
                 if i >= num_iterations:
                     break
-                data = data.cuda(rank, non_blocking=True)
-                target = target.cuda(rank, non_blocking=True)
+                data = data.cuda(local_rank, non_blocking=True)
+                target = target.cuda(local_rank, non_blocking=True)
                 # Forward pass
                 with record_function("forward_pass"):
                     output = model(data)

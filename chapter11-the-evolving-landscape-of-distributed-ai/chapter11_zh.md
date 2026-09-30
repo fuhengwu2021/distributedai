@@ -61,7 +61,7 @@
 
 ### 2. 端云协同推测解码（Edge-Cloud Speculative Decoding）
 
-![端云协同推测解码：端侧草稿模型快速生成候选，云端大模型单次前向批量核验](img/speculative_decoding.png){#fig:speculative-decoding .block width=100% align=center}
+![端云协同推测解码：端侧草稿模型快速生成候选，云端大模型单次前向批量核验](img/speculative_decoding_zh.png){#fig:speculative-decoding .block width=100% align=center}
 
 如 @fig:speculative-decoding 所示：
 1. **端侧快速生成**：手机本地的 1B 草稿模型以极高速度连续推测生成 5 个 Candidate Tokens（如黄圈所示）；
@@ -95,7 +95,7 @@
 
 当医疗病历、金融交易或各机构的核心数据因严格隐私法规（HIPAA, GDPR）而无法集中汇聚至单一数据中心时，**联邦学习（Federated Learning）**成为了打破数据孤岛的关键技术。
 
-![联邦学习架构：原始数据严格留存本地，仅在网络中聚合模型梯度与权重参数](img/federated_learning.png){#fig:federated-learning .block width=80% align=center}
+![联邦学习架构：原始数据严格留存本地，仅在网络中聚合模型梯度与权重参数](img/federated_learning_zh.png){#fig:federated-learning .block width=80% align=center}
 
 如 @fig:federated-learning 所示，中央聚合服务器仅负责下发全局模型并收集局部权重更新，各机构本地基于私有数据训练。通过结合 **FedProx**（应对数据 Non-IID 异构）、**差分隐私（Differential Privacy）**与 **安全多方聚合（Secure Aggregation）**，在数学上证明了无法从梯度中反推原始隐私数据。结合 LoRA 微调，使得联邦大模型指令微调（FedIT）在广域网上完全可行。
 
@@ -105,7 +105,7 @@
 
 大模型正从“单轮对话生成器”向“具备自主规划、工具调用与多步反思能力的分布式智能体”演化。
 
-![三大典型多智能体分布式协同编排拓扑](img/multi_agent_patterns.png){#fig:multi-agent-patterns .block width=95% align=center}
+![三大典型多智能体分布式协同编排拓扑](img/multi_agent_patterns_zh.png){#fig:multi-agent-patterns .block width=95% align=center}
 
 如 @fig:multi-agent-patterns 所示，多 Agent 系统的分布式编排范式包括：
 1. **流水线链式协同（Sequential Processing）**：信息抽取 $\rightarrow$ 深度逻辑推理 $\rightarrow$ 最终格式化生成，各阶段由专业 Agent 流水推进；

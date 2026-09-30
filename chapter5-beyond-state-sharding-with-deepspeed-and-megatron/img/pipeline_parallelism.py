@@ -2,8 +2,11 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import numpy as np
 import os
+import sys
 
-from math4ai import save_figure
+# Ensure shared directory is in sys.path
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'shared'))
+from figstyle import localized_figure
 
 # Colors
 COLORS = {
@@ -14,15 +17,36 @@ COLORS = {
     'border': '#424242',       # Dark gray
 }
 
-def draw_pipeline_naive(ax):
+LABELS = {
+    "en": {
+        "title_naive": "Naive Pipeline (Large Bubbles)",
+        "title_1f1b": "1F1B Pipeline (Micro-batches)",
+        "time": "Time",
+        "gpu": "GPU",
+        "yticklabels": ['GPU 3\n(L24-31)', 'GPU 2\n(L16-23)', 'GPU 1\n(L8-15)', 'GPU 0\n(L0-7)'],
+        "forward": "Forward",
+        "backward": "Backward",
+    },
+    "zh": {
+        "title_naive": "朴素流水线调度（大气泡 / Large Bubbles）",
+        "title_1f1b": "1F1B 流水线调度（微批次交错 / Micro-batches）",
+        "time": "时间 (Time)",
+        "gpu": "GPU 设备",
+        "yticklabels": ['GPU 3\n(L24-31)', 'GPU 2\n(L16-23)', 'GPU 1\n(L8-15)', 'GPU 0\n(L0-7)'],
+        "forward": "前向计算 (Forward)",
+        "backward": "反向计算 (Backward)",
+    },
+}
+
+def draw_pipeline_naive(ax, text):
     """Draw naive pipeline execution with large bubbles."""
     ax.set_xlim(0, 12)
     ax.set_ylim(-0.5, 4.5)
-    ax.set_title("Naive Pipeline (Large Bubbles)", fontsize=12, fontweight='bold', pad=10)
-    ax.set_xlabel("Time", fontsize=10)
-    ax.set_ylabel("GPU", fontsize=10)
+    ax.set_title(text["title_naive"], fontsize=12, fontweight='bold', pad=10)
+    ax.set_xlabel(text["time"], fontsize=10)
+    ax.set_ylabel(text["gpu"], fontsize=10)
     ax.set_yticks([0.5, 1.5, 2.5, 3.5])
-    ax.set_yticklabels(['GPU 3\n(L24-31)', 'GPU 2\n(L16-23)', 'GPU 1\n(L8-15)', 'GPU 0\n(L0-7)'])
+    ax.set_yticklabels(text["yticklabels"])
     ax.set_xticks([])
     
     # GPU backgrounds
@@ -73,15 +97,15 @@ def draw_pipeline_naive(ax):
     ax.text(11.75, 3.5, 'B', ha='center', va='center', fontsize=10, fontweight='bold', color='white')
 
 
-def draw_pipeline_1f1b(ax):
+def draw_pipeline_1f1b(ax, text):
     """Draw 1F1B pipeline schedule with micro-batches."""
     ax.set_xlim(0, 14)
     ax.set_ylim(-0.5, 4.5)
-    ax.set_title("1F1B Pipeline (Micro-batches)", fontsize=12, fontweight='bold', pad=10)
-    ax.set_xlabel("Time", fontsize=10)
-    ax.set_ylabel("GPU", fontsize=10)
+    ax.set_title(text["title_1f1b"], fontsize=12, fontweight='bold', pad=10)
+    ax.set_xlabel(text["time"], fontsize=10)
+    ax.set_ylabel(text["gpu"], fontsize=10)
     ax.set_yticks([0.5, 1.5, 2.5, 3.5])
-    ax.set_yticklabels(['GPU 3\n(L24-31)', 'GPU 2\n(L16-23)', 'GPU 1\n(L8-15)', 'GPU 0\n(L0-7)'])
+    ax.set_yticklabels(text["yticklabels"])
     ax.set_xticks([])
     
     # GPU backgrounds
@@ -140,21 +164,21 @@ def draw_pipeline_1f1b(ax):
     # Legend
     ax.add_patch(patches.FancyBboxPatch((11.5, 3.6), 0.4, 0.3, boxstyle="round,pad=0.02",
                                          facecolor=COLORS['forward'], edgecolor='white', linewidth=1))
-    ax.text(12.1, 3.75, 'Forward', ha='left', va='center', fontsize=8)
+    ax.text(12.1, 3.75, text["forward"], ha='left', va='center', fontsize=8)
     ax.add_patch(patches.FancyBboxPatch((11.5, 3.1), 0.4, 0.3, boxstyle="round,pad=0.02",
                                          facecolor=COLORS['backward'], edgecolor='white', linewidth=1))
-    ax.text(12.1, 3.25, 'Backward', ha='left', va='center', fontsize=8)
+    ax.text(12.1, 3.25, text["backward"], ha='left', va='center', fontsize=8)
 
 
-def main():
+def draw(text: dict) -> plt.Figure:
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 7))
     
-    draw_pipeline_naive(ax1)
-    draw_pipeline_1f1b(ax2)
+    draw_pipeline_naive(ax1, text)
+    draw_pipeline_1f1b(ax2, text)
     
     plt.tight_layout()
-    save_figure(__file__)
+    return fig
 
 
 if __name__ == "__main__":
-    main()
+    localized_figure(draw, "pipeline_parallelism", LABELS, __file__, dpi=150, pad_inches=0.10)

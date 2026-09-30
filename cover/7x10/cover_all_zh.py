@@ -29,6 +29,8 @@ def get_chinese_font():
     cjk_fonts = [
         'Noto Sans CJK SC',
         'Noto Serif CJK SC',
+        'Noto Sans CJK JP',
+        'Noto Serif CJK JP',
         'WenQuanYi Micro Hei',
         'WenQuanYi Zen Hei',
         'Droid Sans Fallback',
@@ -120,7 +122,7 @@ def create_spine_pdf_zh(spine_width_points, height_points, output_path):
     
     bottom_padding = 0.05 * height
     author_y = bottom_padding
-    ax.text(width / 2, author_y, "巫富珩 (Fuheng Wu) 著",
+    ax.text(width / 2, author_y, "玄心 著",
             ha='center', va='bottom', fontsize=author_font_size,
             fontname=zh_font, weight='bold', color='#1e293b', zorder=21,
             rotation=-90)

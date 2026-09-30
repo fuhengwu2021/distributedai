@@ -81,7 +81,11 @@ cover/*
 .build/*
 book*.pdf
 docs/*
-shared/*
-
 *pptx
+
+# Symlinks & logs
+Distributed-AI-Systems
+distributed-ai-systems
+*.log
+
 

@@ -33,7 +33,7 @@
 
 本章将首先系统剖析 DeepSpeed ZeRO 家族全貌（ZeRO-1/2/3、ZeRO-Offload、ZeRO-Infinity 与 ZeRO++），随后重点深入 Megatron 体系，全景呈现涵盖张量并行、流水线并行、序列/上下文并行、专家并行（MoE EP）以及 3D 混合并行的终极工业级架构。
 
-![ZeRO 阶段显存布局演进对比：DDP vs ZeRO-1/2/3](img/zero_stages_comparison.png){#fig:zero-stages .block width=100% align=center}
+![ZeRO 阶段显存布局演进对比：DDP vs ZeRO-1/2/3](img/zero_stages_comparison_zh.png){#fig:zero-stages .block width=100% align=center}
 
 如 @fig:zero-stages 所示，在 2 卡（R0–R1）环境下：
 - **传统 DDP**：每卡完整复制参数 P（蓝色）、梯度 G（红色）与优化器状态 O（绿色）；
@@ -140,7 +140,7 @@ ds_config = {
 
 ### ZeRO-Infinity：NVMe SSD 极大规模模型卸载
 
-![ZeRO-Infinity 异构三级存储金字塔：GPU HBM、CPU RAM 与 NVMe SSD](img/memory_hierarchy.png){#fig:memory-hierarchy .block width=80% align=center}
+![ZeRO-Infinity 异构三级存储金字塔：GPU HBM、CPU RAM 与 NVMe SSD](img/memory_hierarchy_zh.png){#fig:memory-hierarchy .block width=80% align=center}
 
 如 @fig:memory-hierarchy 所示，ZeRO-Infinity 将存储体系扩展为三级：
 - **GPU HBM**：仅存放当前正在计算的网络层参数与激活值（极速、最小）；
@@ -161,7 +161,7 @@ ZeRO-3 虽然消除了显存冗余，但在多节点（Multi-Node）训练中，
 2. **分层分片（hpZ, Hierarchical Partitioning）**：机内 GPU 通过极速 NVLink 共享完整参数副本，仅在跨机节点间切分参数，大幅减少跨节点低速网络的 All-Gather 流量；
 3. **量化梯度归约（qgZ, Quantized Gradients）**：在反向 Reduce-Scatter 过程中采用块级量化（Block-based INT8）传输梯度。
 
-![hpZ 分层分片拓扑通信流对比：ZeRO-3 vs ZeRO++ hpZ](img/hpz_hierarchical.png){#fig:hpz .block width=100% align=center}
+![hpZ 分层分片拓扑通信流对比：ZeRO-3 vs ZeRO++ hpZ](img/hpz_hierarchical_zh.png){#fig:hpz .block width=100% align=center}
 
 如 @fig:hpz 所示，ZeRO-3（左）每个 GPU 各持有一份独立切片，跨节点产生密集的全互联通信网；而 hpZ（右）在机内复制切片，跨机仅需在对应代表卡间进行单次轻量交换，大幅减轻了 InfiniBand/以太网负担。
 
@@ -194,7 +194,7 @@ Megatron-LM 的核心创新在于提出了**仅需极少通信开销的 Transfor
 - 各卡计算局部矩阵乘积：$Z_0 = Y_0 W'_0, Z_1 = Y_1 W'_1$；
 - **最终输出通过一次 `AllReduce(SUM)` 集合通信累加各卡局部结果**：$Z = Z_0 + Z_1 = XW W'$。
 
-![Megatron 张量并行：列并行与行并行配对（仅需一次 AllReduce 同步）](img/tensor_parallelism.png){#fig:tensor-parallel .block width=90% align=center}
+![Megatron 张量并行：列并行与行并行配对（仅需一次 AllReduce 同步）](img/tensor_parallelism_zh.png){#fig:tensor-parallel .block width=90% align=center}
 
 如 @fig:tensor-parallel 所示，通过将“列并行（MLP-1 / QKV 投影）”与“行并行（MLP-2 / 注意力输出投影）”完美配对，**一个完整的 MLP 块或 Multi-Head Attention 块在整个前向传播中仅需执行一次 AllReduce 集合通信**！
 
@@ -213,7 +213,7 @@ Megatron-LM 的核心创新在于提出了**仅需极少通信开销的 Transfor
 
 传统朴素流水线（如 GPipe）会产生巨大的“流水线气泡（Pipeline Bubble）”。Megatron 引入了高效的 **1F1B 调度算法**：
 
-![流水线并行：朴素调度 vs 1F1B 交错调度对比](img/pipeline_parallelism.png){#fig:pipeline-parallelism .block width=100% align=center}
+![流水线并行：朴素调度 vs 1F1B 交错调度对比](img/pipeline_parallelism_zh.png){#fig:pipeline-parallelism .block width=100% align=center}
 
 如 @fig:pipeline-parallelism 所示：
 - 将全局 Batch 拆分为大量细粒度的 **Micro-batches**；
@@ -232,7 +232,7 @@ Megatron-LM 的核心创新在于提出了**仅需极少通信开销的 Transfor
 [^seqpar]: Korthikanti et al., "Reducing Activation Recomputation in Large Transformer Models," MLSys 2023. https://arxiv.org/abs/2205.05198
 [^ringatt]: Liu et al., "Ring Attention with Blockwise Transformers for Near-Infinite Context," ICLR 2024. https://arxiv.org/abs/2310.01889
 
-![序列并行（SP）与上下文并行（Ring Attention）架构示意图](img/sequence_context_parallelism.png){#fig:seq-ctx-parallel .block width=100% align=center}
+![序列并行（SP）与上下文并行（Ring Attention）架构示意图](img/sequence_context_parallelism_zh.png){#fig:seq-ctx-parallel .block width=100% align=center}
 
 如 @fig:seq-ctx-parallel 所示，序列并行（左）按 Token 序列切分 LayerNorm；上下文并行（右）通过环形队列循环传递 K/V 块完成全局注意力计算。
 
@@ -242,7 +242,7 @@ Megatron-LM 的核心创新在于提出了**仅需极少通信开销的 Transfor
 
 [^ulysses]: Jacobs et al., "DeepSpeed Ulysses: System Optimizations for Enabling Training of Extreme Long Sequence Transformer Models," arXiv 2023. https://arxiv.org/abs/2309.14509
 
-![DeepSpeed-Ulysses：通过 All-to-All 实现 2D 维度转置](img/ulysses.png){#fig:ulysses .block width=85% align=center}
+![DeepSpeed-Ulysses：通过 All-to-All 实现 2D 维度转置](img/ulysses_zh.png){#fig:ulysses .block width=85% align=center}
 
 ---
 
@@ -250,7 +250,7 @@ Megatron-LM 的核心创新在于提出了**仅需极少通信开销的 Transfor
 
 针对 Mixtral 8x7B、DeepSeek-V3 等混合专家模型（MoE），**专家并行（EP）** 将稀疏门控网络中的各 Expert 实体分散部署在集群的不同 GPU 上。
 
-![专家并行（Expert Parallelism）：基于门控路由与 All-to-All 的 Token 动态分发](img/expert_parallelism.png){#fig:expert-parallelism .block width=90% align=center}
+![专家并行（Expert Parallelism）：基于门控路由与 All-to-All 的 Token 动态分发](img/expert_parallelism_zh.png){#fig:expert-parallelism .block width=90% align=center}
 
 如 @fig:expert-parallelism 所示：
 1. Router 门控网络计算各 Token 的专家匹配概率；
@@ -278,7 +278,7 @@ Megatron-LM 的核心创新在于提出了**仅需极少通信开销的 Transfor
 
 ## 并行策略决策树与全景选型指南
 
-![大规模分布式并行策略选型决策树](img/parallelism_decision_tree.png){#fig:parallelism-decision-tree .block width=80% align=center}
+![大规模分布式并行策略选型决策树](img/parallelism_decision_tree_zh.png){#fig:parallelism-decision-tree .block width=80% align=center}
 
 对照 @fig:parallelism-decision-tree，选型核心原则如下：
 

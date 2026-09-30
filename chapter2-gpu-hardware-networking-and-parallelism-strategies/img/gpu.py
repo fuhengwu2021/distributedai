@@ -1,12 +1,22 @@
-import matplotlib.pyplot as plt
-import matplotlib.patches as patches
 import os
 import sys
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'shared'))
-from math4ai import save_figure
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'shared'))
+from figstyle import localized_figure
 
-def draw_gpu_shape(ax, center_x=0, center_y=0, scale=1.0, linewidth=None, show_text=True, text_fontsize=None):
+LABELS = {
+    "en": {
+        "gpu": "GPU",
+    },
+    "zh": {
+        "gpu": "GPU",
+    }
+}
+
+
+def draw_gpu_shape(ax, center_x=0, center_y=0, scale=1.0, linewidth=None, show_text=True, text_fontsize=None, text_label="GPU"):
     """
     Draw a GPU icon shape on an existing axis.
     
@@ -24,6 +34,8 @@ def draw_gpu_shape(ax, center_x=0, center_y=0, scale=1.0, linewidth=None, show_t
         Whether to show "GPU" text in the center (default: True)
     text_fontsize : float or None
         Font size for the text (default: None, uses 30*scale for smaller text)
+    text_label : str
+        Text label in the center (default: "GPU")
     """
     # Define colors
     icon_color = '#1E64AC'  # Professional blue
@@ -70,15 +82,15 @@ def draw_gpu_shape(ax, center_x=0, center_y=0, scale=1.0, linewidth=None, show_t
     # 3. Add "GPU" Text (if requested)
     if show_text:
         if text_fontsize is None:
-            fontsize = 30 * scale  # Smaller font size (was 60)
+            fontsize = 30 * scale
         else:
             fontsize = text_fontsize
-        ax.text(center_x, center_y, 'GPU', fontsize=fontsize, fontweight='bold', 
+        ax.text(center_x, center_y, text_label, fontsize=fontsize, fontweight='bold', 
                 color=icon_color, ha='center', va='center', fontfamily='sans-serif')
 
-def draw_gpu_icon():
-    """Draw GPU icon and save (for standalone generation)."""
-    # Set up the figure and axis
+
+def draw(text: dict) -> plt.Figure:
+    """Draw GPU icon."""
     fig, ax = plt.subplots(figsize=(5, 5))
     ax.set_aspect('equal')
     ax.axis('off')
@@ -89,14 +101,14 @@ def draw_gpu_icon():
     ax.set_facecolor(bg_color)
 
     # Draw GPU shape
-    draw_gpu_shape(ax, center_x=0, center_y=0, scale=1.0, show_text=True)
+    draw_gpu_shape(ax, center_x=0, center_y=0, scale=1.0, show_text=True, text_label=text["gpu"])
 
-    # Set plot limits and save
+    # Set plot limits
     limit = 0.55
     ax.set_xlim(-limit, limit)
     ax.set_ylim(-limit, limit)
-    save_figure(__file__)
+    return fig
 
 
 if __name__ == '__main__':
-    draw_gpu_icon()
+    localized_figure(draw, "gpu", LABELS, __file__)

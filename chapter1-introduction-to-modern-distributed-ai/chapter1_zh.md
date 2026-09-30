@@ -27,7 +27,7 @@
 
 ## 为什么现代 AI 必须走向分布式
 
-![模型参数量随年份增长趋势图](img/model_comparison_table.png){#fig:model-comparison .block width=100%}
+![模型参数量随年份增长趋势图](img/model_comparison_table_zh.png){#fig:model-comparison .block width=100%}
 
 几年前，绝大多数模型都可以在单张 GPU 上完成训练。例如在 ImageNet 上训练 ResNet-50 只需要几天时间。而今天，在单张 GPU 上训练一个 70B 参数的语言模型可能需要数月，甚至根本无法载入显存。模型规模与数据集容量的双重爆发，让单 GPU 训练彻底失去了现实可行性。
 
@@ -81,7 +81,7 @@ Table: 典型大型 AI 模型参数量对比 {#tbl:model-comparison}
 
 这种矛盾显而易见：模型规模与算力需求正在呈**指数级**暴增，而单卡显存与算力至多只能实现**线性**增长。
 
-![增长脱节：模型指数级膨胀 vs GPU 算力线性增长](img/growth_mismatch.png)
+![增长脱节：模型指数级膨胀 vs GPU 算力线性增长](img/growth_mismatch_zh.png)
 
 ### 模型资源需求估算
 
@@ -183,7 +183,7 @@ __激活值输出（Activation Output）__
 
 以包含 Linear → Sigmoid → Linear 的三层简单神经网络 `SimpleDNN` 为例：
 
-![](img/simplednn.png)
+![](img/simplednn_zh.png)
 
 数据流向为 $x \rightarrow z \rightarrow h \rightarrow \hat{y}$。输入 $x$ 经过第一个线性层生成 $z$，经 Sigmoid 激活层映射为 $h$，最后由第二个线性层输出预测值 $\hat{y}$。在 PyTorch 中的实现代码如下：
 
@@ -340,7 +340,7 @@ for epoch in range(num_epochs):
 - **步骤 4（反向传播）**：`loss.backward()` 计算所有参数的梯度 $g_t = \nabla_w L(w_t)$。这需要消耗步骤 2 缓存的激活值。此时显存包含：$w_t$、激活值（仍在被使用）、生成的梯度 $g_t$ 以及优化器状态。
 - **步骤 5（优化器更新）**：`optimizer.step()` 利用梯度 $g_t$ 和优化器状态将参数从 $w_t$ 更新至 $w_{t+1}$。更新完成后，优化器状态被刷新（$m_t, v_t$），激活值可彻底释放。
 
-![训练显存时序变化图](img/training_memory_timeline.png){.wrap #fig:training-memory-timeline width=60% align=top-right}
+![训练显存时序变化图](img/training_memory_timeline_zh.png){.wrap #fig:training-memory-timeline width=60% align=top-right}
 
 如 @fig:training-memory-timeline 所示，该时序图展示了一个 7B 模型在全 BF16 精度（权重、梯度、Adam 优化器状态 $m, v$ 均为每参数 2 字节）下的显存动态变化。这是一个极佳的教学基准示例。而在工业界很多实际生产场景中，往往采用**混合精度训练**：前向与反向采用 BF16（通过 `torch.autocast`），但优化器状态（甚至包括主权重副本 Master Weights）保留为 FP32。这会使得优化器显存从 28 GB 攀升至 56 GB（4 字节 × 2 个状态 × 7B 参数）。
 
@@ -402,7 +402,7 @@ __显存开销小结：__
 
 构建 AI 系统不是一蹴而就的单向流程，而是一个周而复始的闭环体系：收集数据、训练模型、优化部署、监控线上表现、反哺数据与架构改进。
 
-![现代 AI 模型全生命周期图](img/mdlc.png){#fig:lifecycle .block width=75% align=top-right}
+![现代 AI 模型全生命周期图](img/model_lifecycle_zh.png){#fig:lifecycle .block width=75% align=top-right}
 
 如 @fig:lifecycle 所示，生命周期始于**数据工程**（海量数据的收集、清洗、校验与预处理）。随后进入**模型训练**（前向计算、反向求导、梯度下降、超参调优与指令微调）。训练完成后进入**推理优化**（量化、ONNX 转换、算子融合、CUDA Kernel 优化）。在部署前需进行全面的**性能评测与基准测试**（精度评估、耗时 Profiling、瓶颈分析与压力测试）。最后在生产环境实现**高可用服务部署**（弹性伸缩、调度编排、负载均衡、API 网关与全链路可观测性）。生产环境收集的反馈数据再次指导新一轮的数据工程与模型迭代。
 
@@ -455,7 +455,7 @@ Serving 是向外部提供高可用、可扩展的模型访问能力。它不仅
 
 在**推理与服务**场景下，逻辑类似：若模型超出单卡显存，使用模型并行（如 70B 模型 BF16 需 140 GB 权重加 20–40 GB KV 缓存，至少需要 2 张 A100/H100）。若显存充足但需要支撑极高吞吐（每秒数千请求），则通过多 GPU 部署多个推理副本或使用张量并行降低延迟。当显存与吞吐都在单卡能力范围内时，保持单卡运行并配合 vLLM 或 SGLang 等高性能引擎即可达到最优效率。
 
-![决策框架：何时需要分布式系统？](img/decision_tree.png){#fig:decision-framework .block width=100%}
+![决策框架：何时需要分布式系统？](img/decision_tree_zh.png){#fig:decision-framework .block width=100%}
 
 >NOTES: **容量门槛与延迟优化（Capacity Gate vs. Latency Optimization）**
 
@@ -569,7 +569,7 @@ bash code/launch_torchrun.sh
 | 6    | 2.92s         | 3.01×   |
 | 8    | 2.44s         | 3.60×   |
 
-![FashionMNIST 扩展性性能表现](img/fashionmnist_scaling_performance.png){.block width=70%}
+![FashionMNIST 扩展性性能表现](img/plot_fashion_scaling_zh.png){.block width=70%}
 
 训练时间从单卡的 8.78 秒大幅下降至 8 卡的 2.44 秒，实现 **3.6× 加速**。对于更大负载的任务，分布式加速效果将更为显著。
 
@@ -602,7 +602,7 @@ torchrun --nproc_per_node=8 code/multi_gpu_ddp_extended.py --epochs 20
 | 6    | 21.24s (0.35 分钟) | 3.44×   |
 | 8    | 18.20s (0.30 分钟) | 4.01×   |
 
-![CIFAR-10 扩展性性能表现](img/cifar10_scaling_performance.png){.block width=70%}
+![CIFAR-10 扩展性性能表现](img/plot_cifar10_scaling_zh.png){.block width=70%}
 
 训练时间从 73 秒缩减至 8 卡的 18.2 秒，实现 **4.01× 加速比**。由于每个 Step 的实际计算量增大，梯度同步通信开销占总时间的比例相对变小，使得每张 GPU 拥有更充足的计算时间来掩盖通信延迟，从而获得了更高的并行效率。
 
@@ -665,7 +665,7 @@ torchrun --nproc_per_node=2 code/multi_gpu_inference_queue.py \
 
 虽然此技术栈适用于所有分布式框架（PyTorch、JAX、TensorFlow 等），但本书以工业界主流的 PyTorch 为核心展开。
 
-![分布式 AI 技术栈：从顶层框架到底层物理硬件](img/distai-stack.png){.wrap width=40% align=top-right}
+![分布式 AI 技术栈：从顶层框架到底层物理硬件](img/distai-stack_zh.png){.wrap width=40% align=top-right}
 
 1. **框架层（Framework Layer）**：开发者直接编写业务代码的层次，包括 PyTorch 的 `torch.distributed` 模块、`DDP`、`FSDP` 等。当你定义模型并调用 `loss.backward()` 时，框架层负责梯度求导并编排通信触发时机。开发者无需直接操作底层网络数据包。
 2. **张量分桶层（Tensor Bucketing Layer）**：PyTorch 在底层会将分散的微小梯度张量打包合并为固定大小的“桶”（Bucket）。若逐一发送成千上万个微小的梯度张量，网络调用开销将不可承受；分桶机制大幅减少了通信次数。分桶由框架自动管理，理解它可以帮助我们精准排查通信效率低下的根因。
@@ -728,7 +728,7 @@ OMP_NUM_THREADS=4 torchrun --nproc_per_node=2 code/distributed_basic_test.py
 
 #### 1. AllReduce
 
-![AllReduce 操作：跨所有 Rank 归约并在全卡保存结果](img/all_reduce.png){#fig:allreduce}
+![AllReduce 操作：跨所有 Rank 归约并在全卡保存结果](img/all_reduce_zh.png){#fig:allreduce}
 
 如 @fig:allreduce 所示，AllReduce 是分布式训练中使用最广泛的原语。它对所有 Rank 的张量执行归约操作（求和、最大值、最小值等），并将最终结果同步写入每一个 Rank 的显存缓冲区。
 
@@ -754,7 +754,7 @@ OMP_NUM_THREADS=1 torchrun --nproc_per_node=2 code/collective-operation/demo_all
 
 #### 2. AllGather {#sec:allgather}
 
-![AllGather 操作：从所有 Rank 收集数据并拼接至全卡](img/all_gather.png){#fig:allgather}
+![AllGather 操作：从所有 Rank 收集数据并拼接至全卡](img/all_gather_zh.png){#fig:allgather}
 
 如 @fig:allgather 所示，AllGather 从所有 Rank 收集数据切片，并将拼接后的完整数据广播给每一个 Rank。若每个 Rank 提供 $N$ 个元素，操作结束后每个 Rank 均获得按 Rank 顺序排列的 $\text{world\_size} \times N$ 个元素。
 
@@ -781,7 +781,7 @@ ReduceScatter 紧接 AllGather 在数学与数据流上完全等价于一次 All
 
 #### 3. Broadcast
 
-![Broadcast 操作：将根节点数据广播给所有 Rank](img/broadcast.png){#fig:broadcast}
+![Broadcast 操作：将根节点数据广播给所有 Rank](img/broadcast_zh.png){#fig:broadcast}
 
 如 @fig:broadcast 所示，Broadcast 将数据从指定的根节点（Root Rank）原样复制分发给所有其他 Rank。
 
@@ -806,7 +806,7 @@ OMP_NUM_THREADS=1 torchrun --nproc_per_node=2 code/collective-operation/demo_bro
 
 #### 4. Reduce
 
-![Reduce 操作：仅将归约结果汇聚至指定根节点](img/reduce.png){#fig:reduce}
+![Reduce 操作：仅将归约结果汇聚至指定根节点](img/reduce_zh.png){#fig:reduce}
 
 如 @fig:reduce 所示，Reduce 执行与 AllReduce 完全相同的数学归约，但最终结果仅保存在指定的根节点（Root Rank）上，其他 Rank 的数据保持不变。
 
@@ -827,7 +827,7 @@ OMP_NUM_THREADS=1 torchrun --nproc_per_node=2 code/collective-operation/demo_red
 
 #### 5. Gather
 
-![Gather 操作：将所有 Rank 的数据收集至根节点](img/gather.png){#fig:gather}
+![Gather 操作：将所有 Rank 的数据收集至根节点](img/gather_zh.png){#fig:gather}
 
 如 @fig:gather 所示，Gather 从所有 Rank 收集数据并按 Rank 顺序拼接至根节点。非根节点无需接收数据。
 
@@ -851,7 +851,7 @@ OMP_NUM_THREADS=1 torchrun --nproc_per_node=2 code/collective-operation/demo_gat
 
 #### 6. Scatter
 
-![Scatter 操作：将根节点的不同数据分块分发给各 Rank](img/scatter.png){#fig:scatter}
+![Scatter 操作：将根节点的不同数据分块分发给各 Rank](img/scatter_zh.png){#fig:scatter}
 
 如 @fig:scatter 所示，Scatter 是 Gather 的逆过程。根节点将一个大张量列表按索引分别分发给各个 Rank（Rank $i$ 接收第 $i$ 块）。
 
@@ -877,7 +877,7 @@ OMP_NUM_THREADS=1 torchrun --nproc_per_node=2 code/collective-operation/demo_sca
 
 #### 7. ReduceScatter {#sec:reducescatter}
 
-![ReduceScatter 操作：先跨卡归约，再将归约结果分块分散给各卡](img/reduce_scatter.png){#fig:reducescatter}
+![ReduceScatter 操作：先跨卡归约，再将归约结果分块分散给各卡](img/reduce_scatter_zh.png){#fig:reducescatter}
 
 如 @fig:reducescatter 所示，ReduceScatter 将 Reduce 和 Scatter 合二为一：跨所有卡执行归约计算，但只把归约结果的第 $i$ 个切片分发给 Rank $i$。
 
@@ -898,7 +898,7 @@ OMP_NUM_THREADS=1 torchrun --nproc_per_node=2 code/collective-operation/demo_red
 
 #### 8. AlltoAll
 
-![AlltoAll 操作：全互联多对多通信](img/all2all.png){#fig:alltoall}
+![AlltoAll 操作：全互联多对多通信](img/all2all_zh.png){#fig:alltoall}
 
 如 @fig:alltoall 所示，AlltoAll 是最通用、最灵活的集合通信原语。每个 Rank 向其他每一个 Rank 发送独立定制的数据块，同时也从所有其他 Rank 接收数据块。
 

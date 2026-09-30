@@ -5,14 +5,29 @@ Illustrates the pipeline bubble problem in pipeline parallelism.
 GPUs sit idle waiting for data from previous stages, creating bubbles.
 """
 
+import os
+import sys
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
-import os
 
-from math4ai import save_figure
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'shared'))
+from figstyle import localized_figure
+
+LABELS = {
+    "en": {
+        "gpus": ['GPU 0', 'GPU 1', 'GPU 2'],
+        "batches": ['B1', 'B2', 'B3'],
+        "idle": "idle",
+    },
+    "zh": {
+        "gpus": ['GPU 0', 'GPU 1', 'GPU 2'],
+        "batches": ['B1', 'B2', 'B3'],
+        "idle": "空闲 (Idle)",
+    }
+}
 
 
-def draw_pipeline_bubble():
+def draw(text: dict) -> plt.Figure:
     fig, ax = plt.subplots(figsize=(12, 4))
     
     # Colors for batches
@@ -25,14 +40,10 @@ def draw_pipeline_bubble():
     time_gap = 0.8  # Gap between stages in time
     
     # GPU labels
-    gpus = ['GPU 0', 'GPU 1', 'GPU 2']
-    batches = ['B1', 'B2', 'B3']
+    gpus = text["gpus"]
+    batches = text["batches"]
     
     # Calculate positions for each batch on each GPU
-    # B1: GPU0 at t=0, GPU1 at t=1, GPU2 at t=2
-    # B2: GPU0 at t=2, GPU1 at t=3, GPU2 at t=4
-    # B3: GPU0 at t=4, GPU1 at t=5, GPU2 at t=6
-    
     batch_positions = [
         # B1 positions (gpu_idx, time_slot)
         [(0, 0), (1, 1), (2, 2)],
@@ -73,7 +84,7 @@ def draw_pipeline_bubble():
     arrow_y = gpu2_y + block_height/2
     ax.annotate('', xy=(idle_end - 0.1, arrow_y), xytext=(idle_start + 0.1, arrow_y),
                 arrowprops=dict(arrowstyle='<->', color='#D32F2F', lw=2))
-    ax.text((idle_start + idle_end)/2, arrow_y - 0.4, 'idle',
+    ax.text((idle_start + idle_end)/2, arrow_y - 0.4, text["idle"],
             ha='center', va='top', fontsize=11, color='#D32F2F', style='italic')
     
     # Set axis properties
@@ -83,8 +94,8 @@ def draw_pipeline_bubble():
     ax.axis('off')
     
     plt.tight_layout(pad=0.1)
-    save_figure(__file__)
+    return fig
 
 
 if __name__ == '__main__':
-    draw_pipeline_bubble()
+    localized_figure(draw, "pipeline_bubble", LABELS, __file__, pad_inches=0)

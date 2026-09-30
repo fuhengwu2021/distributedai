@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Visualize the comparison of large AI models using matplotlib.
 This script creates a scatter plot with Year on X-axis and Parameters on Y-axis,
@@ -11,8 +12,9 @@ import re
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'shared'))
-from math4ai import save_figure
+# Ensure shared directory is in sys.path
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'shared'))
+from figstyle import localized_figure
 
 # Table data: [Model Name, Parameters, Company, Year]
 data = [
@@ -36,7 +38,6 @@ data = [
     ['Grok V9 Medium', '1.5T', 'xAI', 2026, '2026'],
 ]
 
-# Short offsets (dx, dy) in points — labels hug the dot
 CLUSTER_OFFSETS = [
     (6, 2, 'left', 'bottom'),
     (-6, 2, 'right', 'bottom'),
@@ -53,13 +54,19 @@ RIGHT_ONLY_OFFSETS = [
     (8, -4, 'left', 'top'),
 ]
 
+LABELS = {
+    "en": {
+        "x_label": "Year",
+        "y_label": "Parameters (log scale)",
+    },
+    "zh": {
+        "x_label": "年份",
+        "y_label": "模型参数量（对数尺度）",
+    }
+}
+
 
 def parse_parameters(param_str):
-    """
-    Parse parameter string to numeric value.
-    Handles formats like: '22B', '1.6T', '~1.7T', '>1T', '~2–5T', 'undisclosed'
-    Returns None if cannot parse.
-    """
     range_match = re.search(r'~?(\d+\.?\d*)\s*[–-]\s*(\d+\.?\d*)\s*T', param_str, re.IGNORECASE)
     if range_match:
         low = float(range_match.group(1))
@@ -77,7 +84,6 @@ def parse_parameters(param_str):
 
 
 def build_label(name, param_label):
-    """Build display label for a model point."""
     display_name = name.rstrip('*')
     param_in_name = re.search(r'\d+\.?\d*\s*[BMKT]', display_name, re.IGNORECASE) is not None
     if param_in_name:
@@ -86,7 +92,6 @@ def build_label(name, param_label):
 
 
 def format_parameter_label(param_value):
-    """Format parameter value as a string label (e.g., 30e9 -> '30B', 1.6e12 -> '1.6T')."""
     if param_value >= 1e12:
         return f'{param_value/1e12:.1f}T'.rstrip('0').rstrip('.')
     elif param_value >= 1e9:
@@ -98,7 +103,6 @@ def format_parameter_label(param_value):
 
 
 def spread_years(years, parameters):
-    """Spread points within the same year so nearby labels do not stack."""
     by_year = defaultdict(list)
     for i, year in enumerate(years):
         by_year[int(year)].append(i)
@@ -116,13 +120,11 @@ def spread_years(years, parameters):
 
 
 def label_offset_for_index(rank, n, prefer_right=True):
-    """Pick a short offset; alternate sides within a crowded year."""
     pool = RIGHT_ONLY_OFFSETS if prefer_right else CLUSTER_OFFSETS
     return pool[rank % len(pool)]
 
 
-def create_model_comparison_plot():
-    """Create a scatter plot with Year on X-axis and Parameters on Y-axis."""
+def draw(text: dict) -> plt.Figure:
     fig, ax = plt.subplots(figsize=(10, 8))
 
     years = []
@@ -133,8 +135,6 @@ def create_model_comparison_plot():
     for row in data:
         model_name, param_str = row[0], row[1]
         year_decimal = row[3]
-        #if param_str.strip().startswith('~'):
-        #    continue
         param_value = parse_parameters(param_str)
         if param_value is not None:
             years.append(year_decimal)
@@ -180,8 +180,8 @@ def create_model_comparison_plot():
                 zorder=4,
             )
 
-    ax.set_xlabel('Year', fontsize=12, fontweight='bold')
-    ax.set_ylabel('Parameters (log scale)', fontsize=12, fontweight='bold')
+    ax.set_xlabel(text["x_label"], fontsize=12, fontweight='bold')
+    ax.set_ylabel(text["y_label"], fontsize=12, fontweight='bold')
 
     def format_y_axis(value, pos):
         if value >= 1e12:
@@ -196,8 +196,8 @@ def create_model_comparison_plot():
     ax.grid(True, alpha=0.3, linestyle='--', which='both')
 
     plt.tight_layout()
-    save_figure(__file__)
+    return fig
 
 
 if __name__ == '__main__':
-    create_model_comparison_plot()
+    localized_figure(draw, "model_comparison_table", LABELS, __file__)

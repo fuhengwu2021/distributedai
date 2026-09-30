@@ -25,7 +25,7 @@
 
 DDP 的核心设计理念极其优雅：**在每张 GPU 上各复制一份完整的模型副本，将训练数据分片切分给各卡独立计算；在每次反向传播结束时，通过高效的底层集合通信跨卡同步平均梯度，从而驱动所有副本同步更新参数**。这种模式确保了所有 GPU 上的模型状态严格保持一致，同时算力吞吐随卡数增加实现近乎线性的扩展。
 
-![DDP 完整训练工作流架构图](img/ddp_workflow.png){#fig:ddp-workflow .block width=100% align=top-center}
+![DDP 完整训练工作流架构图](img/ddp_workflow_zh.png){#fig:ddp-workflow .block width=100% align=top-center}
 
 @fig:ddp-workflow 清晰展示了 DDP 的完整工作闭环：数据从 DataLoader 通过 `DistributedSampler` 分流给每张 GPU 独立的前向与反向传播计算；在反向传播过程中，DDP 自动捕获各层参数梯度，利用底层硬件通信原语（如 AllReduce）执行跨卡梯度聚合，最终所有 GPU 使用完全一致的平均梯度更新参数权重。
 
@@ -65,7 +65,7 @@ DP 基于**单进程多线程（Single-Process Multi-Thread）**架构，其致�
 
 为了彻底消除细碎通信的开销，DDP 引入了**梯度分桶（Gradient Bucketing）**机制：DDP 按照模型参数在反向传播中被求导的逆序，将多个相邻的小梯度张量打包归拢到一个连续的内存缓冲区（Bucket，默认大小为 **25 MB**）中。当一个分桶内的所有梯度计算就绪后，DDP 仅触发**一次大张量 AllReduce**。
 
-![梯度分桶机制：按参数逆序组织分桶](img/gradient_bucketing.png){#fig:gradient-bucketing .block width=85% align=center}
+![梯度分桶机制：按参数逆序组织分桶](img/gradient_bucketing_zh.png){#fig:gradient-bucketing .block width=85% align=center}
 
 如 @fig:gradient-bucketing 所示，分桶大小存在一个经典的系统权衡（Trade-off）：
 - **分桶过大**：通信调用次数少，但必须等待桶内所有参数全部算完才能启动通信，导致通信与计算的重叠时间窗口被大幅压缩；
@@ -77,7 +77,7 @@ DP 基于**单进程多线程（Single-Process Multi-Thread）**架构，其致�
 
 DDP 获得极高线性扩展效率的核心杀手锏在于**将梯度 AllReduce 通信完美隐藏在反向传播计算之后**。
 
-![反向传播计算与 AllReduce 异步通信重叠示意图](img/communication_computation_overlap.png){#fig:comm-compute-overlap .block width=85% align=center}
+![反向传播计算与 AllReduce 异步通信重叠示意图](img/communication_computation_overlap_zh.png){#fig:comm-compute-overlap .block width=85% align=center}
 
 如 @fig:comm-compute-overlap 所示，DDP 通过以下底层机制实现重叠：
 1. **Autograd Hook 捕获**：DDP 在模型的所有可训练参数上注册底层 Hook 回调函数。当反向传播计算出某个参数的梯度时，Hook 立即将其标记为就绪；
@@ -90,7 +90,7 @@ DDP 获得极高线性扩展效率的核心杀手锏在于**将梯度 AllReduce 
 
 如第~\ref{chap:introduction-to-modern-distributed-ai} 章所述，AllReduce 是实现去中心化梯度同步的核心原语。在现代 GPU 集群中，NCCL 会根据网络拓扑自动在 **Ring AllReduce** 与 **Tree AllReduce** 之间进行智能选择。
 
-![Ring AllReduce 环形拓扑数据流向示意图（4 个 Rank）](img/ring_allreduce.png){#fig:ring-allreduce .block width=50% align=right-top}
+![Ring AllReduce 环形拓扑数据流向示意图（4 个 Rank）](img/ring_allreduce_zh.png){#fig:ring-allreduce .block width=50% align=right-top}
 
 如 @fig:ring-allreduce 所示，在经典的 **Ring AllReduce** 算法中，所有参与通信的 Rank 逻辑上组成一个闭合单向环：
 1. **Reduce-Scatter 阶段**：每个 Rank 将自身数据切分为 $N$ 块，顺时针向相邻下一个 Rank 传递并累加。经过 $N-1$ 步后，每个 Rank 各自持有一个切片的全局累加和；
@@ -102,7 +102,7 @@ Ring AllReduce 具有**网络带宽最优（Bandwidth-Optimal）**的数学特�
 
 在 **FP16** 混合精度训练中，由于 FP16 的动态范围较小（指数位仅 5 bit），细微的梯度值极易发生下溢（Underflow）归零。标准解决方案是引入 **`GradScaler`（梯度缩放器）**：在前向传播计算出 Loss 后，首先乘以一个较大的放大因子（Scale Factor），使反向传播计算出的梯度脱离下溢危险区；在优化器更新前，再将梯度除以该因子还原。而在采用 **BF16** 时，由于其具备与 FP32 完全相同的 8 bit 指数位动态范围，下溢概率极低，通常直接使用 `autocast(dtype=torch.bfloat16)` 即可，无需配置 `GradScaler`。
 
-![AMP + DDP 协同流水线：缩放、求导、AllReduce 同步、解缩放与参数更新](img/amp_ddp_flow.png){#fig:amp-ddp-flow .block width=90% align=center}
+![AMP + DDP 协同流水线：缩放、求导、AllReduce 同步、解缩放与参数更新](img/amp_ddp_flow_zh.png){#fig:amp-ddp-flow .block width=90% align=center}
 
 如 @fig:amp-ddp-flow 所示，在 DDP 体系下，**AllReduce 同步的是各卡已缩放（Scaled）的梯度**。跨卡通信求和完成后，各进程再各自执行解缩放（Unscale）与梯度合法性检查（检测是否含 Inf/NaN），最后驱动优化器安全更新参数。
 
@@ -182,7 +182,7 @@ torchrun --nproc_per_node=4 code/train_ddp_single_mini.py
 
 ### 核心环境变量解析
 
-![单机 4 卡环境下的 RANK、LOCAL_RANK 与 WORLD_SIZE 映射关系](img/ddp_env_vars_single.png){#fig:ddp-env-vars .block width=70% align=center}
+![单机 4 卡环境下的 RANK、LOCAL_RANK 与 WORLD_SIZE 映射关系](img/ddp_env_vars_single_zh.png){#fig:ddp-env-vars .block width=70% align=center}
 
 如 @fig:ddp-env-vars 所示，`torchrun` 会自动为每个子进程注入以下环境变量：
 - **`RANK`**：当前进程在**全局集群**中的唯一编号（范围：`0` 至 `WORLD_SIZE - 1`）；
@@ -194,7 +194,7 @@ torchrun --nproc_per_node=4 code/train_ddp_single_mini.py
 
 在数据并行中，必须确保各进程加载互不重复的数据样本。`DistributedSampler` 通过对数据集索引进行确定性步长切分来实现这一点。
 
-![DistributedSampler 将全局数据集切分为各 Rank 专属的不重叠子集](img/distributed_sampler_sharding.png){#fig:distributed-sampler .block width=80% align=center}
+![DistributedSampler 将全局数据集切分为各 Rank 专属的不重叠子集](img/distributed_sampler_sharding_zh.png){#fig:distributed-sampler .block width=80% align=center}
 
 如 @fig:distributed-sampler 所示，对于包含 $N$ 个样本的数据集，Rank 0 获得索引 $[0, 4, 8, \dots]$，Rank 1 获得 $[1, 5, 9, \dots]$，各卡分片互斥且并集覆盖全量数据。
 
@@ -251,7 +251,7 @@ def train():
 
 ### DataLoader 底层多进程预取流水线
 
-![DataLoader 多 Worker 预取流水线架构](img/dataloader_workers.png){#fig:dataloader-workers .block width=100% align=center}
+![DataLoader 多 Worker 预取流水线架构](img/dataloader_workers_zh.png){#fig:dataloader-workers .block width=100% align=center}
 
 如 @fig:dataloader-workers 所示，当配置 `num_workers > 0` 时，主进程通过索引队列分发 Batch 任务，各独立 Worker 进程在后台并发解码与增强数据，并将准备好的张量推入结果队列。主进程在计算当前 Batch 的同时，Worker 已经在后台预取（Prefetch）下一个 Batch，从而完全消除了 I/O 阻塞。
 
@@ -263,7 +263,7 @@ def train():
 
 ### 多机多卡拓扑架构与环境变量映射
 
-![多机多卡拓扑架构：2 节点 × 2 卡布局下的 RANK 与 LOCAL_RANK 映射](img/ddp_env_vars_multi.png){#fig:multi-node-env-vars .block width=100% align=center}
+![多机多卡拓扑架构：2 节点 × 2 卡布局下的 RANK 与 LOCAL_RANK 映射](img/ddp_env_vars_multi_zh.png){#fig:multi-node-env-vars .block width=100% align=center}
 
 如 @fig:multi-node-env-vars 所示，在 2 台节点（每台 2 卡，共 4 卡）的集群中：
 - **Node 0（主节点，`NODE_RANK=0`）**：运行全局 `RANK 0`（`LOCAL_RANK 0`）与 `RANK 1`（`LOCAL_RANK 1`）；

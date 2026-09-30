@@ -1,14 +1,23 @@
-import matplotlib.pyplot as plt
-import matplotlib.patches as patches
 import os
 import sys
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'shared'))
-from math4ai import save_figure
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'shared'))
+from figstyle import localized_figure
+
+LABELS = {
+    "en": {
+        "npu": "NPU",
+    },
+    "zh": {
+        "npu": "NPU",
+    }
+}
 
 
-def draw_npu_icon():
-    # Set up the figure and axis
+def draw(text: dict) -> plt.Figure:
+    """Draw NPU icon."""
     fig, ax = plt.subplots(figsize=(5, 5))
     ax.set_aspect('equal')
     ax.axis('off')
@@ -44,15 +53,15 @@ def draw_npu_icon():
         ax.add_patch(patches.Rectangle((chip_size/2, pos - pin_w/2), pin_l, pin_w, color=icon_color))
 
     # 3. Add "NPU" Text
-    ax.text(0, 0, 'NPU', fontsize=60, fontweight='bold', color=icon_color,
+    ax.text(0, 0, text["npu"], fontsize=60, fontweight='bold', color=icon_color,
             ha='center', va='center', fontfamily='sans-serif')
 
-    # Set plot limits and save
+    # Set plot limits
     limit = 0.55
     ax.set_xlim(-limit, limit)
     ax.set_ylim(-limit, limit)
-    save_figure(__file__)
+    return fig
 
 
 if __name__ == '__main__':
-    draw_npu_icon()
+    localized_figure(draw, "npu", LABELS, __file__)
